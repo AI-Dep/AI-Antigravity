@@ -9,9 +9,10 @@
       "keywords": [
         "computer", "desktop", "workstation", "pc", "all-in-one",
         "lenovo", "thinkcentre", "thinkcenter", "thinkstation", "m90q", "m80q",
-        "dell", "optiplex", "dell computer", "precision workstation",
-        "hp computer", "hp desktop", "elitedesk", "prodesk", "hp z workstation",
-        "mac mini", "mac studio", "imac", "apple computer",
+        "dell", "optiplex", "dell computer", "dell precision", "precision workstation",
+        "hp computer", "hp desktop", "hp workstation", "hp tower",
+        "elitedesk", "prodesk", "hp z workstation", "z workstation",
+        "mac mini", "mac studio", "imac", "apple computer", "apple mac", "apple desktop",
         "cpu tower", "tower computer", "minipc", "micro pc", "mini pc",
         "thin client", "terminal", "chromebook", "chromebox",
         "intel nuc", "nuc computer", "asus computer", "acer computer"
@@ -275,15 +276,15 @@
     {
       "name": "Material Handling - Forklifts and Lifts",
       "keywords": [
-        "forklift", "fork lift", "forklift truck", "lift truck", "powered industrial truck",
+        "forklift", "fork lift", "forklift truck", "lift truck", "lifttruck", "powered industrial truck",
         "reach truck", "reachtruck", "order picker", "scissor lift", "scissorlift",
-        "aerial lift", "boom lift", "cherry picker", "telehandler",
+        "aerial lift", "boom lift", "cherry picker", "telehandler", "man lift",
         "pallet jack", "palletjack", "electric pallet jack", "powered pallet jack",
         "walkie stacker", "pallet stacker", "electric stacker", "powered stacker",
         "stacker truck", "walk behind stacker", "rider stacker",
-        "tow motor", "tugger", "warehouse truck",
+        "tow motor", "tugger", "warehouse truck", "stock picker",
         "raymond", "crown forklift", "toyota forklift", "hyster", "yale forklift",
-        "caterpillar forklift", "cat forklift", "jungheinrich", "linde forklift"
+        "caterpillar forklift", "cat forklift", "jungheinrich", "linde forklift", "clark forklift"
       ],
       "exclude": [],
       "class": "Machinery & Equipment",
@@ -459,7 +460,10 @@
         "furnace", "boiler", "heat pump",
         "rooftop unit", "rtu", "package unit",
         "split system", "mini split", "ductless",
-        "chiller", "cooling tower"
+        "chiller", "cooling tower",
+        "air handler", "ahu", "air handling unit",
+        "makeup air", "make-up air", "makeup air unit", "mau",
+        "exhaust system", "ventilation system"
       ],
       "exclude": [],
       "class": "Building Equipment",
@@ -532,12 +536,14 @@
         "power tools", "power tool", "powertool",
         "drill", "hammer drill", "rotary hammer", "impact drill", "cordless drill",
         "impact driver", "impact wrench",
-        "saw", "reciprocating saw", "sawzall", "jigsaw",
+        "saw", "reciprocating saw", "sawzall", "jigsaw", "circular saw", "miter saw",
+        "bandsaw", "band saw", "scroll saw",
         "grinder", "angle grinder", "die grinder", "bench grinder",
-        "sander", "orbital sander", "belt sander",
+        "sander", "orbital sander", "belt sander", "planer",
         "nailer", "nail gun", "brad nailer", "framing nailer",
         "tool chest", "tool box", "tool cabinet",
         "tooling", "cutting tools", "dies",
+        "router", "router tool", "wood router", "plunge router",
         "hilti", "dewalt", "milwaukee", "makita", "bosch power tool",
         "metabo", "festool", "ridgid", "ryobi", "craftsman",
         "snap-on", "snapon", "matco", "mac tools"
@@ -661,12 +667,14 @@
     {
       "name": "Parking Lot and Paving",
       "keywords": [
-        "parking lot", "parking lot paving", "asphalt paving",
+        "parking", "parking area", "parking lot", "parking structure",
+        "parking lot paving", "asphalt paving",
         "paving", "pavement", "asphalt", "concrete paving",
         "driveway", "driveway paving",
-        "parking lot striping", "sealcoat", "resurfacing"
+        "parking lot striping", "sealcoat", "resurfacing",
+        "site improvement", "site improvements"
       ],
-      "exclude": [],
+      "exclude": ["interior", "garage door"],
       "class": "Land Improvement",
       "life": 15,
       "method": "150DB",
@@ -807,6 +815,7 @@
         "leasehold improvement", "leasehold improvements",
         "interior improvement", "interior improvements",
         "interior remodel", "interior renovation", "interior buildout",
+        "buildout", "build-out", "fitout", "fit-out", "fit out",
         "office remodel", "office renovation", "office buildout",
         "lobby remodel", "lobby renovation", "lobby buildout", "lobby upgrade",
         "hq buildout", "headquarters buildout", "headquarters renovation",
@@ -814,6 +823,7 @@
         "showroom buildout", "showroom renovation",
         "interior upgrade", "interior finish", "interior construction",
         "drop ceiling", "suspended ceiling", "ceiling tiles", "acoustic ceiling",
+        "ceiling grid", "t-bar ceiling", "grid ceiling",
         "interior walls", "drywall", "partition walls", "demising walls",
         "interior doors", "interior lighting", "office lighting",
         "flooring", "carpet", "tile flooring", "vinyl flooring", "hardwood flooring",
