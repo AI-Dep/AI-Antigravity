@@ -38,8 +38,9 @@ class Asset(BaseModel):
     # Audit Trail
     audit_trail: List['AuditEvent'] = []
 
-    # Validation Errors (For UI Display - advisory only)
+    # Validation Errors and Warnings (For UI Display - advisory only)
     validation_errors: List[str] = []
+    validation_warnings: List[str] = []
 
     @validator('acquisition_date', 'in_service_date', pre=True)
     def parse_date(cls, v):

@@ -34,6 +34,7 @@ def parse_number(v, default: Optional[float] = None) -> Optional[float]:
     - String numbers with commas: "1,234.56" -> 1234.56
     - String numbers with currency: "$1,234.56" -> 1234.56
     - Accounting format negatives: "(1,234.56)" -> -1234.56
+    - K/M/B suffixes: "$1,234K" -> 1234000, "10.5M" -> 10500000
     - Already numeric values
 
     Args:
@@ -60,16 +61,33 @@ def parse_number(v, default: Optional[float] = None) -> Optional[float]:
             is_negative = True
             s = s[1:-1]
 
-        # Remove currency symbols and commas
-        s = re.sub(r"[$,€£¥]", "", s)
+        # Remove currency symbols
+        s = re.sub(r"[$€£¥]", "", s)
 
         # Handle leading minus sign
         if s.startswith("-"):
             is_negative = True
             s = s[1:]
 
+        # Check for K/M/B suffix BEFORE removing commas
+        # Match patterns like "1,234K", "10.5M", "1B", "1.5 M"
+        multiplier = 1
+        suffix_match = re.search(r'([0-9,.]+)\s*([KMBkmb])\s*$', s)
+        if suffix_match:
+            s = suffix_match.group(1)
+            suffix = suffix_match.group(2).upper()
+            if suffix == 'K':
+                multiplier = 1_000
+            elif suffix == 'M':
+                multiplier = 1_000_000
+            elif suffix == 'B':
+                multiplier = 1_000_000_000
+
+        # Remove commas
+        s = s.replace(",", "")
+
         # Parse
-        result = float(s)
+        result = float(s) * multiplier
 
         if is_negative:
             result = -result

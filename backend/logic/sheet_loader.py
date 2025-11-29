@@ -50,9 +50,9 @@ from .column_detector import (
 )
 
 # Import from refactored sheet analyzer module (provides skip/role detection)
+# Note: _should_skip_sheet is NOT imported - using local version with less aggressive patterns
 from .sheet_analyzer import (
     SheetRole,
-    _should_skip_sheet,
     _is_prior_year_sheet,
     _detect_sheet_role,
     _extract_fiscal_year_from_sheet,
@@ -80,7 +80,8 @@ FUZZY_MATCH_SUBSTRING_MIN_LENGTH = 4
 FUZZY_MATCH_REVERSE_SUBSTRING_MIN_LENGTH = 6
 
 # Header detection constants
-HEADER_SCAN_MAX_ROWS = 20
+# Increased from 20 to 50 to handle files with titles/blanks above headers
+HEADER_SCAN_MAX_ROWS = 50
 HEADER_NUMERIC_PENALTY_THRESHOLD = 0.4
 HEADER_REPETITION_MAX_LENGTH = 30
 
@@ -706,8 +707,150 @@ def _detect_header_row(df_raw: pd.DataFrame, max_scan: int = HEADER_SCAN_MAX_ROW
     return best_idx
 
 
+def _detect_multi_row_headers(
+    df_raw: pd.DataFrame,
+    max_header_rows: int = 3
+) -> Tuple[Optional[int], Optional[List[str]], bool]:
+    """
+    Detect if headers span multiple rows and combine them.
+
+    Some Excel files have headers like:
+        Row 1: "Asset"     "In Service"   "Original"
+        Row 2: "Number"    "Date"         "Cost"
+
+    This should be combined to: "Asset Number", "In Service Date", "Original Cost"
+
+    Args:
+        df_raw: Raw DataFrame without headers set
+        max_header_rows: Maximum number of rows to consider as headers
+
+    Returns:
+        Tuple of (header_start_row, combined_headers, is_multi_row)
+    """
+    if len(df_raw) < 2:
+        return None, None, False
+
+    # Known multi-row header patterns (common in CPA Excel files)
+    # These are patterns where two rows combine to form a complete header
+    multi_row_patterns = {
+        # (first_row_partial, second_row_partial) -> indicates valid multi-row
+        ("asset", "number"): True,
+        ("asset", "id"): True,
+        ("asset", "#"): True,
+        ("property", "number"): True,
+        ("property", "id"): True,
+        ("in service", "date"): True,
+        ("in", "service"): True,
+        ("placed in", "service"): True,
+        ("placed", "in service"): True,
+        ("original", "cost"): True,
+        ("acquisition", "date"): True,
+        ("acquisition", "cost"): True,
+        ("property", "description"): True,
+        ("asset", "description"): True,
+        ("depreciation", "method"): True,
+        ("recovery", "period"): True,
+        ("useful", "life"): True,
+        ("business", "use"): True,
+        ("business use", "%"): True,
+        ("disposal", "date"): True,
+        ("sale", "proceeds"): True,
+        ("net book", "value"): True,
+        ("accumulated", "depreciation"): True,
+        ("prior", "depreciation"): True,
+        ("current", "depreciation"): True,
+        ("tax", "life"): True,
+        ("book", "life"): True,
+    }
+
+    # Try combining rows 0+1, 1+2, etc.
+    for start_row in range(min(10, len(df_raw) - 1)):
+        combined_headers = []
+        match_count = 0
+
+        row1 = df_raw.iloc[start_row]
+        row2 = df_raw.iloc[start_row + 1]
+
+        for col_idx in range(len(df_raw.columns)):
+            val1 = str(row1.iloc[col_idx] if col_idx < len(row1) else "").strip().lower()
+            val2 = str(row2.iloc[col_idx] if col_idx < len(row2) else "").strip().lower()
+
+            # Skip if both are numeric (likely data rows)
+            try:
+                float(val1.replace(',', '').replace('$', ''))
+                float(val2.replace(',', '').replace('$', ''))
+                # Both are numeric - not header rows
+                combined_headers.append(f"column_{col_idx}")
+                continue
+            except ValueError:
+                pass
+
+            # Combine the values
+            combined = f"{val1} {val2}".strip()
+
+            # Check against patterns
+            for (part1, part2) in multi_row_patterns.keys():
+                if part1 in val1 and part2 in val2:
+                    match_count += 1
+                    break
+
+            # Use the non-empty value or combine
+            if val1 and val2 and val1 != val2:
+                combined_headers.append(combined)
+            elif val1:
+                combined_headers.append(val1)
+            elif val2:
+                combined_headers.append(val2)
+            else:
+                combined_headers.append(f"column_{col_idx}")
+
+        # If we found 2+ pattern matches, this is likely a multi-row header
+        if match_count >= 2:
+            logger.info(f"Detected multi-row header at rows {start_row + 1}-{start_row + 2} ({match_count} patterns matched)")
+            return start_row, combined_headers, True
+
+    return None, None, False
+
+
 # ====================================================================================
 # SHEET ROLE DETECTION
+# ====================================================================================
+
+def _detect_sheet_role_from_name(sheet_name: str) -> Optional[SheetRole]:
+    """
+    Quick sheet role detection based on sheet name only.
+
+    Used for early detection before column mapping to enable
+    contextual column mapping (e.g., disposal sheets map cost → proceeds).
+
+    Args:
+        sheet_name: Name of the Excel sheet
+
+    Returns:
+        SheetRole enum or None if can't be determined from name alone
+    """
+    sheet_lower = sheet_name.lower()
+
+    # Disposal indicators
+    if any(kw in sheet_lower for kw in ["disposal", "disposed", "retire", "sold", "sale", "writeoff", "write-off"]):
+        return SheetRole.DISPOSALS
+
+    # Transfer indicators
+    if any(kw in sheet_lower for kw in ["transfer", "xfer", "reclass", "reclassification"]):
+        return SheetRole.TRANSFERS
+
+    # Addition indicators
+    if any(kw in sheet_lower for kw in ["addition", "purchase", "acquisition", "new"]):
+        return SheetRole.ADDITIONS
+
+    # Summary indicators
+    if any(kw in sheet_lower for kw in ["summary", "totals", "rollforward", "roll-forward", "master"]):
+        return SheetRole.SUMMARY
+
+    return None
+
+
+# ====================================================================================
 # ====================================================================================
 
 # ====================================================================================
@@ -1033,6 +1176,56 @@ def _is_header_repetition(desc: str) -> bool:
     return False
 
 
+# Keywords that indicate a totals/summary row (not actual asset data)
+TOTALS_ROW_KEYWORDS = [
+    "total", "subtotal", "sub-total", "sub total",
+    "grand total", "balance", "net", "sum",
+    "category total", "class total", "group total",
+    "carried forward", "brought forward", "b/f", "c/f",
+    "ending balance", "beginning balance",
+    "summary", "totals", "accumulated"
+]
+
+
+def _is_totals_row(desc: str, asset_id: str = "") -> bool:
+    """
+    Check if a row is a totals/summary row that should be skipped.
+
+    Many Excel files have totals rows that should not be imported as assets.
+    These rows typically have keywords like "Total", "Subtotal", "Balance" etc.
+
+    Args:
+        desc: Description string to check
+        asset_id: Asset ID to check (totals rows often have empty or special IDs)
+
+    Returns:
+        True if this appears to be a totals row
+    """
+    if not desc:
+        return False
+
+    desc_lower = desc.lower().strip()
+
+    # Check for exact matches or keyword presence
+    for keyword in TOTALS_ROW_KEYWORDS:
+        # Check if description starts with or contains the totals keyword
+        if desc_lower.startswith(keyword) or f" {keyword}" in f" {desc_lower}":
+            # Additional check: totals rows are usually short
+            if len(desc) < 50:
+                logger.debug(f"Skipping totals row: {desc}")
+                return True
+
+    # Check for pattern like "Total - Category Name" or "Total: Equipment"
+    if re.match(r'^(total|subtotal|sum)\s*[-:]\s*', desc_lower):
+        return True
+
+    # Check for pattern like "*** TOTAL ***" or "=== SUBTOTAL ==="
+    if re.match(r'^[\*\=\-\s]*(total|subtotal)[\*\=\-\s]*$', desc_lower):
+        return True
+
+    return False
+
+
 def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[str, Any]]:
     """
     Clean and validate a single row
@@ -1054,6 +1247,10 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
     # Skip header repetitions (Excel sometimes repeats headers)
     if _is_header_repetition(desc_raw):
         logger.debug(f"Skipping header repetition: {desc_raw}")
+        return None
+
+    # Skip totals/summary rows (not actual asset data)
+    if _is_totals_row(desc_raw, asset_id):
         return None
 
     # Fix typos in description
@@ -1245,16 +1442,23 @@ def _map_columns_with_validation(
     df: pd.DataFrame,
     sheet_name: str,
     client_mappings: Optional[Dict[str, str]] = None,
-    additional_keywords: Optional[Dict[str, List[str]]] = None
+    additional_keywords: Optional[Dict[str, List[str]]] = None,
+    sheet_role: Optional[str] = None
 ) -> Tuple[Dict[str, str], List[ColumnMapping], List[str]]:
     """
-    Map Excel columns to logical fields with validation and warnings
+    Map Excel columns to logical fields with validation and warnings.
+
+    Includes contextual matching based on sheet role:
+    - DISPOSALS sheets: Unmapped cost-like columns map to 'proceeds'
+    - TRANSFERS sheets: Location columns get special handling for from/to
+    - ADDITIONS sheets: Standard processing
 
     Args:
         df: DataFrame with normalized column headers
         sheet_name: Name of the sheet (for logging)
         client_mappings: Optional dict of logical_field -> excel_column from client config
         additional_keywords: Optional dict of logical_field -> [keywords] to extend detection
+        sheet_role: Optional sheet role (DISPOSALS, ADDITIONS, TRANSFERS, etc.) for contextual mapping
 
     Returns:
         Tuple of (col_map dict, column_mappings list, warnings list)
@@ -1402,7 +1606,204 @@ def _map_columns_with_validation(
                         logger.info(f"[{sheet_name}] Fallback: Using '{col}' as In-Service Date")
                         break
 
+    # =========================================================================
+    # CONTEXTUAL MATCHING: Sheet-role-aware column mapping
+    # =========================================================================
+    # This is critical for CPA workflows where disposal sheets have "Amount" or
+    # "Cost" columns that should map to "proceeds", not "cost"
+
+    if sheet_role:
+        sheet_role_lower = str(sheet_role).lower()
+
+        # DISPOSAL SHEETS: Map unmapped amount columns to 'proceeds'
+        if "disposal" in sheet_role_lower or "retired" in sheet_role_lower or "sold" in sheet_role_lower:
+            # If we have cost but not proceeds, look for another amount-like column
+            if col_map.get("cost") and not col_map.get("proceeds"):
+                proceeds_keywords = ["amount", "value", "price", "proceeds", "sale", "sold"]
+                for col in df.columns:
+                    if col in mapped_cols:
+                        continue
+                    col_lower = str(col).lower()
+                    # Check for proceeds-like column names (excluding the one mapped to cost)
+                    if any(kw in col_lower for kw in proceeds_keywords):
+                        # Verify it contains numeric data
+                        sample = df[col].dropna().head(5)
+                        numeric_count = sum(1 for v in sample if _is_numeric_value(v))
+                        if numeric_count >= len(sample) * 0.5:
+                            col_map["proceeds"] = col
+                            mapped_cols.add(col)
+                            column_mappings.append(ColumnMapping(
+                                logical_name="proceeds",
+                                excel_column=col,
+                                match_type="contextual_disposal",
+                                confidence=0.75
+                            ))
+                            logger.info(f"[{sheet_name}] Contextual: Disposal sheet - '{col}' mapped to proceeds")
+                            break
+
+            # If we don't have cost but have a numeric column, in disposal context it's likely proceeds
+            elif not col_map.get("cost") and not col_map.get("proceeds"):
+                for col in df.columns:
+                    if col in mapped_cols:
+                        continue
+                    col_lower = str(col).lower()
+                    # Skip clearly non-monetary columns
+                    if any(skip in col_lower for skip in ["date", "life", "year", "method", "id", "number"]):
+                        continue
+                    # Check for numeric data
+                    sample = df[col].dropna().head(5)
+                    if len(sample) == 0:
+                        continue
+                    numeric_count = sum(1 for v in sample if _is_numeric_value(v))
+                    if numeric_count >= len(sample) * 0.6:
+                        # In disposal context, map to proceeds rather than cost
+                        col_map["proceeds"] = col
+                        mapped_cols.add(col)
+                        column_mappings.append(ColumnMapping(
+                            logical_name="proceeds",
+                            excel_column=col,
+                            match_type="contextual_disposal_inference",
+                            confidence=0.65
+                        ))
+                        logger.info(f"[{sheet_name}] Contextual: Disposal sheet inferred '{col}' as proceeds")
+                        break
+
+        # TRANSFER SHEETS: Handle from/to location columns
+        elif "transfer" in sheet_role_lower or "reclass" in sheet_role_lower:
+            location_cols = []
+            for col in df.columns:
+                if col in mapped_cols:
+                    continue
+                col_lower = str(col).lower()
+                if any(kw in col_lower for kw in ["location", "from", "to", "old", "new", "dept", "department"]):
+                    location_cols.append(col)
+
+            # If we have exactly 2 location-like columns, assign from/to
+            if len(location_cols) >= 2:
+                # Try to identify which is "from" and which is "to"
+                from_col = None
+                to_col = None
+                for col in location_cols:
+                    col_lower = str(col).lower()
+                    if "from" in col_lower or "old" in col_lower or "prior" in col_lower:
+                        from_col = col
+                    elif "to" in col_lower or "new" in col_lower:
+                        to_col = col
+
+                if from_col and not col_map.get("from_location"):
+                    col_map["from_location"] = from_col
+                    mapped_cols.add(from_col)
+                    column_mappings.append(ColumnMapping(
+                        logical_name="from_location",
+                        excel_column=from_col,
+                        match_type="contextual_transfer",
+                        confidence=0.75
+                    ))
+                    logger.info(f"[{sheet_name}] Contextual: Transfer sheet - '{from_col}' mapped to from_location")
+
+                if to_col and not col_map.get("to_location"):
+                    col_map["to_location"] = to_col
+                    mapped_cols.add(to_col)
+                    column_mappings.append(ColumnMapping(
+                        logical_name="to_location",
+                        excel_column=to_col,
+                        match_type="contextual_transfer",
+                        confidence=0.75
+                    ))
+                    logger.info(f"[{sheet_name}] Contextual: Transfer sheet - '{to_col}' mapped to to_location")
+
+    # =========================================================================
+    # DATA-TYPE INFERENCE FALLBACK: For critical unmapped columns
+    # =========================================================================
+    # If description is still missing, try to find a text column with asset-like data
+
+    if not col_map.get("description"):
+        for col in df.columns:
+            if col in mapped_cols:
+                continue
+            sample = df[col].dropna().head(10)
+            if len(sample) == 0:
+                continue
+
+            # Check if column contains text descriptions (not pure numbers, has length)
+            text_count = 0
+            for val in sample:
+                if pd.notna(val):
+                    s = str(val).strip()
+                    # Description: not pure numbers, has some length, contains letters
+                    if len(s) >= 5 and not s.replace(',', '').replace('.', '').replace('-', '').isdigit():
+                        if any(c.isalpha() for c in s):
+                            text_count += 1
+
+            if text_count >= len(sample) * 0.6:
+                col_map["description"] = col
+                mapped_cols.add(col)
+                column_mappings.append(ColumnMapping(
+                    logical_name="description",
+                    excel_column=col,
+                    match_type="data_inference",
+                    confidence=0.60
+                ))
+                # Remove critical warning
+                warnings_list = [w for w in warnings_list if "CRITICAL: Description column not found" not in w]
+                warnings_list.append(f"Description inferred from data patterns: {col}")
+                logger.info(f"[{sheet_name}] Data inference: '{col}' inferred as description")
+                break
+
+    # If cost is still missing, try to find a currency column
+    if not col_map.get("cost"):
+        for col in df.columns:
+            if col in mapped_cols:
+                continue
+            sample = df[col].dropna().head(10)
+            if len(sample) == 0:
+                continue
+
+            currency_count = 0
+            for val in sample:
+                if _is_numeric_value(val):
+                    # Check if it looks like currency (has $ or large number)
+                    s = str(val).strip()
+                    if '$' in s or ',' in s:
+                        currency_count += 1
+                    else:
+                        try:
+                            num = float(s.replace(',', ''))
+                            if abs(num) >= 100:  # Large numbers likely cost
+                                currency_count += 1
+                        except:
+                            pass
+
+            if currency_count >= len(sample) * 0.5:
+                col_map["cost"] = col
+                mapped_cols.add(col)
+                column_mappings.append(ColumnMapping(
+                    logical_name="cost",
+                    excel_column=col,
+                    match_type="data_inference",
+                    confidence=0.60
+                ))
+                # Remove warning
+                warnings_list = [w for w in warnings_list if "Cost column not found" not in w]
+                warnings_list.append(f"Cost inferred from data patterns: {col}")
+                logger.info(f"[{sheet_name}] Data inference: '{col}' inferred as cost")
+                break
+
     return col_map, column_mappings, warnings_list
+
+
+def _is_numeric_value(val) -> bool:
+    """Check if a value is numeric (for data-type inference)."""
+    if pd.isna(val) or val == "":
+        return False
+    try:
+        s = str(val).strip()
+        # Remove currency symbols and commas
+        s = s.replace('$', '').replace(',', '').replace('(', '-').replace(')', '')
+        float(s)
+        return True
+    except (ValueError, TypeError):
+        return False
 
 
 # ====================================================================================
@@ -1529,12 +1930,19 @@ def build_unified_dataframe(
             continue
 
         try:
-            # STEP 1: Detect header row (use client override if provided)
+            # STEP 1: Detect sheet role FIRST (for contextual column mapping)
+            # Pre-detect role from sheet name before we have column data
+            sheet_role = _detect_sheet_role_from_name(sheet_name)
+            logger.debug(f"[{sheet_name}] Initial sheet role from name: {sheet_role}")
+
+            # STEP 2: Detect header row (use client override if provided)
             if client_header_row is not None:
                 header_idx = client_header_row - 1  # Convert to 0-indexed
                 logger.info(f"[{sheet_name}] Using client-specified header row: {client_header_row}")
+                use_multi_row = False
             else:
                 header_idx = _detect_header_row(df_raw, max_scan=HEADER_SCAN_MAX_ROWS)
+                use_multi_row = False
 
             # Extract data starting from header
             df = df_raw.iloc[header_idx:].copy()
@@ -1543,12 +1951,49 @@ def build_unified_dataframe(
 
             logger.info(f"[{sheet_name}] Header detected at row {header_idx}, {len(df)} data rows")
 
-            # STEP 2: Map columns with validation (using client mappings if provided)
+            # STEP 3: Map columns with validation (using client mappings and sheet role)
             col_map, column_mappings, warnings_list = _map_columns_with_validation(
                 df, sheet_name,
                 client_mappings=client_col_mappings,
-                additional_keywords=additional_keywords
+                additional_keywords=additional_keywords,
+                sheet_role=sheet_role.value if sheet_role else None
             )
+
+            # STEP 3b: MULTI-ROW HEADER FALLBACK
+            # If critical columns not found, try multi-row header detection
+            if not col_map.get("description") or not col_map.get("cost"):
+                multi_start, multi_headers, is_multi = _detect_multi_row_headers(df_raw)
+
+                if is_multi and multi_headers:
+                    logger.info(f"[{sheet_name}] Trying multi-row header detection...")
+                    # Rebuild DataFrame with combined headers
+                    df_multi = df_raw.iloc[multi_start + 2:].copy()  # Skip both header rows
+                    df_multi.columns = [_normalize_header(h) for h in multi_headers]
+                    df_multi = df_multi.reset_index(drop=True)
+
+                    # Re-run column mapping with combined headers
+                    col_map_multi, mappings_multi, warnings_multi = _map_columns_with_validation(
+                        df_multi, sheet_name,
+                        client_mappings=client_col_mappings,
+                        additional_keywords=additional_keywords,
+                        sheet_role=sheet_role.value if sheet_role else None
+                    )
+
+                    # Use multi-row results if better
+                    multi_critical = sum(1 for f in ["description", "cost", "in_service_date"]
+                                        if col_map_multi.get(f))
+                    orig_critical = sum(1 for f in ["description", "cost", "in_service_date"]
+                                       if col_map.get(f))
+
+                    if multi_critical > orig_critical:
+                        logger.info(f"[{sheet_name}] Multi-row headers improved detection: {orig_critical} -> {multi_critical} critical fields")
+                        col_map = col_map_multi
+                        column_mappings = mappings_multi
+                        warnings_list = warnings_multi
+                        df = df_multi
+                        header_idx = multi_start
+                        use_multi_row = True
+                        warnings_list.append("Multi-row header detection applied")
 
             # Log warnings
             for warning in warnings_list:
@@ -1560,7 +2005,7 @@ def build_unified_dataframe(
                 skipped_sheets += 1
                 continue
 
-            # STEP 3: Detect sheet role
+            # STEP 4: Refine sheet role with column data
             sheet_role = _detect_sheet_role(sheet_name, df)
 
             # STEP 4: Process each row
