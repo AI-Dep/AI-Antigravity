@@ -5,7 +5,7 @@ import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download } f
 import { cn } from '../lib/utils';
 import axios from 'axios';
 
-export default function Review({ assets = [] }) {
+function Review({ assets = [] }) {
     const [editingId, setEditingId] = useState(null);
     const [editForm, setEditForm] = useState({});
     const [localAssets, setLocalAssets] = useState(assets);
@@ -390,3 +390,6 @@ export default function Review({ assets = [] }) {
         </div>
     );
 }
+
+export { Review };
+export default Review;

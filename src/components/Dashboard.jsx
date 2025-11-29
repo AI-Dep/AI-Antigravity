@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../co
 import { Activity, FileText, CheckCircle, AlertCircle, RefreshCw, Monitor, MonitorOff } from 'lucide-react';
 import { Button } from '../components/ui/button';
 
-export default function Dashboard() {
+function Dashboard() {
     const [systemStatus, setSystemStatus] = useState("Checking...");
     const [isOnline, setIsOnline] = useState(false);
     const [facsConnected, setFacsConnected] = useState(false);
@@ -232,3 +232,7 @@ export default function Dashboard() {
         </div>
     );
 }
+
+// Export both ways to handle different import styles
+export { Dashboard };
+export default Dashboard;
