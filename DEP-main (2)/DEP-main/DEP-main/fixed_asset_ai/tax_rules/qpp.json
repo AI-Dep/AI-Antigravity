@@ -1,0 +1,26 @@
+{
+  "start_date": "2025-01-20",
+  "eligible_industries": [
+    "manufacturing",
+    "production",
+    "refining",
+    "processing",
+    "assembly",
+    "chemical"
+  ],
+  "keywords": [
+    "production floor",
+    "plant",
+    "facility upgrade",
+    "processing line",
+    "refinery",
+    "manufacturing line"
+  ],
+  "treatment": {
+    "expensing": 100,
+    "life": 39,
+    "method": "MACRS GDS",
+    "convention": "MM"
+  },
+  "notes": "OBBBA Section 168(n) allows 100% expensing for qualified production-improvement property even when it is normally 39-year property."
+}

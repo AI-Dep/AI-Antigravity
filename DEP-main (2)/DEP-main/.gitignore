@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+asset_memory.csv
+ground_truth_classifications.csv
+accuracy_metrics.json
+*.log
+logs/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Temporary test/debug files (one-time verification)
+test_*_fix.py
+debug_*.py
+diagnose_*.py
+
+# Temporary fix documentation (keep in git history only)
+*_FIX.md
+*_IMPROVEMENTS.md
+*_SUMMARY.md
+
+# SQLite databases (generated at runtime)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Backup files
+*.backup
+*.bak

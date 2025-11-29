@@ -1,0 +1,15 @@
+{
+  "categories": {
+    "office_equipment": 5,
+    "office_furniture": 7,
+    "machinery": 7,
+    "warehouse_racks": 7,
+    "vehicle": 5,
+    "software": 5,
+    "qip": 15,
+    "land_improvement": 15,
+    "residential": 27.5,
+    "nonresidential": 39
+  },
+  "notes": "GDS lives shown; ADS logic optional."
+}

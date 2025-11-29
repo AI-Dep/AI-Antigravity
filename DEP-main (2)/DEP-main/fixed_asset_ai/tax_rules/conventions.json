@@ -1,0 +1,10 @@
+{
+  "defaults": {
+    "5": "HY",
+    "7": "HY",
+    "15": "HY",
+    "27.5": "MM",
+    "39": "MM"
+  },
+  "notes": "Convention may vary for ADS or mid-quarter election; update here."
+}

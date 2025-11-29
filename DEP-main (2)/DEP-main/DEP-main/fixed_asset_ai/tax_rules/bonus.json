@@ -1,0 +1,16 @@
+{
+  "tcja_phaseout": [
+    { "year": 2022, "bonus": 100 },
+    { "year": 2023, "bonus": 80 },
+    { "year": 2024, "bonus": 60 },
+    { "year": 2025, "ends_on": "2025-01-19", "bonus": 40 },
+    { "year": 2026, "bonus": 20 },
+    { "year": 2027, "bonus": 0 }
+  ],
+  "obbba": {
+    "start_date": "2025-01-20",
+    "bonus": 100
+  },
+  "eligible_lives": [5, 7, 15],
+  "notes": "Bonus depreciation follows TCJA phase-out until 1/19/2025. OBBBA restores permanent 100% bonus for property acquired >= 1/20/2025."
+}

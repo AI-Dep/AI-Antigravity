@@ -1,0 +1,241 @@
+{
+  "_schema_version": "2.0",
+  "_description": "Unified Fixed Asset AI Mapping Configuration",
+  "_notes": [
+    "This file consolidates client input mappings and FA CS export mappings",
+    "Version 2.0 introduces schema validation and firm-specific support",
+    "All mappings are validated against JSON schemas in mapping_schema.py"
+  ],
+
+  "input_mappings": {
+    "_description": "Client-Specific Input Column Mappings",
+    "default": {
+      "additional_keywords": {
+        "asset_id": ["ref no", "reference number", "asset ref", "kla asset #", "asset #"],
+        "description": ["asset desc", "property name", "equipment desc", "item"],
+        "cost": ["purchase amount", "total value", "asset value", "amount"],
+        "in_service_date": ["date started", "use date", "operational date", "date"],
+        "acquisition_date": ["bought date", "purchase dt"],
+        "category": ["asset type", "property class", "equipment class"],
+        "location": ["site", "building", "facility"],
+        "department": ["cost center", "div", "business unit"]
+      }
+    },
+    "clients": {}
+  },
+
+  "export_mappings": {
+    "_description": "FA CS Import Field Mapping Configuration",
+    "default": {
+      "mapping_name": "Default AI Export Mapping",
+      "description": "Standard mapping for AI-generated fixed asset exports",
+      "field_mappings": {
+        "Asset #": "Asset Number",
+        "Description": "Asset Description",
+        "Date In Service": "Date Placed in Service",
+        "Acquisition Date": "Acquisition Date",
+        "Tax Cost": "Cost/Basis",
+        "Tax Method": "Depreciation Method",
+        "Tax Life": "Recovery Period",
+        "Convention": "Convention",
+        "Tax Sec 179 Expensed": "Section 179 Deduction",
+        "Bonus Amount": "Bonus Depreciation",
+        "Tax Prior Depreciation": "Prior Depreciation",
+        "Tax Cur Depreciation": "Current Year Depreciation",
+        "Transaction Type": "Transaction Type",
+        "Quarter (MQ)": "Quarter",
+        "Date Disposed": "Disposal Date",
+        "Gross Proceeds": "Disposal Proceeds"
+      },
+      "import_settings": {
+        "skip_header_rows": 0,
+        "update_existing_assets": false,
+        "validate_before_import": true,
+        "create_backup": true
+      }
+    }
+  },
+
+  "firm_configurations": {
+    "_description": "Firm-Specific Sheet Naming Conventions",
+    "_notes": [
+      "Add firm-specific configurations here for common CPA firm clients",
+      "These patterns help auto-detect sheet roles and improve accuracy",
+      "Patterns support glob-style wildcards (* for any characters)"
+    ],
+
+    "default": {
+      "firm_name": "Default Configuration",
+      "sheet_naming_convention": {
+        "additions_patterns": [
+          "*addition*", "*new asset*", "*purchase*", "*acquisition*",
+          "*current year*", "*cy addition*"
+        ],
+        "disposals_patterns": [
+          "*disposal*", "*disposition*", "*retired*", "*sold*",
+          "*sale*", "*writeoff*", "*write-off*"
+        ],
+        "transfers_patterns": [
+          "*transfer*", "*xfer*", "*reclass*", "*reclassification*",
+          "*move*", "*relocation*"
+        ],
+        "summary_patterns": [
+          "*summary*", "*totals*", "*recap*", "*overview*",
+          "*rollforward*", "*roll forward*"
+        ],
+        "skip_patterns": [
+          "*instructions*", "*notes*", "*readme*", "*cover*",
+          "*toc*", "*table of contents*", "*draft*", "*temp*",
+          "*scratch*", "*working*", "*pivot*", "*chart*"
+        ]
+      },
+      "column_preferences": {
+        "asset_id": ["Asset ID", "Asset #", "ID", "Tag #"],
+        "description": ["Description", "Asset Description", "Item"],
+        "cost": ["Cost", "Amount", "Original Cost", "Basis"],
+        "in_service_date": ["In Service Date", "PIS Date", "Service Date"],
+        "acquisition_date": ["Acquisition Date", "Purchase Date", "Acquired"]
+      }
+    },
+
+    "big4_standard": {
+      "firm_name": "Big 4 Standard Format",
+      "sheet_naming_convention": {
+        "additions_patterns": [
+          "*CY Add*", "*Current Year Addition*", "*New Acquisition*",
+          "*Cap Add*", "*Capitalized Addition*"
+        ],
+        "disposals_patterns": [
+          "*CY Disp*", "*Current Year Disposal*", "*Asset Retirement*",
+          "*Asset Sale*", "*Writeoff*"
+        ],
+        "transfers_patterns": [
+          "*CY Transfer*", "*Reclass*", "*Category Change*"
+        ],
+        "summary_patterns": [
+          "*FA Summary*", "*Fixed Asset Summary*", "*Roll Forward*",
+          "*Reconciliation*"
+        ],
+        "skip_patterns": [
+          "*Lead Sheet*", "*Supporting*", "*Tie Out*", "*PBC*",
+          "*Prepared by Client*", "*Analysis*", "*Testing*"
+        ]
+      },
+      "column_preferences": {
+        "asset_id": ["Asset Number", "Tag Number", "Property ID"],
+        "description": ["Asset Description", "Property Description"],
+        "cost": ["Original Cost", "Historical Cost", "Capitalized Cost"],
+        "in_service_date": ["Placed in Service", "PIS Date", "Capitalization Date"]
+      }
+    },
+
+    "regional_cpa": {
+      "firm_name": "Regional CPA Firm Standard",
+      "sheet_naming_convention": {
+        "additions_patterns": [
+          "*Add*", "*New*", "*Purchase*", "*Buy*"
+        ],
+        "disposals_patterns": [
+          "*Sell*", "*Sale*", "*Dispose*", "*Remove*", "*Retired*"
+        ],
+        "transfers_patterns": [
+          "*Move*", "*Transfer*", "*Reclass*"
+        ],
+        "summary_patterns": [
+          "*Total*", "*Summary*", "*Main*"
+        ],
+        "skip_patterns": [
+          "*Old*", "*Prior*", "*Historical*", "*Archive*", "*Backup*"
+        ]
+      },
+      "column_preferences": {
+        "asset_id": ["Asset #", "ID", "Item #", "Ref #"],
+        "description": ["Description", "Desc", "Name", "Item"],
+        "cost": ["Cost", "Price", "Amount", "Value"],
+        "in_service_date": ["Service Date", "Start Date", "In Service"]
+      }
+    },
+
+    "tax_software_export": {
+      "firm_name": "Tax Software Export Format",
+      "description": "Common format from tax preparation software exports",
+      "sheet_naming_convention": {
+        "additions_patterns": ["*Additions*", "*New Assets*"],
+        "disposals_patterns": ["*Dispositions*", "*Sales*"],
+        "transfers_patterns": ["*Transfers*"],
+        "summary_patterns": ["*Schedule*", "*Report*"],
+        "skip_patterns": ["*Worksheet*", "*Calc*", "*Work*"]
+      },
+      "column_preferences": {
+        "asset_id": ["Asset No", "Asset Number"],
+        "description": ["Description"],
+        "cost": ["Cost Basis", "Tax Basis", "Unadjusted Basis"],
+        "in_service_date": ["Date Acquired", "Acq Date"],
+        "tax_life": ["Recovery Period", "Class Life", "Life"],
+        "tax_method": ["Method", "Depr Method", "Convention"]
+      }
+    }
+  },
+
+  "fa_cs_standard_fields": [
+    "Asset Number",
+    "Asset Description",
+    "Date Placed in Service",
+    "Acquisition Date",
+    "Cost/Basis",
+    "Depreciation Method",
+    "Recovery Period",
+    "Convention",
+    "Section 179 Deduction",
+    "Bonus Depreciation",
+    "Prior Depreciation",
+    "Current Year Depreciation",
+    "Transaction Type",
+    "Quarter",
+    "Disposal Date",
+    "Disposal Proceeds"
+  ],
+
+  "supported_transaction_types": [
+    "Current Year Addition",
+    "Prior Year Addition",
+    "Existing Asset",
+    "Disposal",
+    "Transfer",
+    "Adjustment"
+  ],
+
+  "macrs_category_mappings": {
+    "_description": "Maps common descriptions to MACRS categories",
+    "5_year": [
+      "computer", "laptop", "desktop", "server", "monitor",
+      "automobile", "car", "vehicle", "truck", "van",
+      "copier", "printer", "scanner", "fax"
+    ],
+    "7_year": [
+      "furniture", "desk", "chair", "table", "cabinet",
+      "machinery", "equipment", "tools", "fixture"
+    ],
+    "15_year": [
+      "land improvement", "parking lot", "sidewalk", "fence",
+      "landscaping", "paving", "signage",
+      "qualified improvement", "qip", "leasehold improvement"
+    ],
+    "27.5_year": [
+      "residential rental", "apartment", "rental house",
+      "duplex", "multi-family"
+    ],
+    "39_year": [
+      "building", "office building", "warehouse", "retail",
+      "commercial property", "industrial building"
+    ],
+    "non_depreciable": [
+      "land", "lot", "parcel", "easement"
+    ],
+    "section_197": [
+      "goodwill", "patent", "trademark", "franchise",
+      "customer list", "covenant not to compete",
+      "license", "permit"
+    ]
+  }
+}

@@ -1,0 +1,1260 @@
+{
+  "fallback_behavior": "gpt_with_client_category",
+  "minimum_rule_score": 2.0,
+
+  "rules": [
+
+    {
+      "name": "Computers - Desktop and Workstations",
+      "keywords": [
+        "computer", "desktop", "workstation", "pc", "all-in-one",
+        "lenovo", "thinkcentre", "thinkcenter",
+        "optiplex", "dell computer", "hp computer", "hp desktop",
+        "mac mini", "imac", "cpu tower", "tower computer",
+        "thin client", "terminal", "chromebook", "chromebox"
+      ],
+      "exclude": ["software", "monitor only", "display only"],
+      "class": "Computer Equipment",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.5
+    },
+
+    {
+      "name": "Computers - Laptops and Portable",
+      "keywords": [
+        "laptop", "notebook", "macbook", "thinkpad", "latitude",
+        "surface pro", "surface laptop", "chromebook laptop",
+        "portable computer", "mobile workstation"
+      ],
+      "exclude": ["software", "tablet only", "ipad"],
+      "class": "Computer Equipment",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.8
+    },
+
+    {
+      "name": "Servers and Network Storage",
+      "keywords": [
+        "server", "file server", "domain controller", "rack server",
+        "blade server", "nas", "network attached storage", "san",
+        "storage array", "backup server", "dell poweredge",
+        "proliant server", "synology"
+      ],
+      "exclude": ["software"],
+      "class": "Computer Equipment",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.6
+    },
+
+    {
+      "name": "Monitors and Displays",
+      "keywords": [
+        "monitor", "display", "lcd", "led monitor", "screen",
+        "dual monitor", "triple monitor", "dell monitor",
+        "ultrawide", "curved monitor", "4k monitor"
+      ],
+      "exclude": ["computer", "laptop", "all-in-one"],
+      "class": "Computer Equipment",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.2
+    },
+
+    {
+      "name": "Network Equipment",
+      "keywords": [
+        "router", "switch", "network switch", "ethernet switch",
+        "firewall", "wifi", "wireless access point", "access point",
+        "cisco", "ubiquiti", "unifi", "poe switch",
+        "patch panel", "network rack", "cable management"
+      ],
+      "exclude": ["software"],
+      "class": "Computer Equipment",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.4
+    },
+
+    {
+      "name": "Printers and Scanners",
+      "keywords": [
+        "printer", "laserjet", "inkjet", "multifunction printer", "mfp",
+        "scanner", "copier", "copy machine", "plotter",
+        "label printer", "receipt printer", "thermal printer",
+        "hp printer", "canon printer", "xerox", "ricoh", "brother printer"
+      ],
+      "exclude": ["software"],
+      "class": "Office Equipment",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.3
+    },
+
+    {
+      "name": "POS Systems and Payment Equipment",
+      "keywords": [
+        "pos", "point of sale", "pos system", "pos terminal",
+        "cash register", "register", "square register",
+        "clover", "toast pos", "payment terminal",
+        "card reader", "credit card terminal", "pin pad",
+        "barcode scanner", "barcode reader", "handheld scanner",
+        "receipt printer pos", "cash drawer"
+      ],
+      "exclude": ["software only"],
+      "class": "Computer Equipment",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.7
+    },
+
+    {
+      "name": "Tablets and Mobile Devices",
+      "keywords": [
+        "ipad", "tablet", "android tablet", "surface tablet",
+        "mobile device", "handheld device", "ipod touch"
+      ],
+      "exclude": ["phone", "smartphone"],
+      "class": "Computer Equipment",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.1
+    },
+
+    {
+      "name": "Office Desks and Tables",
+      "keywords": [
+        "desk", "office desk", "standing desk", "sit-stand desk",
+        "executive desk", "l-shaped desk", "u-shaped desk",
+        "table", "conference table", "meeting table", "work table",
+        "training table", "folding table", "cafeteria table"
+      ],
+      "exclude": ["welding", "fabrication", "assembly", "production"],
+      "class": "Office Furniture",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 1.9
+    },
+
+    {
+      "name": "Office Chairs and Seating",
+      "keywords": [
+        "chair", "office chair", "task chair", "ergonomic chair",
+        "executive chair", "conference chair", "guest chair",
+        "stool", "bar stool", "drafting stool",
+        "waiting room chair", "lobby seating", "reception seating",
+        "bench seating", "sofa", "loveseat"
+      ],
+      "exclude": [],
+      "class": "Office Furniture",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 1.8
+    },
+
+    {
+      "name": "Office Storage and Cabinets",
+      "keywords": [
+        "file cabinet", "filing cabinet", "lateral file",
+        "storage cabinet", "bookshelf", "bookcase", "shelving unit",
+        "credenza", "hutch", "storage credenza",
+        "mobile pedestal", "under desk storage",
+        "locker", "storage locker"
+      ],
+      "exclude": ["warehouse", "industrial"],
+      "class": "Office Furniture",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 1.7
+    },
+
+    {
+      "name": "Cubicles and Partitions",
+      "keywords": [
+        "cubicle", "workstation cubicle", "panel system",
+        "modular furniture", "office partition",
+        "privacy panel", "desk divider", "screen divider"
+      ],
+      "exclude": [],
+      "class": "Office Furniture",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.0
+    },
+
+    {
+      "name": "Manufacturing Machinery - CNC and Machine Tools",
+      "keywords": [
+        "cnc", "cnc machine", "cnc mill", "cnc lathe",
+        "machining center", "vertical mill", "horizontal mill",
+        "lathe", "turning center", "mill", "milling machine",
+        "drill press", "boring machine", "grinding machine",
+        "edm machine", "wire edm"
+      ],
+      "exclude": ["furniture", "office"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 3.0
+    },
+
+    {
+      "name": "Manufacturing Machinery - Welding and Fabrication",
+      "keywords": [
+        "welder", "welding machine", "mig welder", "tig welder",
+        "welding table", "fab table", "fabrication table",
+        "press brake", "brake press", "metal brake",
+        "shear", "metal shear", "hydraulic shear",
+        "punch press", "turret punch", "ironworker"
+      ],
+      "exclude": ["furniture", "office"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.9
+    },
+
+    {
+      "name": "Material Handling - Forklifts and Lifts",
+      "keywords": [
+        "forklift", "fork lift", "lift truck", "powered industrial truck",
+        "reach truck", "order picker", "scissor lift",
+        "aerial lift", "boom lift", "cherry picker",
+        "pallet jack", "electric pallet jack", "walkie stacker"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.8
+    },
+
+    {
+      "name": "Warehouse Racking and Shelving",
+      "keywords": [
+        "pallet rack", "pallet racking", "selective rack",
+        "warehouse racking", "warehouse shelving", "industrial racking",
+        "pallet shelving", "cantilever rack", "drive-in rack",
+        "push back rack", "flow rack", "carton flow rack",
+        "wire shelving", "bulk rack"
+      ],
+      "exclude": ["interior", "remodel", "tenant improvement"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.5
+    },
+
+    {
+      "name": "Retail Fixtures and Displays",
+      "keywords": [
+        "retail fixture", "display fixture", "gondola shelving",
+        "retail shelving", "slatwall", "slat wall", "gridwall",
+        "display case", "showcase", "jewelry case",
+        "mannequin", "clothing rack", "garment rack",
+        "checkout counter", "sales counter", "display rack"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.2
+    },
+
+    {
+      "name": "Restaurant Equipment - Cooking",
+      "keywords": [
+        "range", "stove", "oven", "commercial oven", "convection oven",
+        "grill", "griddle", "flat top", "char broiler",
+        "fryer", "deep fryer", "commercial fryer",
+        "steamer", "combi oven", "commercial kitchen",
+        "salamander", "broiler", "pizza oven"
+      ],
+      "exclude": ["residential"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.6
+    },
+
+    {
+      "name": "Restaurant Equipment - Refrigeration",
+      "keywords": [
+        "walk-in cooler", "walk-in freezer", "walk in refrigerator",
+        "reach-in cooler", "reach-in refrigerator", "commercial refrigerator",
+        "commercial freezer", "prep cooler", "under counter refrigerator",
+        "ice machine", "ice maker", "commercial ice machine",
+        "display cooler", "beverage cooler", "beer cooler"
+      ],
+      "exclude": ["residential"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.7
+    },
+
+    {
+      "name": "Restaurant Equipment - Prep and Dishwashing",
+      "keywords": [
+        "prep table", "work table", "stainless table",
+        "sink", "three compartment sink", "hand sink",
+        "dishwasher", "commercial dishwasher", "dish machine",
+        "glass washer", "pot sink"
+      ],
+      "exclude": ["residential"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.3
+    },
+
+    {
+      "name": "Medical Equipment - Diagnostic",
+      "keywords": [
+        "x-ray", "x-ray machine", "ct scanner", "ct scan", "cat scan",
+        "mri", "mri machine", "ultrasound", "ultrasound machine",
+        "mammography", "fluoroscopy",
+        "ekg", "ecg", "ekg machine",
+        "blood analyzer", "lab analyzer", "hematology analyzer",
+        "chemistry analyzer", "diagnostic equipment"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 3.2
+    },
+
+    {
+      "name": "Medical Equipment - Treatment and Procedure",
+      "keywords": [
+        "surgery table", "operating table", "surgical table", "or table",
+        "exam table", "examination table", "patient table",
+        "dental chair", "dental unit", "dental equipment",
+        "sterilizer", "autoclave", "surgical lights",
+        "anesthesia machine", "ventilator", "patient monitor",
+        "defibrillator", "infusion pump", "iv pump"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 3.1
+    },
+
+    {
+      "name": "Medical Equipment - Storage and Support",
+      "keywords": [
+        "medical refrigerator", "pharmaceutical refrigerator",
+        "vaccine refrigerator", "specimen refrigerator",
+        "medical cart", "crash cart", "medication cart",
+        "isolation cart", "surgical cart"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.4
+    },
+
+    {
+      "name": "HVAC Equipment",
+      "keywords": [
+        "hvac", "hvac unit", "hvac system", "heating and cooling",
+        "air conditioner", "ac unit", "air conditioning unit",
+        "furnace", "boiler", "heat pump",
+        "rooftop unit", "rtu", "package unit",
+        "split system", "mini split", "ductless",
+        "chiller", "cooling tower"
+      ],
+      "exclude": [],
+      "class": "Building Equipment",
+      "life": 15,
+      "method": "150DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.5
+    },
+
+    {
+      "name": "Electrical Systems - Building",
+      "keywords": [
+        "electrical panel", "breaker panel", "distribution panel",
+        "transformer", "electrical transformer",
+        "generator", "backup generator", "standby generator",
+        "ups", "uninterruptible power supply", "battery backup"
+      ],
+      "exclude": [],
+      "class": "Building Equipment",
+      "life": 15,
+      "method": "150DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.3
+    },
+
+    {
+      "name": "Compressors and Air Systems",
+      "keywords": [
+        "air compressor", "compressor", "rotary screw compressor",
+        "piston compressor", "air dryer", "air receiver",
+        "compressed air system", "air treatment"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.4
+    },
+
+    {
+      "name": "Conveyors and Automated Systems",
+      "keywords": [
+        "conveyor", "conveyor belt", "belt conveyor",
+        "roller conveyor", "chain conveyor",
+        "automated system", "automation equipment",
+        "assembly line", "production line",
+        "sortation system", "material handling system"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.6
+    },
+
+    {
+      "name": "Hand Tools and Power Tools",
+      "keywords": [
+        "tool set", "hand tools", "socket set", "wrench set",
+        "power tools", "drill", "impact driver", "saw",
+        "grinder", "sander", "nailer", "tool chest",
+        "tooling", "cutting tools", "dies"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 1.8
+    },
+
+    {
+      "name": "Shop Equipment and Supplies",
+      "keywords": [
+        "work bench", "workbench", "shop table",
+        "shop vacuum", "shop vac", "dust collector",
+        "parts washer", "pressure washer",
+        "air hose reel", "hose reel",
+        "shop fan", "industrial fan", "exhaust fan"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 1.9
+    },
+
+    {
+      "name": "Signs and Signage",
+      "keywords": [
+        "sign", "signage", "outdoor sign", "monument sign",
+        "channel letters", "illuminated sign", "led sign",
+        "pylon sign", "pole sign", "building sign",
+        "cabinet sign", "lightbox sign", "neon sign"
+      ],
+      "exclude": [],
+      "class": "Land Improvement",
+      "life": 15,
+      "method": "150DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.1
+    },
+
+    {
+      "name": "Parking Lot and Paving",
+      "keywords": [
+        "parking lot", "parking lot paving", "asphalt paving",
+        "paving", "pavement", "asphalt", "concrete paving",
+        "driveway", "driveway paving",
+        "parking lot striping", "sealcoat", "resurfacing"
+      ],
+      "exclude": [],
+      "class": "Land Improvement",
+      "life": 15,
+      "method": "150DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.3
+    },
+
+    {
+      "name": "Fencing and Gates",
+      "keywords": [
+        "fence", "fencing", "chain link fence", "privacy fence",
+        "vinyl fence", "wood fence", "iron fence",
+        "gate", "security gate", "automatic gate", "sliding gate"
+      ],
+      "exclude": [],
+      "class": "Land Improvement",
+      "life": 15,
+      "method": "150DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.0
+    },
+
+    {
+      "name": "Landscaping and Site Work",
+      "keywords": [
+        "landscaping", "landscape", "trees", "shrubs", "plants",
+        "irrigation", "irrigation system", "sprinkler system",
+        "retaining wall", "decorative wall",
+        "sidewalk", "walkway", "pathway",
+        "curb", "curbing", "site work"
+      ],
+      "exclude": [],
+      "class": "Land Improvement",
+      "life": 15,
+      "method": "150DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 1.9
+    },
+
+    {
+      "name": "Outdoor Lighting",
+      "keywords": [
+        "outdoor lighting", "site lighting", "parking lot lighting",
+        "light pole", "pole light", "area lighting",
+        "security lighting", "flood light", "led outdoor lighting"
+      ],
+      "exclude": [],
+      "class": "Land Improvement",
+      "life": 15,
+      "method": "150DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.2
+    },
+
+    {
+      "name": "Software - Off-the-Shelf",
+      "keywords": [
+        "software", "software license", "annual license",
+        "off the shelf software", "off-the-shelf software",
+        "cots software", "packaged software",
+        "microsoft office", "adobe", "autocad",
+        "quickbooks", "accounting software",
+        "erp", "crm", "emr", "ehr",
+        "practice management software"
+      ],
+      "exclude": ["custom software", "developed software"],
+      "class": "Software",
+      "life": 3,
+      "method": "SL",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 1.8
+    },
+
+    {
+      "name": "QIP - Interior Improvements (Post-2017)",
+      "keywords": [
+        "tenant improvement", "tenant improvements", "ti",
+        "leasehold improvement", "leasehold improvements",
+        "interior improvement", "interior improvements",
+        "interior remodel", "interior renovation", "interior buildout",
+        "office remodel", "office renovation", "office buildout",
+        "lobby remodel", "lobby renovation",
+        "store remodel", "store renovation", "retail remodel",
+        "interior upgrade", "interior finish", "interior construction",
+        "drop ceiling", "suspended ceiling",
+        "interior walls", "drywall", "partition walls",
+        "interior doors", "interior lighting",
+        "flooring", "carpet", "tile flooring", "vinyl flooring",
+        "paint", "interior paint"
+      ],
+      "exclude": [
+        "rack", "racking", "shelving", "pallet rack",
+        "elevator", "escalator",
+        "hvac", "plumbing", "fire protection",
+        "building structure", "building shell"
+      ],
+      "class": "QIP - Qualified Improvement Property",
+      "life": 15,
+      "method": "SL",
+      "convention": "HY",
+      "bonus": true,
+      "qip": true,
+      "weight": 2.5
+    },
+
+    {
+      "name": "Building Improvements - Structural",
+      "keywords": [
+        "roof", "roofing", "roof replacement", "new roof",
+        "structural", "building shell", "exterior walls",
+        "foundation", "structural support",
+        "building addition", "addition", "expansion"
+      ],
+      "exclude": [],
+      "class": "Building Improvement",
+      "life": 39,
+      "method": "SL",
+      "convention": "MM",
+      "bonus": false,
+      "qip": false,
+      "weight": 2.4
+    },
+
+    {
+      "name": "Nonresidential Real Property - Building",
+      "keywords": [
+        "building", "building purchase", "commercial building",
+        "office building", "retail building",
+        "warehouse building", "industrial building",
+        "manufacturing facility", "plant", "facility"
+      ],
+      "exclude": ["improvement", "remodel", "renovation"],
+      "class": "Nonresidential Real Property",
+      "life": 39,
+      "method": "SL",
+      "convention": "MM",
+      "bonus": false,
+      "qip": false,
+      "weight": 2.2
+    },
+
+    {
+      "name": "Passenger Automobiles",
+      "keywords": [
+        "car", "sedan", "suv", "crossover",
+        "van", "minivan", "passenger van",
+        "pickup", "truck", "pickup truck",
+        "vehicle", "auto", "automobile"
+      ],
+      "exclude": ["trailer", "equipment", "machinery"],
+      "class": "Passenger Automobile",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.1
+    },
+
+    {
+      "name": "Trucks - Heavy and Commercial",
+      "keywords": [
+        "delivery truck", "box truck", "cargo van",
+        "dump truck", "semi truck", "tractor trailer",
+        "flatbed truck", "utility truck", "service truck",
+        "bucket truck", "commercial truck", "work truck"
+      ],
+      "exclude": ["forklift", "lift truck"],
+      "class": "Trucks & Trailers",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.3
+    },
+
+    {
+      "name": "Trailers",
+      "keywords": [
+        "trailer", "cargo trailer", "utility trailer",
+        "flatbed trailer", "enclosed trailer",
+        "equipment trailer", "landscape trailer"
+      ],
+      "exclude": [],
+      "class": "Trucks & Trailers",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.0
+    },
+
+    {
+      "name": "Security Systems",
+      "keywords": [
+        "security system", "alarm system", "camera system",
+        "surveillance", "cctv", "security camera",
+        "access control", "card access", "keypad entry",
+        "video surveillance", "nvr", "dvr recorder"
+      ],
+      "exclude": [],
+      "class": "Building Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.1
+    },
+
+    {
+      "name": "Audio Visual Equipment",
+      "keywords": [
+        "projector", "projection screen", "smartboard",
+        "av equipment", "audio visual", "sound system",
+        "speakers", "conference room av", "video conferencing",
+        "tv", "television", "display tv", "digital signage"
+      ],
+      "exclude": [],
+      "class": "Office Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 1.9
+    },
+
+    {
+      "name": "Phone Systems",
+      "keywords": [
+        "phone system", "telephone system", "pbx",
+        "voip", "voip phone", "ip phone",
+        "phone", "desk phone", "conference phone"
+      ],
+      "exclude": ["cell phone", "mobile phone"],
+      "class": "Office Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.0
+    },
+
+    {
+      "name": "Appliances - Commercial",
+      "keywords": [
+        "washer", "washing machine", "commercial washer",
+        "dryer", "commercial dryer", "laundry equipment",
+        "water heater", "commercial water heater",
+        "dishwasher commercial", "commercial dishwasher"
+      ],
+      "exclude": ["residential"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.0
+    },
+
+    {
+      "name": "Nondepreciable Land",
+      "keywords": [
+        "land", "land only", "land purchase",
+        "raw land", "vacant land", "lot", "lot only",
+        "parcel", "land parcel", "real estate land"
+      ],
+      "exclude": ["improvement", "paving", "landscaping"],
+      "class": "Nondepreciable Land",
+      "life": null,
+      "method": null,
+      "convention": null,
+      "bonus": false,
+      "qip": false,
+      "weight": 3.0
+    },
+
+    {
+      "name": "Construction Equipment - Heavy Machinery",
+      "keywords": [
+        "excavator", "backhoe", "bulldozer", "dozer",
+        "loader", "front end loader", "wheel loader",
+        "skid steer", "skid loader", "bobcat",
+        "grader", "motor grader", "scraper",
+        "compactor", "roller", "road roller",
+        "trencher", "track hoe", "mini excavator"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.9
+    },
+
+    {
+      "name": "Agricultural Equipment",
+      "keywords": [
+        "tractor", "farm tractor", "combine", "combine harvester",
+        "planter", "seed drill", "cultivator", "tiller",
+        "sprayer", "crop sprayer", "hay baler", "baler",
+        "harvester", "grain cart", "manure spreader",
+        "farm equipment", "agricultural equipment"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "150DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.7
+    },
+
+    {
+      "name": "Salon and Spa Equipment",
+      "keywords": [
+        "salon chair", "styling chair", "barber chair",
+        "shampoo bowl", "hair dryer", "salon dryer",
+        "styling station", "salon station",
+        "manicure table", "pedicure chair", "spa chair",
+        "massage table", "facial bed", "treatment bed",
+        "tanning bed", "sauna", "steam room equipment"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.3
+    },
+
+    {
+      "name": "Gym and Fitness Equipment",
+      "keywords": [
+        "treadmill", "elliptical", "exercise bike", "stationary bike",
+        "weight machine", "strength equipment", "gym equipment",
+        "free weights", "dumbbell", "barbell", "weight rack",
+        "rowing machine", "stair climber", "fitness equipment",
+        "cardio equipment", "resistance equipment", "bench press"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.2
+    },
+
+    {
+      "name": "Cleaning Equipment - Commercial",
+      "keywords": [
+        "floor scrubber", "auto scrubber", "ride on scrubber",
+        "carpet cleaner", "carpet extractor", "steam cleaner",
+        "pressure washer commercial", "commercial vacuum",
+        "industrial vacuum", "wet dry vacuum",
+        "floor buffer", "floor burnisher", "polisher",
+        "sweeper", "floor sweeper"
+      ],
+      "exclude": ["residential"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.1
+    },
+
+    {
+      "name": "Laboratory Equipment",
+      "keywords": [
+        "laboratory equipment", "lab equipment",
+        "microscope", "centrifuge", "incubator",
+        "fume hood", "lab hood", "biosafety cabinet",
+        "spectrophotometer", "chromatograph", "mass spectrometer",
+        "autoclave lab", "laboratory refrigerator",
+        "analytical balance", "lab scale", "pipette system"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.8
+    },
+
+    {
+      "name": "Woodworking Equipment",
+      "keywords": [
+        "table saw", "cabinet saw", "miter saw", "chop saw",
+        "band saw", "scroll saw", "circular saw",
+        "jointer", "planer", "thickness planer",
+        "router table", "wood lathe", "lathe wood",
+        "sander belt", "drum sander", "panel saw",
+        "dust collection", "cyclone dust collector"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.4
+    },
+
+    {
+      "name": "Textile and Garment Equipment",
+      "keywords": [
+        "sewing machine", "industrial sewing", "serger",
+        "embroidery machine", "cutting table", "fabric cutter",
+        "pressing machine", "commercial iron", "steam press",
+        "garment steamer", "textile equipment",
+        "quilting machine", "pattern grading"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.2
+    },
+
+    {
+      "name": "Photography and Video Production",
+      "keywords": [
+        "camera equipment", "professional camera", "dslr camera",
+        "video camera", "cinema camera", "broadcast camera",
+        "camera lens", "tripod professional", "camera rig",
+        "lighting kit", "studio lighting", "softbox", "led panel",
+        "green screen", "backdrop", "studio equipment",
+        "video editing workstation", "color grading monitor"
+      ],
+      "exclude": ["surveillance", "security camera"],
+      "class": "Computer Equipment",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.3
+    },
+
+    {
+      "name": "Renewable Energy Equipment",
+      "keywords": [
+        "solar panel", "solar array", "photovoltaic",
+        "solar inverter", "solar equipment",
+        "ev charger", "electric vehicle charger", "charging station",
+        "ev charging equipment", "level 2 charger", "dc fast charger",
+        "wind turbine", "battery storage", "energy storage"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.6
+    },
+
+    {
+      "name": "Bakery Equipment",
+      "keywords": [
+        "commercial oven bakery", "deck oven", "convection oven bakery",
+        "dough mixer", "spiral mixer", "planetary mixer",
+        "proofing cabinet", "proofer", "retarder proofer",
+        "dough sheeter", "bread slicer", "bakery equipment",
+        "display case bakery", "pastry case"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.5
+    },
+
+    {
+      "name": "Vending Machines",
+      "keywords": [
+        "vending machine", "snack machine", "drink machine",
+        "beverage vending", "coffee vending", "vending equipment",
+        "automated retail", "kiosk vending"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.0
+    },
+
+    {
+      "name": "Brewery and Beverage Production",
+      "keywords": [
+        "brewing equipment", "brewery equipment",
+        "fermenter", "fermentation tank", "bright tank",
+        "brew kettle", "mash tun", "lauter tun",
+        "keg washer", "bottling line", "canning line",
+        "glycol chiller", "wort chiller"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.6
+    },
+
+    {
+      "name": "Printing Equipment - Commercial",
+      "keywords": [
+        "commercial printer", "offset press", "printing press",
+        "digital press", "wide format printer", "large format printer",
+        "laminator commercial", "binding machine", "cutter commercial",
+        "die cutting machine", "embosser"
+      ],
+      "exclude": ["office printer", "inkjet", "laserjet"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.4
+    },
+
+    {
+      "name": "Packaging Equipment",
+      "keywords": [
+        "packaging machine", "packaging equipment",
+        "shrink wrap machine", "stretch wrapper",
+        "case sealer", "box sealer", "tape machine",
+        "labeling machine", "label applicator",
+        "filling machine", "bagging machine", "sealer"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.3
+    },
+
+    {
+      "name": "Childcare and Educational Equipment",
+      "keywords": [
+        "playground equipment", "playground", "play structure",
+        "daycare equipment", "childcare furniture",
+        "classroom furniture", "student desk", "school desk",
+        "cubbies", "nap cots", "changing table",
+        "smartboard", "interactive whiteboard"
+      ],
+      "exclude": [],
+      "class": "Office Furniture",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 1.9
+    },
+
+    {
+      "name": "Laundry Equipment - Commercial",
+      "keywords": [
+        "commercial washer", "commercial laundry", "industrial washer",
+        "commercial dryer", "industrial dryer",
+        "laundry extractor", "laundry folder", "folder commercial",
+        "laundromat equipment", "coin operated washer"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.2
+    },
+
+    {
+      "name": "Plastic and Injection Molding",
+      "keywords": [
+        "injection molding", "injection molding machine",
+        "plastic molding", "blow molding", "thermoforming",
+        "extruder", "plastic extruder", "extrusion machine",
+        "pelletizer", "granulator plastic"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.8
+    },
+
+    {
+      "name": "Testing and Measurement Equipment",
+      "keywords": [
+        "test equipment", "testing equipment", "measurement equipment",
+        "oscilloscope", "multimeter", "spectrum analyzer",
+        "torque tester", "hardness tester", "cmm machine",
+        "coordinate measuring", "optical comparator",
+        "caliper digital", "micrometer", "gauge calibration"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.5
+    },
+
+    {
+      "name": "Water Treatment and Filtration",
+      "keywords": [
+        "water softener", "water filtration", "reverse osmosis",
+        "water treatment", "filtration system",
+        "water purification", "deionization system"
+      ],
+      "exclude": [],
+      "class": "Building Equipment",
+      "life": 15,
+      "method": "150DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.0
+    },
+
+    {
+      "name": "Automotive Service Equipment",
+      "keywords": [
+        "vehicle lift", "car lift", "two post lift", "four post lift",
+        "alignment machine", "wheel alignment", "tire changer",
+        "wheel balancer", "tire machine", "brake lathe",
+        "diagnostic equipment", "auto scanner", "ac recovery machine",
+        "oil drain", "fluid evacuator", "parts washer automotive"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.6
+    }
+
+  ]
+}

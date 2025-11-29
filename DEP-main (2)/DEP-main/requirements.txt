@@ -1,0 +1,16 @@
+openai>=1.0.0
+python-dotenv
+pandas
+streamlit
+openpyxl
+rapidfuzz==3.7.0
+plotly==5.19.0
+numpy
+
+# Note: sentence-transformers and torch were removed (not used, caused slow loading)
+# If semantic similarity features are needed in the future, reinstall them:
+#   pip install sentence-transformers torch
+
+# Note: RPA libraries (pyautogui, pywinauto, etc.) are Windows-only
+# For RPA features on Windows, see requirements-rpa.txt
+

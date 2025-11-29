@@ -1,0 +1,50 @@
+asset_id,description,trans_type,final_class,life,method,source,confidence,notes
+2024-001,Dell PowerEdge R750 Server,Current Year Addition,Computer Equipment,5.0,200DB,rule,0.98,Matched rule: Servers and Network Storage (score: 
+2024-002,HP EliteBook 840 Laptops (10 units),Current Year Addition,Computer Equipment,5.0,200DB,rule,0.85,Matched rule: Computers - Laptops and Portable (sc
+2024-003,Cisco Catalyst 9300 Network Switch,Current Year Addition,Computer Equipment,5.0,200DB,rule,0.98,Matched rule: Network Equipment (score: 16.8)
+2024-004,Apple MacBook Pro M3 - Engineering,Current Year Addition,Computer Equipment,5.0,200DB,rule,0.95,Matched rule: Computers - Laptops and Portable (sc
+2024-005,Herman Miller Aeron Chairs (20 units),Current Year Addition,Office Furniture,7.0,200DB,rule,0.85,Matched rule: Office Chairs and Seating (score: 2.
+2024-006,Steelcase Standing Desks (15 units),Current Year Addition,Office Furniture,7.0,200DB,rule,0.95,Matched rule: Office Desks and Tables (score: 8.6)
+2024-007,Conference Room Table - Executive,Current Year Addition,Office Furniture,7.0,200DB,rule,0.9,Matched rule: Office Desks and Tables (score: 5.8)
+2024-008,Reception Desk and Seating Area,Current Year Addition,Office Furniture,7.0,200DB,rule,0.9,Matched rule: Office Desks and Tables (score: 5.8)
+2024-009,Canon imageRUNNER ADVANCE Copier/Printer,Current Year Addition,Office Equipment,5.0,200DB,rule,0.98,Matched rule: Printers and Scanners (score: 11.2)
+2024-010,Shred-it Industrial Paper Shredder,Current Year Addition,Office Equipment,5.0,200DB,rule,0.85,Matched rule: Printers and Scanners (score: 2.0)
+2024-011,Haas VF-4 CNC Vertical Machining Center,Current Year Addition,Machinery & Equipment,7.0,200DB,rule,0.98,Matched rule: Manufacturing Machinery - CNC and Ma
+2024-012,Lincoln Electric MIG Welder - PowerMIG 360MP,Current Year Addition,Machinery & Equipment,7.0,200DB,rule,0.98,Matched rule: Manufacturing Machinery - Welding an
+2024-013,Bridgeport Series I Milling Machine,Current Year Addition,Machinery & Equipment,7.0,200DB,rule,0.98,Matched rule: Manufacturing Machinery - CNC and Ma
+2024-014,Air Compressor - Ingersoll Rand 80 Gallon,Current Year Addition,Machinery & Equipment,7.0,200DB,rule,0.98,Matched rule: Compressors and Air Systems (score: 
+2024-015,Forklift - Toyota 8FGU25 5000lb,Current Year Addition,Machinery & Equipment,7.0,200DB,rule,0.9,Matched rule: Material Handling - Forklifts and Li
+2024-016,2024 Ford F-150 XLT - Sales Rep,Current Year Addition,Passenger Automobile,5.0,200DB,client_category,0.85,Mapped from client category: Vehicle
+2024-017,2024 Chevrolet Express 2500 Cargo Van,Current Year Addition,Trucks & Trailers,5.0,200DB,rule,0.95,Matched rule: Trucks - Heavy and Commercial (score
+2024-018,2024 Toyota RAV4 Hybrid - Manager,Current Year Addition,Passenger Automobile,5.0,200DB,rule,0.85,Matched rule: Passenger Automobiles (score: 2.0)
+2024-019,LED Lighting Retrofit - Office Building,Current Year Addition,Nonresidential Real Property,39.0,SL,rule,0.98,Matched rule: Nonresidential Real Property - Build
+2024-020,Interior Renovation - Break Room,Current Year Addition,QIP - Qualified Improvement Property,15.0,SL,rule,0.95,Matched rule: QIP - Interior Improvements (Post-20
+2024-021,New Flooring - Warehouse Office Area,Current Year Addition,QIP - Qualified Improvement Property,15.0,SL,rule,0.9,Matched rule: QIP - Interior Improvements (Post-20
+2024-022,Parking Lot Resurfacing and Striping,Current Year Addition,Land Improvement,15.0,150DB,rule,0.98,Matched rule: Parking Lot and Paving (score: 13.5)
+2024-023,Security Fence Installation - Perimeter,Current Year Addition,Land Improvement,15.0,150DB,rule,0.9,Matched rule: Fencing and Gates (score: 4.0)
+2024-024,Landscape and Irrigation System,Current Year Addition,Land Improvement,15.0,150DB,rule,0.98,Matched rule: Landscaping and Site Work (score: 15
+2024-025,Trane HVAC Rooftop Unit Replacement,Current Year Addition,Building Equipment,15.0,150DB,rule,0.98,Matched rule: HVAC Equipment (score: 12.5)
+2024-026,Emergency Generator - Generac 150kW,Current Year Addition,Building Equipment,15.0,150DB,rule,0.95,Matched rule: Electrical Systems - Building (score
+2024-027,Microsoft Dynamics 365 ERP License (perpetual),Current Year Addition,Software,3.0,SL,rule,0.9,Matched rule: Software - Off-the-Shelf (score: 5.6
+2024-028,AutoCAD 2024 Engineering Suite (5 seats),Current Year Addition,Software,3.0,SL,rule,0.9,Matched rule: Software - Off-the-Shelf (score: 5.6
+2024-029,Brother Laser Printer HL-L2350DW,Current Year Addition,Office Equipment,5.0,200DB,rule,0.95,Matched rule: Printers and Scanners (score: 6.6)
+2024-030,Desk Lamp - LED Task Light (5 units),Current Year Addition,Office Furniture,7.0,200DB,rule,0.9,Matched rule: Office Desks and Tables (score: 5.8)
+2024-031,Equipment for production line 3,Current Year Addition,Machinery & Equipment,7.0,200DB,rule,0.95,Matched rule: Conveyors and Automated Systems (sco
+2024-032,Misc office supplies - bulk purchase,Current Year Addition,,,,gpt,0.0,GPT call failed: The api_key client option must be
+2024-033,Elevator modernization - Building A,Current Year Addition,Nonresidential Real Property,39.0,SL,rule,0.9,Matched rule: Nonresidential Real Property - Build
+2023-004,Canon Copier - Moved to Warehouse Office,Transfer,Office Equipment,5.0,200DB,rule,0.95,Matched rule: Printers and Scanners (score: 6.6)
+2022-003,HP Workstation - Engineering to QA,Transfer,Computer Equipment,5.0,200DB,rule,0.95,Matched rule: Computers - Desktop and Workstations
+2021-004,Tooling - Reclassified from Supplies to Fixed Asse,Transfer,Machinery & Equipment,7.0,200DB,rule,0.9,Matched rule: Hand Tools and Power Tools (score: 5
+2020-004,Server Rack Equipment - Split to new location,Transfer,Computer Equipment,5.0,200DB,rule,0.95,Matched rule: Servers and Network Storage (score: 
+2023-001,Dell OptiPlex Desktop Computers (25 units),Existing Asset,Computer Equipment,5.0,200DB,rule,0.98,Matched rule: Computers - Desktop and Workstations
+2023-002,Office Workstations and Cubicles,Existing Asset,Office Furniture,7.0,200DB,rule,0.85,Matched rule: Cubicles and Partitions (score: 3.0)
+2023-003,2023 Ford Transit Van - Delivery,Existing Asset,Passenger Automobile,5.0,200DB,rule,0.9,Matched rule: Passenger Automobiles (score: 4.2)
+2022-001,Mazak Quick Turn 200 CNC Lathe,Existing Asset,Machinery & Equipment,7.0,200DB,rule,0.98,Matched rule: Manufacturing Machinery - CNC and Ma
+2022-002,Pallet Racking System - Warehouse,Existing Asset,Machinery & Equipment,7.0,200DB,rule,0.98,Matched rule: Warehouse Racking and Shelving (scor
+2021-001,Building HVAC System - Original Install,Existing Asset,Building Equipment,15.0,150DB,rule,0.98,Matched rule: HVAC Equipment (score: 14.5)
+2021-002,Warehouse LED Lighting System,Existing Asset,QIP - Qualified Improvement Property,15.0,SL,client_category,0.85,Mapped from client category: Leasehold Improvement
+2020-001,Conference Room AV System,Existing Asset,Office Equipment,7.0,200DB,rule,0.95,Matched rule: Audio Visual Equipment (score: 7.7)
+2020-002,Production Line Conveyor System,Existing Asset,Machinery & Equipment,7.0,200DB,rule,0.98,Matched rule: Conveyors and Automated Systems (sco
+2019-001,Dell PowerEdge Server - Legacy,Existing Asset,Computer Equipment,5.0,200DB,rule,0.98,Matched rule: Servers and Network Storage (score: 
+2015-001,Warehouse Building Shell,Existing Asset,Nonresidential Real Property,39.0,SL,rule,0.98,Matched rule: Nonresidential Real Property - Build
+LAND-001,Land - Main Campus 5 Acres,Existing Asset,Nondepreciable Land,,,rule,0.95,Matched rule: Nondepreciable Land (score: 8.0)

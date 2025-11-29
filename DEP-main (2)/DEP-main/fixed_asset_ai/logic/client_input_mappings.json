@@ -1,0 +1,52 @@
+{
+  "_description": "Client-Specific Input Column Mappings",
+  "_notes": [
+    "This file stores column name mappings for different client Excel formats",
+    "When auto-detection fails, add client-specific mappings here",
+    "Mappings are matched by client_id (you define the ID)",
+    "Each mapping overrides the default column detection for that field",
+    "Use 'header_row' to specify which row contains headers (1-indexed, Excel style)",
+    "Use 'sheet_patterns' to match specific sheet names for this client"
+  ],
+  "_usage": [
+    "1. Run the tool once to see what columns were detected",
+    "2. If detection fails, add a new client entry with correct mappings",
+    "3. The tool will use these mappings for all future files with this client_id",
+    "4. You can also use the UI to save mappings automatically"
+  ],
+
+  "default": {
+    "_comment": "Fallback mappings - these extend the built-in detection",
+    "additional_keywords": {
+      "asset_id": ["ref no", "reference number", "asset ref", "kla asset #", "asset #"],
+      "description": ["asset desc", "property name", "equipment desc", "item"],
+      "cost": ["purchase amount", "total value", "asset value", "amount"],
+      "in_service_date": ["date started", "use date", "operational date", "date"],
+      "acquisition_date": ["bought date", "purchase dt"]
+    },
+    "_note_on_date": "Generic 'date' column is now mapped to in_service_date as fallback - this is the most common CPA interpretation"
+  },
+
+  "_example_client": {
+    "_comment": "Example: Client with unusual column names",
+    "client_name": "Example Corp",
+    "header_row": 3,
+    "sheet_patterns": ["Asset*", "*Schedule*"],
+    "column_mappings": {
+      "asset_id": "Reference #",
+      "description": "Item Details",
+      "cost": "Original Value",
+      "acquisition_date": "Date Bought",
+      "in_service_date": "Start Using Date",
+      "category": "Asset Group",
+      "location": "Physical Site",
+      "department": "Cost Center Code",
+      "disposal_date": "Date Removed",
+      "proceeds": "Sale Amount"
+    },
+    "skip_sheets": ["Summary", "Totals", "Instructions"],
+    "notes": "Added 2024-01-15 after initial import failed"
+  },
+
+  "clients": {}
+}
