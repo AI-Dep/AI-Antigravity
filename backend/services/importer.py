@@ -193,17 +193,17 @@ class ImporterService:
         header_row_idx = sheet_loader._detect_header_row(df_preview)
 
         df = pd.read_excel(file_path, sheet_name=best_sheet, header=header_row_idx)
+        
+        # 3. Map Columns using ColumnDetector
+        from backend.logic.column_detector import detect_columns
 
-        from backend.logic.column_detector import find_column_match
+        # Get column headers as list
+        column_headers = df.columns.tolist()
 
-        col_map = {}
-        all_fields = sheet_loader.COL_CRITICAL_FIELDS + sheet_loader.COL_IMPORTANT_FIELDS + sheet_loader.OPTIONAL_FIELDS
-
-        for field in all_fields:
-            col_name, mapping = find_column_match(df, field)
-            if col_name:
-                col_map[field] = col_name
-
+        # Detect column mappings
+        col_map, mappings, warnings = detect_columns(column_headers)
+                
+        # 4. Extract Data
         assets = []
         for idx, row in df.iterrows():
             if self._is_empty_row(row):
@@ -232,7 +232,8 @@ class ImporterService:
                     macrs_convention=str(row.get(col_map.get("convention"))) if col_map.get("convention") else None
                 )
 
-                asset.check_validity()
+                # NOTE: Validation is run AFTER classification in classifier.py
+                # This ensures we can check if classification succeeded
                 assets.append(asset)
             except Exception as e:
                 print(f"Skipping row {idx}: {e}")

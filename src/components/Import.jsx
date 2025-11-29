@@ -2,10 +2,10 @@ import React, { useState, useRef } from 'react';
 import { Upload, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { cn } from '../lib/utils';
 import axios from 'axios';
 
-export function Import({ onUploadSuccess }) {
+function Import({ onUploadSuccess }) {
     const [isDragging, setIsDragging] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [error, setError] = useState(null);
@@ -54,7 +54,14 @@ export function Import({ onUploadSuccess }) {
 
         } catch (err) {
             console.error("Upload failed:", err);
-            setError("Failed to process file. Is the backend running?");
+            // Show detailed error message from backend if available
+            if (err.response && err.response.data && err.response.data.detail) {
+                setError(`Error: ${err.response.data.detail}`);
+            } else if (err.message) {
+                setError(`Failed to process file: ${err.message}`);
+            } else {
+                setError("Failed to process file. Is the backend running?");
+            }
         } finally {
             setIsUploading(false);
         }
@@ -119,3 +126,6 @@ export function Import({ onUploadSuccess }) {
         </div>
     );
 }
+
+export { Import };
+export default Import;

@@ -1,7 +1,32 @@
-fastapi
-uvicorn
-psutil
-pandas
-rapidfuzz
-openpyxl
-python-multipart
+# FA CS Automator - Python Dependencies
+
+# Core Framework
+fastapi>=0.100.0
+uvicorn>=0.22.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+openpyxl>=3.1.0
+
+# API & Utilities
+openai>=1.0.0
+python-dotenv>=1.0.0
+python-multipart>=0.0.6
+psutil>=5.9.0
+
+# Text Matching & Similarity
+rapidfuzz>=3.7.0
+
+# Visualization
+plotly>=5.19.0
+
+# Security
+pydantic>=2.0.0
+
+# Note: RPA libraries (pyautogui, pywinauto, etc.) are Windows-only
+# For RPA features on Windows, see requirements-rpa.txt
+
+# Optional: Uncomment for semantic similarity features
+# sentence-transformers
+# torch

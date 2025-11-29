@@ -8,10 +8,14 @@
       "name": "Computers - Desktop and Workstations",
       "keywords": [
         "computer", "desktop", "workstation", "pc", "all-in-one",
-        "lenovo", "thinkcentre", "thinkcenter",
-        "optiplex", "dell computer", "hp computer", "hp desktop",
-        "mac mini", "imac", "cpu tower", "tower computer",
-        "thin client", "terminal", "chromebook", "chromebox"
+        "lenovo", "thinkcentre", "thinkcenter", "thinkstation", "m90q", "m80q",
+        "dell", "optiplex", "dell computer", "dell precision", "precision workstation",
+        "hp computer", "hp desktop", "hp workstation", "hp tower",
+        "elitedesk", "prodesk", "hp z workstation", "z workstation",
+        "mac mini", "mac studio", "imac", "apple computer", "apple mac", "apple desktop",
+        "cpu tower", "tower computer", "minipc", "micro pc", "mini pc",
+        "thin client", "terminal", "chromebook", "chromebox",
+        "intel nuc", "nuc computer", "asus computer", "acer computer"
       ],
       "exclude": ["software", "monitor only", "display only"],
       "class": "Computer Equipment",
@@ -26,9 +30,14 @@
     {
       "name": "Computers - Laptops and Portable",
       "keywords": [
-        "laptop", "notebook", "macbook", "thinkpad", "latitude",
-        "surface pro", "surface laptop", "chromebook laptop",
-        "portable computer", "mobile workstation"
+        "laptop", "notebook", "portable computer", "mobile workstation",
+        "macbook", "macbook pro", "macbook air",
+        "thinkpad", "lenovo laptop", "ideapad",
+        "latitude", "dell laptop", "dell xps", "inspiron",
+        "elitebook", "hp laptop", "zbook", "probook",
+        "surface pro", "surface laptop", "surface book",
+        "chromebook laptop", "chromebook",
+        "asus laptop", "zenbook", "acer laptop", "msi laptop"
       ],
       "exclude": ["software", "tablet only", "ipad"],
       "class": "Computer Equipment",
@@ -223,11 +232,17 @@
     {
       "name": "Manufacturing Machinery - CNC and Machine Tools",
       "keywords": [
-        "cnc", "cnc machine", "cnc mill", "cnc lathe",
-        "machining center", "vertical mill", "horizontal mill",
-        "lathe", "turning center", "mill", "milling machine",
-        "drill press", "boring machine", "grinding machine",
-        "edm machine", "wire edm"
+        "cnc", "cnc machine", "cnc mill", "cnc lathe", "cnc router",
+        "machining center", "vertical mill", "horizontal mill", "vmc", "hmc",
+        "lathe", "turning center", "mill", "milling machine", "engine lathe",
+        "drill press", "boring machine", "grinding machine", "surface grinder",
+        "edm machine", "wire edm", "sinker edm",
+        "haas", "haas vf", "haas st", "haas cnc",
+        "mazak", "mazak integrex", "mazak quick turn",
+        "dmg mori", "mori seiki", "dmg",
+        "doosan", "doosan puma", "okuma",
+        "fanuc", "fanuc robodrill", "brother speedio",
+        "hurco", "hardinge", "toyoda", "makino"
       ],
       "exclude": ["furniture", "office"],
       "class": "Machinery & Equipment",
@@ -261,10 +276,15 @@
     {
       "name": "Material Handling - Forklifts and Lifts",
       "keywords": [
-        "forklift", "fork lift", "lift truck", "powered industrial truck",
-        "reach truck", "order picker", "scissor lift",
-        "aerial lift", "boom lift", "cherry picker",
-        "pallet jack", "electric pallet jack", "walkie stacker"
+        "forklift", "fork lift", "forklift truck", "lift truck", "lifttruck", "powered industrial truck",
+        "reach truck", "reachtruck", "order picker", "scissor lift", "scissorlift",
+        "aerial lift", "boom lift", "cherry picker", "telehandler", "man lift",
+        "pallet jack", "palletjack", "electric pallet jack", "powered pallet jack",
+        "walkie stacker", "pallet stacker", "electric stacker", "powered stacker",
+        "stacker truck", "walk behind stacker", "rider stacker",
+        "tow motor", "tugger", "warehouse truck", "stock picker",
+        "raymond", "crown forklift", "toyota forklift", "hyster", "yale forklift",
+        "caterpillar forklift", "cat forklift", "jungheinrich", "linde forklift", "clark forklift"
       ],
       "exclude": [],
       "class": "Machinery & Equipment",
@@ -279,13 +299,17 @@
     {
       "name": "Warehouse Racking and Shelving",
       "keywords": [
-        "pallet rack", "pallet racking", "selective rack",
+        "racking", "rack system", "storage rack", "warehouse rack",
+        "pallet rack", "pallet racking", "selective rack", "selective racking",
         "warehouse racking", "warehouse shelving", "industrial racking",
-        "pallet shelving", "cantilever rack", "drive-in rack",
-        "push back rack", "flow rack", "carton flow rack",
-        "wire shelving", "bulk rack"
+        "pallet shelving", "cantilever rack", "drive-in rack", "drive-in racking",
+        "push back rack", "flow rack", "carton flow rack", "gravity flow rack",
+        "wire shelving", "bulk rack", "bulk storage",
+        "mezzanine rack", "mezzanine", "mezzanine storage",
+        "shelving unit", "industrial shelving", "metal shelving",
+        "storage system", "bin shelving", "pick module"
       ],
-      "exclude": ["interior", "remodel", "tenant improvement"],
+      "exclude": ["interior", "remodel", "tenant improvement", "office shelf", "bookshelf"],
       "class": "Machinery & Equipment",
       "life": 7,
       "method": "200DB",
@@ -436,7 +460,10 @@
         "furnace", "boiler", "heat pump",
         "rooftop unit", "rtu", "package unit",
         "split system", "mini split", "ductless",
-        "chiller", "cooling tower"
+        "chiller", "cooling tower",
+        "air handler", "ahu", "air handling unit",
+        "makeup air", "make-up air", "makeup air unit", "mau",
+        "exhaust system", "ventilation system"
       ],
       "exclude": [],
       "class": "Building Equipment",
@@ -506,9 +533,20 @@
       "name": "Hand Tools and Power Tools",
       "keywords": [
         "tool set", "hand tools", "socket set", "wrench set",
-        "power tools", "drill", "impact driver", "saw",
-        "grinder", "sander", "nailer", "tool chest",
-        "tooling", "cutting tools", "dies"
+        "power tools", "power tool", "powertool",
+        "drill", "hammer drill", "rotary hammer", "impact drill", "cordless drill",
+        "impact driver", "impact wrench",
+        "saw", "reciprocating saw", "sawzall", "jigsaw", "circular saw", "miter saw",
+        "bandsaw", "band saw", "scroll saw",
+        "grinder", "angle grinder", "die grinder", "bench grinder",
+        "sander", "orbital sander", "belt sander", "planer",
+        "nailer", "nail gun", "brad nailer", "framing nailer",
+        "tool chest", "tool box", "tool cabinet",
+        "tooling", "cutting tools", "dies",
+        "router", "router tool", "wood router", "plunge router",
+        "hilti", "dewalt", "milwaukee", "makita", "bosch power tool",
+        "metabo", "festool", "ridgid", "ryobi", "craftsman",
+        "snap-on", "snapon", "matco", "mac tools"
       ],
       "exclude": [],
       "class": "Machinery & Equipment",
@@ -517,7 +555,7 @@
       "convention": "HY",
       "bonus": true,
       "qip": false,
-      "weight": 1.8
+      "weight": 2.5
     },
 
     {
@@ -537,6 +575,75 @@
       "bonus": true,
       "qip": false,
       "weight": 1.9
+    },
+
+    {
+      "name": "Shop Tooling - Dies, Molds, and Fixtures",
+      "keywords": [
+        "die", "dies", "die set", "die tooling",
+        "cutting die", "cutting dies", "stamping die", "punch die",
+        "press die", "press tooling", "forming die", "extrusion die",
+        "mold", "molds", "mould", "moulds", "injection mold",
+        "casting mold", "blow mold", "rotational mold", "compression mold",
+        "jig", "jigs", "welding jig", "assembly jig", "drill jig",
+        "fixture", "fixtures", "work fixture", "holding fixture",
+        "clamp fixture", "checking fixture", "inspection fixture",
+        "gauge", "go-no-go gauge", "plug gauge", "ring gauge",
+        "stamp", "stamps", "stamping tool", "punch tool"
+      ],
+      "exclude": ["rubber stamp", "postage stamp", "office stamp"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.7
+    },
+
+    {
+      "name": "IT Peripherals and Accessories",
+      "keywords": [
+        "docking station", "dock station", "laptop dock", "usb dock",
+        "thunderbolt dock", "usb-c dock", "port replicator",
+        "ups battery", "ups unit", "battery backup", "apc ups",
+        "surge protector", "power strip", "pdu", "power distribution",
+        "kvm switch", "kvm", "keyboard video mouse",
+        "external hard drive", "external ssd", "nas drive",
+        "webcam", "web camera", "conference camera", "logitech webcam",
+        "headset", "headphones", "usb headset", "wireless headset",
+        "keyboard", "wireless keyboard", "mechanical keyboard",
+        "mouse", "wireless mouse", "ergonomic mouse", "trackball"
+      ],
+      "exclude": [],
+      "class": "Computer Equipment",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.2
+    },
+
+    {
+      "name": "HVAC - Machine and Process Specific",
+      "keywords": [
+        "server room cooling", "data center cooling", "computer room ac",
+        "crac unit", "crah unit", "precision cooling",
+        "machine cooling", "equipment cooling", "process cooling",
+        "industrial hvac", "manufacturing hvac", "process chiller",
+        "spot cooler", "portable ac industrial",
+        "cleanroom hvac", "laboratory hvac", "lab cooling"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.8,
+      "notes": "Machine-specific HVAC is 7-year equipment, not 15-year building component per IRC 1.168(i)-4"
     },
 
     {
@@ -560,12 +667,14 @@
     {
       "name": "Parking Lot and Paving",
       "keywords": [
-        "parking lot", "parking lot paving", "asphalt paving",
+        "parking", "parking area", "parking lot", "parking structure",
+        "parking lot paving", "asphalt paving",
         "paving", "pavement", "asphalt", "concrete paving",
         "driveway", "driveway paving",
-        "parking lot striping", "sealcoat", "resurfacing"
+        "parking lot striping", "sealcoat", "resurfacing",
+        "site improvement", "site improvements"
       ],
-      "exclude": [],
+      "exclude": ["interior", "garage door"],
       "class": "Land Improvement",
       "life": 15,
       "method": "150DB",
@@ -616,9 +725,10 @@
       "keywords": [
         "outdoor lighting", "site lighting", "parking lot lighting",
         "light pole", "pole light", "area lighting",
-        "security lighting", "flood light", "led outdoor lighting"
+        "security lighting", "flood light", "led outdoor lighting",
+        "exterior lighting", "building exterior lighting", "facade lighting"
       ],
-      "exclude": [],
+      "exclude": ["interior", "office", "warehouse interior"],
       "class": "Land Improvement",
       "life": 15,
       "method": "150DB",
@@ -626,6 +736,55 @@
       "bonus": true,
       "qip": false,
       "weight": 2.2
+    },
+
+    {
+      "name": "Interior Lighting and LED Upgrades",
+      "keywords": [
+        "led retrofit", "lighting retrofit", "lighting upgrade",
+        "led upgrade", "led conversion", "led replacement",
+        "warehouse lighting", "warehouse led", "high bay lighting", "high bay led",
+        "factory lighting", "industrial lighting", "shop lighting",
+        "office lighting upgrade", "interior lighting upgrade",
+        "t8 led", "t5 led", "tube light replacement", "fluorescent replacement",
+        "led troffer", "led panel light", "recessed lighting",
+        "lighting fixture", "light fixture", "luminaire",
+        "bay light", "linear led", "strip light commercial"
+      ],
+      "exclude": ["outdoor", "parking lot", "exterior", "pole light"],
+      "class": "QIP - Qualified Improvement Property",
+      "life": 15,
+      "method": "SL",
+      "convention": "HY",
+      "bonus": true,
+      "qip": true,
+      "weight": 2.8
+    },
+
+    {
+      "name": "Outdoor Power Equipment",
+      "keywords": [
+        "chainsaw", "chain saw", "pole saw", "tree trimmer",
+        "brush cutter", "brushcutter", "string trimmer", "weed eater", "weed trimmer",
+        "leaf blower", "backpack blower", "handheld blower",
+        "hedge trimmer", "hedge clipper",
+        "lawn mower", "commercial mower", "zero turn mower", "riding mower",
+        "edger", "lawn edger",
+        "pressure washer", "power washer",
+        "wood chipper", "chipper shredder", "stump grinder",
+        "log splitter", "firewood processor",
+        "stihl", "husqvarna", "echo power equipment", "redmax",
+        "honda power equipment", "toro commercial", "exmark", "scag",
+        "john deere mower", "kubota mower", "ferris", "gravely"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.6
     },
 
     {
@@ -656,15 +815,21 @@
         "leasehold improvement", "leasehold improvements",
         "interior improvement", "interior improvements",
         "interior remodel", "interior renovation", "interior buildout",
+        "buildout", "build-out", "fitout", "fit-out", "fit out",
         "office remodel", "office renovation", "office buildout",
-        "lobby remodel", "lobby renovation",
-        "store remodel", "store renovation", "retail remodel",
+        "lobby remodel", "lobby renovation", "lobby buildout", "lobby upgrade",
+        "hq buildout", "headquarters buildout", "headquarters renovation",
+        "store remodel", "store renovation", "retail remodel", "retail buildout",
+        "showroom buildout", "showroom renovation",
         "interior upgrade", "interior finish", "interior construction",
-        "drop ceiling", "suspended ceiling",
-        "interior walls", "drywall", "partition walls",
-        "interior doors", "interior lighting",
-        "flooring", "carpet", "tile flooring", "vinyl flooring",
-        "paint", "interior paint"
+        "drop ceiling", "suspended ceiling", "ceiling tiles", "acoustic ceiling",
+        "ceiling grid", "t-bar ceiling", "grid ceiling",
+        "interior walls", "drywall", "partition walls", "demising walls",
+        "interior doors", "interior lighting", "office lighting",
+        "flooring", "carpet", "tile flooring", "vinyl flooring", "hardwood flooring",
+        "paint", "interior paint", "wall covering", "wallpaper",
+        "millwork", "cabinetry", "built-in cabinets", "reception desk built-in",
+        "break room", "breakroom renovation", "kitchen renovation office"
       ],
       "exclude": [
         "rack", "racking", "shelving", "pallet rack",
@@ -883,11 +1048,18 @@
       "name": "Construction Equipment - Heavy Machinery",
       "keywords": [
         "excavator", "backhoe", "bulldozer", "dozer",
-        "loader", "front end loader", "wheel loader",
-        "skid steer", "skid loader", "bobcat",
+        "loader", "front end loader", "wheel loader", "track loader",
+        "skid steer", "skidsteer", "skid loader", "bobcat",
         "grader", "motor grader", "scraper",
-        "compactor", "roller", "road roller",
-        "trencher", "track hoe", "mini excavator"
+        "compactor", "roller", "road roller", "vibratory roller",
+        "trencher", "track hoe", "mini excavator", "compact excavator",
+        "concrete mixer", "cement mixer", "concrete pump",
+        "pile driver", "crane", "tower crane", "mobile crane",
+        "caterpillar", "cat equipment", "cat loader", "cat excavator",
+        "john deere", "deere construction", "kubota construction",
+        "komatsu", "volvo construction", "case construction",
+        "hitachi construction", "kobelco", "jcb", "takeuchi",
+        "ditch witch", "vermeer", "wacker neuson"
       ],
       "exclude": [],
       "class": "Machinery & Equipment",
@@ -1039,21 +1211,30 @@
     {
       "name": "Photography and Video Production",
       "keywords": [
-        "camera equipment", "professional camera", "dslr camera",
-        "video camera", "cinema camera", "broadcast camera",
-        "camera lens", "tripod professional", "camera rig",
-        "lighting kit", "studio lighting", "softbox", "led panel",
-        "green screen", "backdrop", "studio equipment",
-        "video editing workstation", "color grading monitor"
+        "camera equipment", "professional camera", "dslr camera", "dslr",
+        "mirrorless camera", "mirrorless", "full frame camera", "full frame",
+        "video camera", "cinema camera", "broadcast camera", "camcorder",
+        "camera lens", "camera body", "camera package", "camera kit",
+        "tripod professional", "camera rig", "gimbal", "stabilizer",
+        "lighting kit", "studio lighting", "softbox", "led panel", "ring light",
+        "green screen", "backdrop", "studio equipment", "photo studio",
+        "video editing workstation", "color grading monitor",
+        "canon camera", "canon eos", "canon r5", "canon r6", "canon r3",
+        "sony camera", "sony a7", "sony alpha", "sony fx", "sony a7iv", "sony a7iii",
+        "nikon camera", "nikon z", "nikon d", "nikon z8", "nikon z9",
+        "fujifilm", "fuji camera", "fuji x", "fuji gfx",
+        "panasonic lumix", "lumix gh", "lumix s",
+        "blackmagic", "red camera", "arri", "hasselblad", "phase one",
+        "gopro", "action camera", "drone camera", "dji camera"
       ],
-      "exclude": ["surveillance", "security camera"],
+      "exclude": ["surveillance", "security camera", "cctv"],
       "class": "Computer Equipment",
       "life": 5,
       "method": "200DB",
       "convention": "HY",
       "bonus": true,
       "qip": false,
-      "weight": 2.3
+      "weight": 2.8
     },
 
     {

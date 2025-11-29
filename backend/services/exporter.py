@@ -1,7 +1,7 @@
 import pandas as pd
 from io import BytesIO
 from typing import List
-from datetime import date
+from datetime import date, datetime
 from backend.models.asset import Asset
 from backend.logic.fa_export import build_fa, export_fa_excel
 from backend.logic.fa_export_formatters import _apply_professional_formatting
@@ -24,23 +24,103 @@ class ExporterService:
     The CPA reviews and decides what to do - the system doesn't exclude anything.
     """
 
+    def _format_asset_number(self, asset_id, row_index: int) -> int:
+        """
+        Format Asset # for FA CS - must be numeric, strip leading zeros.
+        FA CS rules: 001 → 1, 0001 → 1, "A-001" → use row_index
+        """
+        if asset_id is None:
+            return row_index
+
+        # Convert to string and strip whitespace
+        asset_str = str(asset_id).strip()
+
+        # Try to extract numeric value
+        # Remove common prefixes like "A-", "Asset-", etc.
+        import re
+        numeric_match = re.search(r'(\d+)', asset_str)
+
+        if numeric_match:
+            # Found numeric part - convert to int (strips leading zeros)
+            return int(numeric_match.group(1))
+        else:
+            # No numeric part found - use row index
+            return row_index
+
     def generate_fa_cs_export(self, assets: List[Asset]) -> BytesIO:
         """
-        Generates Fixed Assets CS import file using the advanced engine.
+        Generates Fixed Assets CS import file with three sheets:
+        1. "FA CS Import" - Clean data for UiPath/RPA (matches FA CS input fields)
+        2. "Audit Trail" - Full data including Book/State for audit purposes
+        3. "Engine Output" - Advanced calculations
 
-        CRITICAL: Exports ALL assets - no filtering/exclusion.
-        Assets with validation errors are flagged for CPA review but NOT excluded.
+        FA CS Input Requirements:
+        - Asset #: Numeric only (001 → 1, 0001 → 1)
+        - Description: Text
+        - Date in Service: Date
+        - Cost: Numeric
+        - Category: For Wizard button (MACRS class)
+        - Life: For Wizard (years)
         """
-        if not assets:
-            raise ValueError("No assets to export")
-
-        # Convert Assets to DataFrame for the engine
-        # IMPORTANT: Include all fields needed for FA CS import
-        data = []
+        # Sheet 1: FA CS Import (for UiPath - matches FA CS input exactly)
+        rpa_data = []
         for asset in assets:
             row = {
-                # Core identifiers
-                "Asset ID": asset.asset_id if asset.asset_id else str(asset.row_index),
+                "Asset #": self._format_asset_number(asset.asset_id, asset.row_index),
+                "Description": asset.description,
+                "Date in Service": asset.in_service_date or asset.acquisition_date,
+                "Cost": asset.cost,
+                "Category": asset.macrs_class,  # For FA CS Wizard selection
+                "Life": asset.macrs_life,  # For FA CS Wizard
+            }
+            rpa_data.append(row)
+
+        rpa_df = pd.DataFrame(rpa_data)
+
+        # Sheet 2: Audit Trail (full data for records)
+        audit_data = []
+        for asset in assets:
+            row = {
+                "Asset #": self._format_asset_number(asset.asset_id, asset.row_index),
+                "Original Asset ID": asset.asset_id,  # Keep original for reference
+                "Description": asset.description,
+                "Cost": asset.cost,
+                "Acquisition Date": asset.acquisition_date,
+                "In Service Date": asset.in_service_date or asset.acquisition_date,
+
+                # Tax Depreciation (Federal)
+                "Tax Class": asset.macrs_class,
+                "Tax Life": asset.macrs_life,
+                "Tax Method": asset.macrs_method,
+                "Tax Convention": asset.macrs_convention,
+
+                # Book Depreciation (GAAP)
+                "Book Life": asset.book_life or asset.macrs_life,
+                "Book Method": asset.book_method or "SL",
+                "Book Convention": asset.book_convention or asset.macrs_convention,
+
+                # State Depreciation
+                "State Life": asset.state_life or asset.macrs_life,
+                "State Method": asset.state_method or asset.macrs_method,
+                "State Convention": asset.state_convention or asset.macrs_convention,
+                "State Bonus Allowed": asset.state_bonus_allowed,
+
+                # Metadata
+                "Confidence Score": asset.confidence_score,
+                "Transaction Type": "Addition",
+                "Business Use %": 1.0,
+                "Tax Year": date.today().year,
+                "Export Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            audit_data.append(row)
+
+        audit_df = pd.DataFrame(audit_data)
+
+        # Also prepare data for build_fa engine (uses specific column names)
+        engine_data = []
+        for asset in assets:
+            row = {
+                "Asset #": self._format_asset_number(asset.asset_id, asset.row_index),
                 "Description": asset.description,
 
                 # Dates - FA CS requires "Date In Service" column name
@@ -59,81 +139,42 @@ class ExporterService:
 
                 # Metadata for tracking
                 "Confidence": asset.confidence_score,
-                "Source": "rules",  # Classification source
-                "Transaction Type": asset.transaction_type if asset.transaction_type else "addition",
-                "Business Use %": 1.0,  # Default to 100% business use
-                "Tax Year": date.today().year,
-
-                # Source tracking for audit
-                "Source Sheet": asset.source_sheet if hasattr(asset, 'source_sheet') else "",
-
-                # Validation status (for CPA review - NOT for exclusion)
-                "Has Validation Errors": "Yes" if asset.validation_errors else "No",
+                "Source": "rules",
+                "Transaction Type": "Addition",
+                "Business Use %": 1.0,
+                "Tax Year": date.today().year
             }
-            data.append(row)
+            engine_data.append(row)
 
-        df = pd.DataFrame(data)
-
-        print(f"Exporting {len(df)} assets to FA CS format")
-        print(f"  - With In Service Date: {df['In Service Date'].notna().sum()}")
-        print(f"  - Without In Service Date: {df['In Service Date'].isna().sum()}")
-        print(f"  - With validation errors: {(df['Has Validation Errors'] == 'Yes').sum()}")
-
-        # Call the advanced export builder
-        # IMPORTANT: use_acq_if_missing=True ensures assets without in-service date
-        # still get a date (using acquisition date as fallback)
+        df = pd.DataFrame(engine_data)
+        
+        # Call the advanced export builder for additional processing
+        # Using defaults for tax parameters for now
         try:
             export_df = build_fa(
                 df=df,
                 tax_year=date.today().year,
                 strategy="Balanced",
-                taxable_income=10000000.0,  # High default to avoid Section 179 limits
-                use_acq_if_missing=True  # Use acquisition date if no in-service date
+                taxable_income=10000000.0,  # High default to avoid limits
+                use_acq_if_missing=True
             )
-        except ValueError as e:
-            # If build_fa raises critical error, still try to export basic data
-            print(f"Warning: build_fa raised error: {e}")
-            print("Attempting basic export without advanced processing...")
-            return self._generate_basic_export(df)
+        except Exception as e:
+            # If build_fa fails, use the raw data
+            print(f"Warning: build_fa failed ({e}), using raw data")
+            export_df = df
 
-        # Generate professional multi-sheet export
-        # This returns bytes directly
-        excel_bytes = export_fa_excel(export_df)
-
-        # Convert bytes to BytesIO for compatibility
-        return BytesIO(excel_bytes)
-
-    def _generate_basic_export(self, df: pd.DataFrame) -> BytesIO:
-        """
-        Fallback basic export when advanced processing fails.
-
-        Ensures ALL assets are exported even if validation fails.
-        CPA can review and fix issues manually.
-        """
-        print("Using basic export fallback...")
-
-        # Create basic FA CS compatible columns
-        export_df = pd.DataFrame({
-            "Asset #": range(1, len(df) + 1),
-            "Description": df["Description"],
-            "Date In Service": df["In Service Date"].apply(
-                lambda x: x.strftime("%m/%d/%Y") if pd.notna(x) and hasattr(x, 'strftime') else ""
-            ),
-            "Acquisition Date": df["Acquisition Date"].apply(
-                lambda x: x.strftime("%m/%d/%Y") if pd.notna(x) and hasattr(x, 'strftime') else ""
-            ),
-            "Tax Cost": df["Cost"].fillna(0).round(2),
-            "Tax Life": df["MACRS Life"],
-            "Tax Method": df["Method"].fillna(""),
-            "Final Category": df["Final Category"].fillna("Unclassified"),
-            "Transaction Type": df["Transaction Type"],
-            "Needs Review": df["Has Validation Errors"],
-        })
-
-        # Write to Excel
+        # Generate multi-sheet Excel export
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            export_df.to_excel(writer, sheet_name="FA_CS_Data", index=False)
-        output.seek(0)
+            # Sheet 1: FA CS Import (for UiPath/RPA) - FIRST SHEET
+            rpa_df.to_excel(writer, sheet_name='FA CS Import', index=False)
 
+            # Sheet 2: Audit Trail (full data with Book/State)
+            audit_df.to_excel(writer, sheet_name='Audit Trail', index=False)
+
+            # Sheet 3: Engine Output (advanced calculations if available)
+            if export_df is not None and not export_df.empty:
+                export_df.to_excel(writer, sheet_name='Engine Output', index=False)
+
+        output.seek(0)
         return output

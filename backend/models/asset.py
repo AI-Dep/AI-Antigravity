@@ -78,35 +78,45 @@ class Asset(BaseModel):
 
     def check_validity(self):
         """
-        Runs business rules and populates validation_errors.
+        Runs business rules and populates validation_errors and validation_warnings.
         Call this after creating the object.
 
-        IMPORTANT: These are ADVISORY warnings, not rejection criteria.
-        Assets should still be processed even with validation errors.
+        Errors = Critical issues that BLOCK export (must fix)
+        Warnings = Non-critical issues (informational, don't block export)
         """
         self.validation_errors = []
+        self.validation_warnings = []
 
-        # 1. Cost Validation (advisory - cost of 0 is allowed but flagged)
+        # === CRITICAL ERRORS (Block Export) ===
+
+        # 1. Cost Validation - Must have valid cost
         if self.cost <= 0:
-            self.validation_errors.append("Cost is missing or zero - needs review.")
+            self.validation_errors.append("Cost must be positive.")
 
-        # 2. Date Validation (advisory - missing dates are allowed but flagged)
-        if not self.acquisition_date and not self.in_service_date:
-            self.validation_errors.append("Missing date information - needs review.")
-        elif self.acquisition_date and self.acquisition_date > date.today():
-            self.validation_errors.append(f"Acquisition Date {self.acquisition_date} is in the future.")
-        elif self.in_service_date and self.in_service_date > date.today():
-            self.validation_errors.append(f"In-Service Date {self.in_service_date} is in the future.")
-
-        # 3. Description Validation
+        # 2. Description Validation - Must have meaningful description
         if len(self.description) < 3:
-            self.validation_errors.append("Description is very short - may need review.")
+            self.validation_errors.append("Description is too short.")
 
-        # 4. Method Validation
+        # 3. Classification Validation - Must be classified (not Unclassified or None)
+        if not self.macrs_class or self.macrs_class in ["Unclassified", "Unknown", ""]:
+            self.validation_errors.append("Asset not classified - needs MACRS class.")
+
+        # 4. Method Validation (only if method is set and invalid)
         valid_methods = ["200DB", "150DB", "SL", "ADS", "Unknown", None, ""]
         if self.macrs_method and self.macrs_method not in valid_methods:
-            # Don't reject - just flag for review
-            pass  # Allow any method, classification will handle it
+            self.validation_errors.append(f"Invalid Method: {self.macrs_method}")
+
+        # === WARNINGS (Informational, Don't Block Export) ===
+
+        # 5. Date Validation - Missing date is a warning, not an error
+        if not self.acquisition_date and not self.in_service_date:
+            self.validation_warnings.append("No acquisition or in-service date provided.")
+        elif self.acquisition_date and self.acquisition_date > date.today():
+            self.validation_warnings.append(f"Acquisition Date {self.acquisition_date} is in the future.")
+
+        # 6. Low Confidence Warning
+        if self.confidence_score < 0.8 and self.macrs_class and self.macrs_class not in ["Unclassified", ""]:
+            self.validation_warnings.append(f"Low confidence ({self.confidence_score:.0%}) - consider manual review.")
 
 class AuditEvent(BaseModel):
     timestamp: datetime
