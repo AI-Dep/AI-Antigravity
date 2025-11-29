@@ -80,7 +80,8 @@ FUZZY_MATCH_SUBSTRING_MIN_LENGTH = 4
 FUZZY_MATCH_REVERSE_SUBSTRING_MIN_LENGTH = 6
 
 # Header detection constants
-HEADER_SCAN_MAX_ROWS = 20
+# Increased from 20 to 50 to handle files with titles/blanks above headers
+HEADER_SCAN_MAX_ROWS = 50
 HEADER_NUMERIC_PENALTY_THRESHOLD = 0.4
 HEADER_REPETITION_MAX_LENGTH = 30
 
@@ -1033,6 +1034,56 @@ def _is_header_repetition(desc: str) -> bool:
     return False
 
 
+# Keywords that indicate a totals/summary row (not actual asset data)
+TOTALS_ROW_KEYWORDS = [
+    "total", "subtotal", "sub-total", "sub total",
+    "grand total", "balance", "net", "sum",
+    "category total", "class total", "group total",
+    "carried forward", "brought forward", "b/f", "c/f",
+    "ending balance", "beginning balance",
+    "summary", "totals", "accumulated"
+]
+
+
+def _is_totals_row(desc: str, asset_id: str = "") -> bool:
+    """
+    Check if a row is a totals/summary row that should be skipped.
+
+    Many Excel files have totals rows that should not be imported as assets.
+    These rows typically have keywords like "Total", "Subtotal", "Balance" etc.
+
+    Args:
+        desc: Description string to check
+        asset_id: Asset ID to check (totals rows often have empty or special IDs)
+
+    Returns:
+        True if this appears to be a totals row
+    """
+    if not desc:
+        return False
+
+    desc_lower = desc.lower().strip()
+
+    # Check for exact matches or keyword presence
+    for keyword in TOTALS_ROW_KEYWORDS:
+        # Check if description starts with or contains the totals keyword
+        if desc_lower.startswith(keyword) or f" {keyword}" in f" {desc_lower}":
+            # Additional check: totals rows are usually short
+            if len(desc) < 50:
+                logger.debug(f"Skipping totals row: {desc}")
+                return True
+
+    # Check for pattern like "Total - Category Name" or "Total: Equipment"
+    if re.match(r'^(total|subtotal|sum)\s*[-:]\s*', desc_lower):
+        return True
+
+    # Check for pattern like "*** TOTAL ***" or "=== SUBTOTAL ==="
+    if re.match(r'^[\*\=\-\s]*(total|subtotal)[\*\=\-\s]*$', desc_lower):
+        return True
+
+    return False
+
+
 def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[str, Any]]:
     """
     Clean and validate a single row
@@ -1054,6 +1105,10 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
     # Skip header repetitions (Excel sometimes repeats headers)
     if _is_header_repetition(desc_raw):
         logger.debug(f"Skipping header repetition: {desc_raw}")
+        return None
+
+    # Skip totals/summary rows (not actual asset data)
+    if _is_totals_row(desc_raw, asset_id):
         return None
 
     # Fix typos in description

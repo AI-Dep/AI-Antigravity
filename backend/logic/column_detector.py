@@ -25,22 +25,23 @@ from rapidfuzz import fuzz
 # ====================================================================================
 
 # Fuzzy matching thresholds
-FUZZY_MATCH_THRESHOLD = 75
+# Lowered from 75 to 70 to catch more typos/abbreviations like "Acq Dt", "Depr Meth"
+FUZZY_MATCH_THRESHOLD = 70
 FUZZY_MATCH_SUBSTRING_MIN_LENGTH = 4
 FUZZY_MATCH_REVERSE_SUBSTRING_MIN_LENGTH = 6
 
 # Token matching thresholds
-TOKEN_MATCH_THRESHOLD = 0.65  # Minimum token overlap ratio
-HYBRID_SCORE_THRESHOLD = 0.70  # Minimum hybrid score for match
+TOKEN_MATCH_THRESHOLD = 0.60  # Lowered from 0.65 to catch partial matches
+HYBRID_SCORE_THRESHOLD = 0.65  # Lowered from 0.70 to improve detection rate
 
 # Scoring weights for hybrid matching
 TOKEN_WEIGHT = 0.70  # Weight for token/synonym matching
 FUZZY_WEIGHT = 0.30  # Weight for fuzzy string matching
 
 # Confidence levels for CPA review
-CONFIDENCE_HIGH = 0.90  # Auto-accept
-CONFIDENCE_MEDIUM = 0.75  # Likely correct, show for verification
-CONFIDENCE_LOW = 0.65  # Needs CPA review
+CONFIDENCE_HIGH = 0.85  # Auto-accept (lowered from 0.90)
+CONFIDENCE_MEDIUM = 0.70  # Likely correct, show for verification (lowered from 0.75)
+CONFIDENCE_LOW = 0.60  # Needs CPA review (lowered from 0.65)
 
 
 # ====================================================================================
@@ -136,23 +137,29 @@ FA_ABBREVIATIONS = {
     "accum": "accumulated",
     "amt": "amount",
     "bus": "business",
+    "cap": "capitalized",
     "cat": "category",
     "conv": "convention",
     "cur": "current",
     "dept": "department",
     "dep": "depreciation",
     "depr": "depreciation",
+    "depn": "depreciation",
     "desc": "description",
     "disp": "disposal",
     "dt": "date",
     "eq": "equipment",
+    "equip": "equipment",
     "fa": "fixed asset",
     "furn": "furniture",
     "fix": "fixtures",
     "hist": "historical",
     "id": "identifier",
     "imp": "improvement",
+    "inv": "investment",
+    "loc": "location",
     "ltd": "life to date",
+    "meth": "method",
     "nbv": "net book value",
     "no": "number",
     "num": "number",
@@ -160,14 +167,18 @@ FA_ABBREVIATIONS = {
     "pct": "percent",
     "pis": "placed in service",
     "prop": "property",
+    "pur": "purchase",
     "purch": "purchase",
     "qip": "qualified improvement property",
     "rec": "recovery",
     "ret": "retired",
+    "sal": "salvage",
     "sec": "section",
     "svc": "service",
+    "val": "value",
     "xfer": "transfer",
     "yr": "year",
+    "yrs": "years",
     "ytd": "year to date",
 }
 
@@ -425,7 +436,11 @@ HEADER_KEYS = {
         "total cost", "net cost", "gross cost",
         # Specific
         "cost/basis", "cost or basis", "unadjusted basis",
-        "depreciable basis", "tax basis"
+        "depreciable basis", "tax basis",
+        # Edge cases commonly seen in CPA files
+        "orig cost", "orig. cost", "original", "asset cost",
+        "purchase amt", "purchase amount", "cap cost", "capitalized",
+        "investment", "investment cost", "asset value", "dollar amount"
     ],
 
     "acquisition_date": [
@@ -436,7 +451,10 @@ HEADER_KEYS = {
         "acquired", "date acquired", "date of acquisition",
         "date purchased", "date of purchase",
         # Specific
-        "original acquisition date", "acquisition", "purch"
+        "original acquisition date", "acquisition", "purch",
+        # Edge cases commonly seen in CPA files
+        "acq dt", "acq", "purchased", "bought", "acquire date",
+        "orig date", "original date", "purchase dt", "pur date"
     ],
 
     "in_service_date": [
@@ -447,7 +465,11 @@ HEADER_KEYS = {
         "start date", "begin date", "started",
         "date in service", "date placed in service",
         # Tax specific
-        "depreciation start date", "tax start date"
+        "depreciation start date", "tax start date",
+        # Edge cases commonly seen in CPA files
+        "service dt", "in svc", "in svc date", "placed date",
+        "depr start", "depreciation date", "begin depr",
+        "effective date", "effective"
     ],
 
     "location": [
@@ -476,20 +498,32 @@ HEADER_KEYS = {
     "proceeds": [
         # Standard
         "proceeds", "sale proceeds", "sales price",
-        "disposal proceeds", "salvage value"
+        "disposal proceeds", "salvage value",
+        # Edge cases commonly seen in CPA files
+        "sale amount", "disposal amount", "sold for", "sales amt",
+        "disposal value", "sale price", "retirement proceeds",
+        "gain/loss amount", "net proceeds", "gross proceeds"
     ],
 
     "method": [
         # Standard
         "method", "depreciation method", "depr method",
         # Variations
-        "macrs method", "tax method", "convention"
+        "macrs method", "tax method", "convention",
+        # Edge cases commonly seen in CPA files
+        "depr meth", "dep method", "meth", "depr type",
+        "depreciation type", "calc method", "computation method",
+        "db/sl", "sl/db", "200db", "150db"
     ],
 
     "life": [
         # Standard
         "life", "useful life", "recovery period",
-        "class life", "macrs life", "years"
+        "class life", "macrs life", "years",
+        # Edge cases commonly seen in CPA files
+        "asset life", "life years", "life (years)", "life yrs",
+        "recovery", "recovery yrs", "term", "period",
+        "depr period", "depreciation period", "est life"
     ],
 
     "tax_life": [
