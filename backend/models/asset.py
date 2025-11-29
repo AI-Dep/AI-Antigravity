@@ -17,12 +17,23 @@ class Asset(BaseModel):
     acquisition_date: Optional[date] = Field(None, description="Date Acquired")
     in_service_date: Optional[date] = Field(None, description="Date Placed in Service")
     
-    # Classification (AI Predicted)
+    # Tax Depreciation (Federal MACRS)
     macrs_class: Optional[str] = None
     macrs_life: Optional[float] = None
-    macrs_method: Optional[str] = None
-    macrs_convention: Optional[str] = None
-    
+    macrs_method: Optional[str] = None  # 200DB, 150DB, SL, ADS
+    macrs_convention: Optional[str] = None  # HY, MQ, MM
+
+    # Book Depreciation (GAAP/Financial)
+    book_life: Optional[float] = None
+    book_method: Optional[str] = None  # SL, DB, etc.
+    book_convention: Optional[str] = None
+
+    # State Depreciation (may differ from federal)
+    state_life: Optional[float] = None
+    state_method: Optional[str] = None
+    state_convention: Optional[str] = None
+    state_bonus_allowed: bool = True  # Some states don't allow bonus
+
     # Flags
     confidence_score: float = Field(0.0, ge=0.0, le=1.0)
     is_qualified_improvement: bool = False
