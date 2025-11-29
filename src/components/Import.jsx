@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '../lib/utils';
 import axios from 'axios';
 
-export default function Import({ onUploadSuccess }) {
+function Import({ onUploadSuccess }) {
     const [isDragging, setIsDragging] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
     const [error, setError] = useState(null);
@@ -126,3 +126,6 @@ export default function Import({ onUploadSuccess }) {
         </div>
     );
 }
+
+export { Import };
+export default Import;
