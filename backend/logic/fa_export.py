@@ -943,15 +943,14 @@ def build_fa(
 
         print(f"\n{'='*70}\n")
 
+        # IMPORTANT: Validation errors are ADVISORY only
+        # Processing continues regardless - CPA reviews and decides what to do
+        # The system does NOT exclude assets without human CPA approval
         if should_stop:
-            # Include actual critical errors in the exception message so users can see them
-            critical_details = "\n".join([f"  - {e}" for e in critical[:5]])
-            raise ValueError(
-                f"CRITICAL data validation errors found ({len(critical)} issues). "
-                f"Processing stopped to prevent incorrect results.\n\n"
-                f"Critical errors:\n{critical_details}\n\n"
-                f"Fix these issues and try again."
-            )
+            # Log warning but DO NOT stop - let CPA decide
+            print("⚠️  WARNING: Critical validation errors found but processing continues.")
+            print("    CPA must review flagged assets before finalizing export.")
+            # Was: raise ValueError(...) - removed to allow CPA review
 
     # ============================================================================
     # CRITICAL FIX: TRANSACTION TYPE CLASSIFICATION
