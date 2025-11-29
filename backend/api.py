@@ -291,8 +291,12 @@ def get_warnings():
             "examples": existing_as_additions[:5]
         })
 
-    # 2. Check for assets missing cost
-    zero_cost = [a for a in assets if a.cost <= 0]
+    # 2. Check for assets missing cost (exclude transfers - they don't require cost)
+    # Transfers just move assets between departments/locations, cost is already recorded
+    zero_cost = [
+        a for a in assets
+        if a.cost <= 0 and not (a.transaction_type and a.transaction_type.lower() == "transfer")
+    ]
     if zero_cost:
         critical_warnings.append({
             "type": "MISSING_COST",
@@ -348,8 +352,12 @@ def get_warnings():
             "affected_count": len(de_minimis_candidates)
         })
 
-    # 6. Unclassified assets
-    unclassified = [a for a in assets if a.macrs_class in ["Unclassified", "Unknown", None, ""]]
+    # 6. Unclassified assets (exclude transfers - they don't need classification)
+    unclassified = [
+        a for a in assets
+        if a.macrs_class in ["Unclassified", "Unknown", None, ""]
+        and not (a.transaction_type and a.transaction_type.lower() == "transfer")
+    ]
     if unclassified:
         warnings.append({
             "type": "UNCLASSIFIED_ASSETS",
@@ -361,7 +369,26 @@ def get_warnings():
 
     # ===== INFO MESSAGES =====
 
-    # 7. Transaction type summary
+    # 7. Transfer assets info (they don't require cost)
+    transfer_assets = [
+        a for a in assets
+        if a.transaction_type and a.transaction_type.lower() == "transfer"
+    ]
+    if transfer_assets:
+        transfer_with_cost = [a for a in transfer_assets if a.cost > 0]
+        transfer_no_cost = [a for a in transfer_assets if a.cost <= 0]
+        info_messages.append({
+            "type": "TRANSFER_ASSETS_INFO",
+            "message": f"{len(transfer_assets)} transfer records detected",
+            "details": {
+                "with_cost": len(transfer_with_cost),
+                "without_cost": len(transfer_no_cost),
+                "note": "Transfers track asset movement between departments/locations - cost field is optional"
+            },
+            "affected_count": len(transfer_assets)
+        })
+
+    # 8. Transaction type summary
     info_messages.append({
         "type": "TRANSACTION_SUMMARY",
         "message": "Asset classification summary",
@@ -369,7 +396,7 @@ def get_warnings():
         "tax_year": tax_year
     })
 
-    # 8. OBBBA 2025 info
+    # 9. OBBBA 2025 info
     if tax_year >= 2025:
         info_messages.append({
             "type": "OBBBA_2025_EFFECTIVE",
