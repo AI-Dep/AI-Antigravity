@@ -57,7 +57,7 @@ class ClassifierService:
         return assets
 
     def _apply_classification(self, asset: Asset, result: Dict):
-        """Applies classification result to Asset object."""
+        """Applies classification result to Asset object and runs validation."""
         asset.macrs_class = result.get("final_class", "Unclassified")
         asset.macrs_life = result.get("final_life")
         asset.macrs_method = result.get("final_method")
@@ -65,5 +65,8 @@ class ClassifierService:
         asset.is_bonus_eligible = result.get("bonus", False)
         asset.is_qualified_improvement = result.get("qip", False)
         asset.confidence_score = result.get("confidence", 0.0)
-        # We could store reasoning/notes if the Asset model supported it
+
+        # Run validation AFTER classification is applied
+        # This ensures we can check if the asset was successfully classified
+        asset.check_validity()
 
