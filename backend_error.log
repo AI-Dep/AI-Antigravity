@@ -1,7 +1,0 @@
-cannot import name 'find_column_match' from 'backend.logic.column_detector' (C:\Users\sejin\OneDrive\πŸ≈¡ »≠∏È\AI Project\FA_Automator\backend\logic\column_detector.py)
-Traceback (most recent call last):
-  File "C:\Users\sejin\OneDrive\πŸ≈¡ »≠∏È\AI Project\FA_Automator\backend\api.py", line 65, in upload_file
-    assets = importer.parse_excel(temp_file)
-  File "C:\Users\sejin\OneDrive\πŸ≈¡ »≠∏È\AI Project\FA_Automator\backend\services\importer.py", line 53, in parse_excel
-    from backend.logic.column_detector import find_column_match
-ImportError: cannot import name 'find_column_match' from 'backend.logic.column_detector' (C:\Users\sejin\OneDrive\πŸ≈¡ »≠∏È\AI Project\FA_Automator\backend\logic\column_detector.py)

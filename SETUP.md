@@ -1,23 +1,63 @@
-# FA CS Automator Setup
+# FA CS Automator Setup Guide
 
-The frontend foundation has been created. Since the environment did not have `npm` accessible, you need to install the dependencies manually to run the app.
+## Quick Start
 
-## 1. Install Dependencies
-Open a terminal in this directory (`c:\Users\sejin\OneDrive\바탕 화면\AI Project\FA_Automator`) and run:
+### 1. Backend Setup (Python)
 
 ```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate (Windows)
+venv\Scripts\activate
+
+# Activate (Mac/Linux)
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 2. Frontend Setup (Node.js)
+
+```bash
+# Install dependencies
 npm install
+
+# Install additional packages (if not in package.json)
 npm install -D tailwindcss postcss autoprefixer
 npm install lucide-react clsx tailwind-merge class-variance-authority react-router-dom
 ```
 
-## 2. Initialize Tailwind (If needed)
-If the styles don't load, you might need to ensure tailwind is initialized (though the config files are already created).
+### 3. Run the Application
 
-## 3. Run the App
+**Terminal 1 - Backend:**
+```bash
+cd backend
+python api.py
+```
+
+**Terminal 2 - Frontend:**
 ```bash
 npm run dev
 ```
 
-## 4. Verify
-You should see the new "Premium" Dashboard with a Sidebar and Header.
+### 4. Access the Application
+
+- **Frontend**: http://localhost:5173
+- **Backend API**: http://127.0.0.1:8000
+- **API Docs**: http://127.0.0.1:8000/docs
+
+## Environment Variables (Optional)
+
+Create a `.env` file in the root directory:
+
+```env
+OPENAI_API_KEY=your_api_key_here
+```
+
+## Notes
+
+- Make sure Fixed Asset CS is installed on the target machine for RPA
+- The RPA component requires UiPath to be configured
+- Database will be created automatically on first run
