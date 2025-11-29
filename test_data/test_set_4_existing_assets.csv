@@ -1,0 +1,6 @@
+Asset ID,Description,Cost,Acquisition Date,In Service Date,Transaction Type,Accumulated Depreciation,Prior Section 179,Prior Bonus
+EXIST-001,3-Year Old Manufacturing Equipment,20000,01/01/2021,01/01/2021,Existing Asset,12000,0,10000
+EXIST-002,5-Year Old Commercial Building,300000,07/01/2019,07/01/2019,Existing Asset,35000,0,0
+EXIST-003,2-Year Old Delivery Vehicle,40000,06/15/2022,06/15/2022,Existing Asset,20000,0,24000
+EXIST-004,Fully Depreciated Office Furniture,8000,03/01/2018,03/01/2018,Existing Asset,8000,0,0
+EXIST-005,Equipment with Partial 179 Taken,15000,01/01/2023,01/01/2023,Existing Asset,3000,5000,0

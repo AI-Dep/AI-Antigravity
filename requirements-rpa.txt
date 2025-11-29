@@ -1,0 +1,17 @@
+# RPA and Automation Libraries (Windows only)
+# Install these ONLY if running locally on Windows with Fixed Asset CS
+
+# First install base requirements:
+# pip install -r requirements.txt
+
+# Then install RPA dependencies:
+pyautogui>=0.9.54
+pywinauto>=0.6.8
+pillow>=10.0.0
+opencv-python>=4.8.0
+keyboard>=0.13.5
+psutil>=5.9.0
+
+# Usage:
+# pip install -r requirements.txt
+# pip install -r requirements-rpa.txt

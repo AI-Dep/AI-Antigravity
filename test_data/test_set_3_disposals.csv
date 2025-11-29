@@ -1,0 +1,6 @@
+Asset ID,Description,Cost,Acquisition Date,In Service Date,Transaction Type,Disposal Date,Proceeds,Accumulated Depreciation
+DISP-001,Old Desktop Computer - Sold,2000,01/15/2020,01/15/2020,Disposal,03/15/2024,200,1800
+DISP-002,Company Vehicle - Sold,30000,06/01/2019,06/01/2019,Disposal,06/30/2024,15000,20000
+DISP-003,Obsolete Equipment - Scrapped,5000,03/01/2018,03/01/2018,Disposal,09/01/2024,0,5000
+DISP-004,Office Furniture - Trade-in,10000,07/15/2020,07/15/2020,Disposal,12/01/2024,3000,7000
+DISP-005,Partial Equipment Disposal,50000,01/01/2021,01/01/2021,Disposal,07/15/2024,10000,15000

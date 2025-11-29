@@ -1,0 +1,4 @@
+Asset ID,Description,Cost,Acquisition Date,In Service Date,Transaction Type,Transfer Date,From Location,To Location,From Department,To Department
+XFER-001,Equipment Transfer - Building A to B,15000,01/01/2022,01/01/2022,Transfer,04/01/2024,Building A,Building B,Sales,Marketing
+XFER-002,Asset Reclassification - Dept Change,8000,06/15/2021,06/15/2021,Transfer,07/15/2024,,,Dept 100,Dept 200
+XFER-003,Location Move Only,12000,03/01/2023,03/01/2023,Transfer,10/01/2024,Site 1,Site 2,,
