@@ -11,21 +11,54 @@ class ExporterService:
     Generates Excel files formatted for Fixed Assets CS import.
     """
 
+    def _format_asset_number(self, asset_id, row_index: int) -> int:
+        """
+        Format Asset # for FA CS - must be numeric, strip leading zeros.
+        FA CS rules: 001 → 1, 0001 → 1, "A-001" → use row_index
+        """
+        if asset_id is None:
+            return row_index
+
+        # Convert to string and strip whitespace
+        asset_str = str(asset_id).strip()
+
+        # Try to extract numeric value
+        # Remove common prefixes like "A-", "Asset-", etc.
+        import re
+        numeric_match = re.search(r'(\d+)', asset_str)
+
+        if numeric_match:
+            # Found numeric part - convert to int (strips leading zeros)
+            return int(numeric_match.group(1))
+        else:
+            # No numeric part found - use row index
+            return row_index
+
     def generate_fa_cs_export(self, assets: List[Asset]) -> BytesIO:
         """
-        Generates Fixed Assets CS import file with two sheets:
-        1. "FA CS Import" - Clean data for UiPath/RPA
+        Generates Fixed Assets CS import file with three sheets:
+        1. "FA CS Import" - Clean data for UiPath/RPA (matches FA CS input fields)
         2. "Audit Trail" - Full data including Book/State for audit purposes
+        3. "Engine Output" - Advanced calculations
+
+        FA CS Input Requirements:
+        - Asset #: Numeric only (001 → 1, 0001 → 1)
+        - Description: Text
+        - Date in Service: Date
+        - Cost: Numeric
+        - Category: For Wizard button (MACRS class)
+        - Life: For Wizard (years)
         """
-        # Sheet 1: FA CS Import (for UiPath - only essential fields)
+        # Sheet 1: FA CS Import (for UiPath - matches FA CS input exactly)
         rpa_data = []
         for asset in assets:
             row = {
-                "Asset ID": asset.asset_id or asset.row_index,
+                "Asset #": self._format_asset_number(asset.asset_id, asset.row_index),
                 "Description": asset.description,
                 "Date in Service": asset.in_service_date or asset.acquisition_date,
                 "Cost": asset.cost,
                 "Category": asset.macrs_class,  # For FA CS Wizard selection
+                "Life": asset.macrs_life,  # For FA CS Wizard
             }
             rpa_data.append(row)
 
@@ -35,7 +68,8 @@ class ExporterService:
         audit_data = []
         for asset in assets:
             row = {
-                "Asset ID": asset.asset_id or asset.row_index,
+                "Asset #": self._format_asset_number(asset.asset_id, asset.row_index),
+                "Original Asset ID": asset.asset_id,  # Keep original for reference
                 "Description": asset.description,
                 "Cost": asset.cost,
                 "Acquisition Date": asset.acquisition_date,
@@ -73,7 +107,7 @@ class ExporterService:
         engine_data = []
         for asset in assets:
             row = {
-                "Asset ID": asset.asset_id or asset.row_index,
+                "Asset #": self._format_asset_number(asset.asset_id, asset.row_index),
                 "Description": asset.description,
                 "Cost": asset.cost,
                 "Acquisition Date": asset.acquisition_date,
