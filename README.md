@@ -84,9 +84,13 @@ npm run dev
 |----------|--------|-------------|
 | `/` | GET | Health check |
 | `/check-facs` | GET | Check if FA CS is running |
+| `/stats` | GET | Dashboard statistics (total, errors, needs_review, approved) |
 | `/upload` | POST | Upload Excel file for processing |
 | `/assets/{id}/update` | POST | Update asset classification |
-| `/export` | GET | Export FA CS import file |
+| `/assets/{id}/approve` | POST | CPA approves single asset |
+| `/assets/{id}/approve` | DELETE | Remove approval from asset |
+| `/assets/approve-batch` | POST | Bulk approve multiple assets |
+| `/export` | GET | Export FA CS import file (blocked if errors exist) |
 | `/docs` | GET | OpenAPI documentation |
 
 ## Human-in-the-Loop Workflow
