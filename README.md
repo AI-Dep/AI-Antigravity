@@ -11,7 +11,6 @@ Automate the detection of asset schedules from various Excel files and import to
 - **Human-in-the-Loop**: CPA review and approval workflow before data conversion
 - **RPA Integration**: UiPath automation for Fixed Asset CS import
 - **Multi-Format Support**: Handles diverse client Excel formats
-- **Dual UI**: React web interface + Streamlit professional dashboard
 - **SQLite Database**: Full audit trail and multi-client support
 - **Tax Compliance**: IRS Publication 946 compliant classifications
 
@@ -21,12 +20,11 @@ Automate the detection of asset schedules from various Excel files and import to
 FA_CS_Automator/
 ├── backend/                    # Python Backend
 │   ├── api.py                 # FastAPI REST API server
-│   ├── streamlit_app.py       # Streamlit professional UI
 │   ├── logic/                 # Core processing logic (57+ modules)
 │   │   ├── column_detector.py # Excel column auto-detection
 │   │   ├── sheet_loader.py    # Multi-format Excel parsing
 │   │   ├── macrs_classification.py # MACRS classification engine
-│   │   ├── fa_export.py       # FA CS export builder (150KB)
+│   │   ├── fa_export.py       # FA CS export builder
 │   │   ├── database_schema.sql # SQLite schema
 │   │   └── config/            # JSON configuration files
 │   ├── models/                # Pydantic data models
@@ -39,10 +37,6 @@ FA_CS_Automator/
 │   ├── components/           # React components
 │   └── App.jsx               # Main React app
 ├── docs/                      # Documentation
-│   ├── ACTIVE_FEATURES_LIST.md
-│   ├── HUMAN_IN_THE_LOOP_WORKFLOW.md
-│   ├── FA_CS_IMPORT_MAPPING.md
-│   └── ...
 ├── test_data/                 # Test data files
 ├── tests/                     # Test suite
 ├── requirements.txt           # Python dependencies
@@ -74,8 +68,6 @@ npm install
 
 ## Running the Application
 
-### Option 1: FastAPI + React (Development)
-
 ```bash
 # Terminal 1 - Backend API
 cd backend && python api.py
@@ -84,13 +76,6 @@ cd backend && python api.py
 # Terminal 2 - React Frontend
 npm run dev
 # UI at http://localhost:5173
-```
-
-### Option 2: Streamlit (Production)
-
-```bash
-cd backend && streamlit run streamlit_app.py
-# Opens at http://localhost:8501
 ```
 
 ## API Endpoints
@@ -135,7 +120,7 @@ Multi-tier classification with confidence scoring:
 
 ## Tech Stack
 
-- **Backend**: Python 3.11+, FastAPI, Streamlit, Pandas
+- **Backend**: Python 3.11+, FastAPI, Pandas
 - **AI**: OpenAI GPT-4o-mini for classification fallback
 - **Frontend**: React 18, Vite, Tailwind CSS
 - **RPA**: UiPath (Windows only)
