@@ -7,16 +7,16 @@ class Asset(BaseModel):
     Represents a single fixed asset with strict validation.
     """
     row_index: int = Field(..., description="Original row number in Excel")
-    
+
     # Critical Fields
     asset_id: Optional[str] = Field(None, description="Unique Asset Identifier")
     description: str = Field(..., min_length=2, description="Asset Description")
     cost: float = Field(..., gt=0, description="Acquisition Cost")
-    
+
     # Dates
     acquisition_date: Optional[date] = Field(None, description="Date Acquired")
     in_service_date: Optional[date] = Field(None, description="Date Placed in Service")
-    
+
     # Tax Depreciation (Federal MACRS)
     macrs_class: Optional[str] = None
     macrs_life: Optional[float] = None
@@ -38,10 +38,14 @@ class Asset(BaseModel):
     confidence_score: float = Field(0.0, ge=0.0, le=1.0)
     is_qualified_improvement: bool = False
     is_bonus_eligible: bool = False
-    
+
+    # Source tracking (for multi-sheet support)
+    source_sheet: Optional[str] = Field(None, description="Source Excel sheet name")
+    transaction_type: Optional[str] = Field("addition", description="Transaction type: addition, disposal, transfer")
+
     # Audit Trail
     audit_trail: List['AuditEvent'] = []
-    
+
     # Validation Errors and Warnings (For UI Display)
     validation_errors: List[str] = []  # Critical issues that block export
     validation_warnings: List[str] = []  # Non-critical issues (info only)
@@ -52,7 +56,7 @@ class Asset(BaseModel):
             try:
                 return datetime.strptime(v, '%Y-%m-%d').date()
             except ValueError:
-                return None 
+                return None
         return v
 
     @validator('cost')
@@ -112,4 +116,3 @@ class AuditEvent(BaseModel):
 
 # Update Asset to include audit trail
 Asset.update_forward_refs()
-
