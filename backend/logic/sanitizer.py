@@ -21,6 +21,8 @@ _ABBREVIATIONS = {
     "m & e": "machinery and equipment",
     "equip": "equipment",
     "eqp": "equipment",
+    "equipmt": "equipment",
+    "equipmnt": "equipment",
     "comp": "computer",
     "pc": "computer",
     "it equip": "it equipment",
@@ -30,7 +32,28 @@ _ABBREVIATIONS = {
     "med": "medical",
     "dept": "department",
     "pos": "point of sale",
-    "av": "audio visual"
+    "av": "audio visual",
+    # Common client abbreviations from prior tool
+    "whse": "warehouse",
+    "wh": "warehouse",
+    "mfg": "manufacturing",
+    "manuf": "manufacturing",
+    "dist": "distribution",
+    "bldg": "building",
+    "rm": "room",
+    "furn": "furniture",
+    "fac": "facility",
+    "mach": "machine",
+    "elec": "electrical",
+    "acct": "accounting",
+    "admin": "administration",
+    "svr": "server",
+    "srvr": "server",
+    "wkst": "workstation",
+    "wkstn": "workstation",
+    "mon": "monitor",
+    "prt": "printer",
+    "prtr": "printer"
 }
 
 
