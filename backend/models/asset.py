@@ -129,4 +129,3 @@ class AuditEvent(BaseModel):
 
 # Update Asset to include audit trail
 Asset.update_forward_refs()
-
