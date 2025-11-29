@@ -23,3 +23,5 @@ export function Header({ title }) {
         </header>
     );
 }
+
+export default Header;

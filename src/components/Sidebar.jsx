@@ -50,3 +50,5 @@ export function Sidebar({ activeTab, setActiveTab }) {
         </div>
     );
 }
+
+export default Sidebar;
