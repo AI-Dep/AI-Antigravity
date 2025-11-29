@@ -39,6 +39,7 @@ exporter = ExporterService()
 
 # In-Memory Store (Replace with DB later)
 ASSET_STORE: Dict[int, Asset] = {}
+APPROVED_ASSETS: set = set()  # Track CPA-approved row_indexes
 
 @app.get("/")
 def read_root():
@@ -49,6 +50,30 @@ def check_facs():
     # SAFETY CHECK: Is Fixed Assets CS running?
     running = "FAwin.exe" in (p.name() for p in psutil.process_iter())
     return {"running": running}
+
+@app.get("/stats")
+def get_stats():
+    """
+    Returns statistics for the Dashboard.
+    """
+    assets = list(ASSET_STORE.values())
+    total = len(assets)
+
+    errors = sum(1 for a in assets if getattr(a, 'validation_errors', None))
+    needs_review = sum(1 for a in assets if not getattr(a, 'validation_errors', None)
+                       and getattr(a, 'confidence_score', 1.0) <= 0.8)
+    high_confidence = sum(1 for a in assets if not getattr(a, 'validation_errors', None)
+                          and getattr(a, 'confidence_score', 1.0) > 0.8)
+    approved = len(APPROVED_ASSETS)
+
+    return {
+        "total": total,
+        "errors": errors,
+        "needs_review": needs_review,
+        "high_confidence": high_confidence,
+        "approved": approved,
+        "ready_for_export": errors == 0 and total > 0
+    }
 
 @app.post("/upload", response_model=List[Asset])
 async def upload_file(file: UploadFile = File(...)):
@@ -68,10 +93,11 @@ async def upload_file(file: UploadFile = File(...)):
         classified_assets = classifier.classify_batch(assets)
         
         # 3. Store in Memory
-        ASSET_STORE.clear() # Clear previous upload for now
+        ASSET_STORE.clear()  # Clear previous upload for now
+        APPROVED_ASSETS.clear()  # Clear approvals too
         for asset in classified_assets:
             ASSET_STORE[asset.row_index] = asset
-            
+
         return classified_assets
         
     except Exception as e:
@@ -103,9 +129,9 @@ def update_asset(row_index: int, update_data: Dict = Body(...)):
     """
     if row_index not in ASSET_STORE:
         raise HTTPException(status_code=404, detail="Asset not found")
-    
+
     asset = ASSET_STORE[row_index]
-    
+
     # Check for changes and log them
     for field, new_value in update_data.items():
         if hasattr(asset, field):
@@ -115,8 +141,58 @@ def update_asset(row_index: int, update_data: Dict = Body(...)):
                 setattr(asset, field, new_value)
                 # Log the change
                 auditor.log_override(asset, field, str(old_value), str(new_value))
-    
+
     return asset
+
+@app.post("/assets/{row_index}/approve")
+def approve_asset(row_index: int):
+    """
+    CPA approves a single asset for export.
+    """
+    if row_index not in ASSET_STORE:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    asset = ASSET_STORE[row_index]
+
+    # Can't approve assets with validation errors
+    if getattr(asset, 'validation_errors', None):
+        raise HTTPException(status_code=400, detail="Cannot approve asset with validation errors")
+
+    APPROVED_ASSETS.add(row_index)
+    return {"approved": True, "row_index": row_index}
+
+@app.post("/assets/approve-batch")
+def approve_batch(row_indexes: List[int] = Body(...)):
+    """
+    CPA approves multiple assets at once (e.g., all high-confidence items).
+    """
+    approved = []
+    errors = []
+
+    for row_index in row_indexes:
+        if row_index not in ASSET_STORE:
+            errors.append({"row_index": row_index, "error": "Not found"})
+            continue
+
+        asset = ASSET_STORE[row_index]
+        if getattr(asset, 'validation_errors', None):
+            errors.append({"row_index": row_index, "error": "Has validation errors"})
+            continue
+
+        APPROVED_ASSETS.add(row_index)
+        approved.append(row_index)
+
+    return {"approved": approved, "errors": errors, "total_approved": len(approved)}
+
+@app.delete("/assets/{row_index}/approve")
+def unapprove_asset(row_index: int):
+    """
+    Remove approval from an asset.
+    """
+    if row_index in APPROVED_ASSETS:
+        APPROVED_ASSETS.discard(row_index)
+        return {"approved": False, "row_index": row_index}
+    return {"approved": False, "row_index": row_index, "message": "Was not approved"}
 
 @app.get("/export")
 def export_assets():
@@ -126,9 +202,18 @@ def export_assets():
     """
     if not ASSET_STORE:
         raise HTTPException(status_code=400, detail="No assets to export")
-    
+
     # Get all assets from store
     assets = list(ASSET_STORE.values())
+
+    # Validate: Block export if any asset has validation errors
+    assets_with_errors = [a for a in assets if getattr(a, 'validation_errors', None)]
+    if assets_with_errors:
+        error_count = len(assets_with_errors)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting."
+        )
     
     # Generate Excel
     excel_file = exporter.generate_fa_cs_export(assets)
