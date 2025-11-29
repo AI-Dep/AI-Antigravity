@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download, Info } from 'lucide-react';
+import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download, Info, ChevronDown, ChevronUp, Shield, AlertOctagon, Car } from 'lucide-react';
 import { cn } from '../lib/utils';
 import axios from 'axios';
 
@@ -13,12 +13,15 @@ function Review({ assets = [] }) {
     const [approvedIds, setApprovedIds] = useState(new Set());
     const [warnings, setWarnings] = useState({ critical: [], warnings: [], info: [], summary: {} });
     const [taxYear, setTaxYear] = useState(new Date().getFullYear());
+    const [confidence, setConfidence] = useState({ high: {}, medium: {}, low: {}, total: 0 });
+    const [showConfidenceBreakdown, setShowConfidenceBreakdown] = useState(false);
 
-    // Fetch warnings when assets change
+    // Fetch warnings and confidence when assets change
     useEffect(() => {
         if (assets.length > 0) {
             fetchWarnings();
             fetchTaxConfig();
+            fetchConfidence();
         }
     }, [assets]);
 
@@ -37,6 +40,15 @@ function Review({ assets = [] }) {
             setTaxYear(response.data.tax_year);
         } catch (error) {
             console.error('Failed to fetch tax config:', error);
+        }
+    };
+
+    const fetchConfidence = async () => {
+        try {
+            const response = await axios.get('http://127.0.0.1:8000/confidence');
+            setConfidence(response.data);
+        } catch (error) {
+            console.error('Failed to fetch confidence:', error);
         }
     };
 
@@ -232,6 +244,75 @@ function Review({ assets = [] }) {
                     <div className="text-xs text-slate-400 mt-1">Ready to export</div>
                 </div>
             </div>
+
+            {/* Confidence Breakdown - Collapsible */}
+            {confidence.total > 0 && (
+                <Card className="mb-4">
+                    <div
+                        className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 transition-colors"
+                        onClick={() => setShowConfidenceBreakdown(!showConfidenceBreakdown)}
+                    >
+                        <div className="flex items-center gap-4">
+                            <Shield className="w-5 h-5 text-blue-600" />
+                            <div>
+                                <div className="font-semibold text-sm">Classification Confidence Breakdown</div>
+                                <div className="text-xs text-muted-foreground">
+                                    {confidence.auto_approve_eligible || 0} assets eligible for auto-approval
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            {/* Mini confidence bars */}
+                            <div className="flex items-center gap-2 text-xs">
+                                <span className="text-green-600">{confidence.high?.count || 0} high</span>
+                                <span className="text-yellow-600">{confidence.medium?.count || 0} med</span>
+                                <span className="text-red-600">{confidence.low?.count || 0} low</span>
+                            </div>
+                            {showConfidenceBreakdown ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </div>
+                    </div>
+
+                    {showConfidenceBreakdown && (
+                        <CardContent className="pt-0 pb-4">
+                            <div className="grid grid-cols-3 gap-4">
+                                <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-medium text-green-700">High Confidence</span>
+                                        <span className="text-xs text-green-600">80%+</span>
+                                    </div>
+                                    <div className="text-2xl font-bold text-green-600">{confidence.high?.count || 0}</div>
+                                    <div className="text-xs text-green-600 mt-1">
+                                        {confidence.high?.pct || 0}% of assets - Auto-approve eligible
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-medium text-yellow-700">Medium Confidence</span>
+                                        <span className="text-xs text-yellow-600">50-80%</span>
+                                    </div>
+                                    <div className="text-2xl font-bold text-yellow-600">{confidence.medium?.count || 0}</div>
+                                    <div className="text-xs text-yellow-600 mt-1">
+                                        {confidence.medium?.pct || 0}% of assets - Quick review needed
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-medium text-red-700">Low Confidence</span>
+                                        <span className="text-xs text-red-600">&lt;50%</span>
+                                    </div>
+                                    <div className="text-2xl font-bold text-red-600">{confidence.low?.count || 0}</div>
+                                    <div className="text-xs text-red-600 mt-1">
+                                        {confidence.low?.pct || 0}% of assets - CPA attention required
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="mt-3 text-xs text-muted-foreground text-center">
+                                Classification sources: Rule-based (85-98%), Client Category (85%), GPT Fallback (50-90%), Keyword Match (70-80%)
+                            </div>
+                        </CardContent>
+                    )}
+                </Card>
+            )}
 
             {/* Critical Warnings Banner */}
             {warnings.critical?.length > 0 && (
