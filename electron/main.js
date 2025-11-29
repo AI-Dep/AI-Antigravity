@@ -5,14 +5,14 @@ const { spawn } = require('child_process');
 let pythonProcess;
 
 function startPython() {
-    const isDev = !app.isPackaged;
-    // In Dev: Run python script. In Prod: Run the compiled .exe
-    const exePath = isDev
-        ? 'python'
-        : path.join(process.resourcesPath, 'backend_dist', 'api.exe');
+    if (!app.isPackaged) {
+        console.log('In development mode: Skipping Python spawn (assume running separately)');
+        return;
+    }
 
-    const args = isDev ? ['backend/api.py'] : [];
-    console.log(`Starting Python process: ${exePath} ${args.join(' ')}`);
+    const exePath = path.join(process.resourcesPath, 'backend_dist', 'api.exe');
+    const args = [];
+    console.log(`Starting Python process: ${exePath}`);
 
     pythonProcess = spawn(exePath, args);
 
@@ -31,11 +31,10 @@ function createWindow() {
         height: 900,
         webPreferences: {
             nodeIntegration: true,
-            contextIsolation: false // Simplified for local tool; consider enabling for security in public apps
+            contextIsolation: false
         }
     });
 
-    // In Dev: Load local Vite server. In Prod: Load built files.
     const isDev = !app.isPackaged;
     const startUrl = isDev
         ? 'http://localhost:5173'
@@ -45,7 +44,7 @@ function createWindow() {
     win.loadURL(startUrl);
 
     // Open DevTools and log console messages to terminal
-    win.webContents.openDevTools();
+    // win.webContents.openDevTools(); // Disabled per user request
     win.webContents.on('console-message', (event, level, message, line, sourceId) => {
         console.log(`[Console]: ${message} (${sourceId}:${line})`);
     });
