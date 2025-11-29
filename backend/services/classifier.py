@@ -106,8 +106,8 @@ class ClassifierService:
             }
             row = pd.Series(row_dict)
 
-            # Classify transaction type
-            trans_type, reason = transaction_classifier.classify_transaction_type(
+            # Classify transaction type (returns type, reason, confidence)
+            trans_type, reason, trans_confidence = transaction_classifier.classify_transaction_type(
                 row, tax_year, verbose=False
             )
 
@@ -119,6 +119,14 @@ class ClassifierService:
             # Section 179 and Bonus are ONLY for current year additions
             if trans_type != "Current Year Addition":
                 asset.is_bonus_eligible = False
+
+            # If transaction type has low confidence, add a warning
+            if trans_confidence < 0.80:
+                if not hasattr(asset, 'validation_warnings') or asset.validation_warnings is None:
+                    asset.validation_warnings = []
+                asset.validation_warnings.append(
+                    f"Low confidence ({trans_confidence:.0%}) for transaction type '{trans_type}' - manual review recommended"
+                )
 
         return assets
 

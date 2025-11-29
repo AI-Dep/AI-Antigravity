@@ -306,20 +306,34 @@ def get_warnings():
             "affected_count": len(zero_cost)
         })
 
+    # 3. Check for assets with Unknown (Missing Date) transaction type - CRITICAL
+    unknown_trans_type = [
+        a for a in assets
+        if a.transaction_type and "unknown" in a.transaction_type.lower()
+    ]
+    if unknown_trans_type:
+        critical_warnings.append({
+            "type": "UNKNOWN_TRANSACTION_TYPE",
+            "message": f"{len(unknown_trans_type)} assets have unknown transaction type due to missing dates",
+            "impact": "Cannot determine if Section 179/Bonus eligible - potential tax compliance issue",
+            "action": "Add in-service dates to properly classify as Current Year Addition or Existing Asset",
+            "affected_count": len(unknown_trans_type)
+        })
+
     # ===== REGULAR WARNINGS =====
 
-    # 3. Check for assets missing dates
+    # 4. Check for assets missing dates (informational - already covered by Unknown transaction type)
     missing_dates = [a for a in assets if not a.in_service_date and not a.acquisition_date]
     if missing_dates:
         warnings.append({
             "type": "MISSING_DATES",
             "message": f"{len(missing_dates)} assets have no in-service or acquisition date",
-            "impact": "Cannot determine if current year addition or existing asset",
+            "impact": "Classified as 'Unknown (Missing Date)' - requires manual review",
             "action": "Add in-service dates for proper classification",
             "affected_count": len(missing_dates)
         })
 
-    # 4. Transaction type breakdown check
+    # 5. Transaction type breakdown check
     trans_types = {}
     for a in assets:
         tt = a.transaction_type or "unknown"
@@ -336,7 +350,7 @@ def get_warnings():
             "affected_count": len(assets)
         })
 
-    # 5. De minimis candidates
+    # 6. De minimis candidates
     de_minimis_threshold = TAX_CONFIG["de_minimis_threshold"]
     de_minimis_candidates = [
         a for a in assets
@@ -352,7 +366,7 @@ def get_warnings():
             "affected_count": len(de_minimis_candidates)
         })
 
-    # 6. Unclassified assets (exclude transfers - they don't need classification)
+    # 7. Unclassified assets (exclude transfers - they don't need classification)
     unclassified = [
         a for a in assets
         if a.macrs_class in ["Unclassified", "Unknown", None, ""]
@@ -369,7 +383,7 @@ def get_warnings():
 
     # ===== INFO MESSAGES =====
 
-    # 7. Transfer assets info (they don't require cost)
+    # 8. Transfer assets info (they don't require cost)
     transfer_assets = [
         a for a in assets
         if a.transaction_type and a.transaction_type.lower() == "transfer"
@@ -388,7 +402,7 @@ def get_warnings():
             "affected_count": len(transfer_assets)
         })
 
-    # 8. Transaction type summary
+    # 9. Transaction type summary
     info_messages.append({
         "type": "TRANSACTION_SUMMARY",
         "message": "Asset classification summary",
@@ -396,7 +410,7 @@ def get_warnings():
         "tax_year": tax_year
     })
 
-    # 9. OBBBA 2025 info
+    # 10. OBBBA 2025 info
     if tax_year >= 2025:
         info_messages.append({
             "type": "OBBBA_2025_EFFECTIVE",
