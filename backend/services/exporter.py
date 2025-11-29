@@ -16,6 +16,7 @@ class ExporterService:
         Generates Fixed Assets CS import file using the advanced engine.
         """
         # Convert Assets to DataFrame for the engine
+        # Note: build_fa expects specific column names (Final Category, MACRS Life, Method, Convention)
         data = []
         for asset in assets:
             row = {
@@ -24,15 +25,30 @@ class ExporterService:
                 "Cost": asset.cost,
                 "Acquisition Date": asset.acquisition_date,
                 "In Service Date": asset.in_service_date or asset.acquisition_date,
+
+                # Tax Depreciation (Federal) - column names expected by build_fa
                 "Final Category": asset.macrs_class,
                 "MACRS Life": asset.macrs_life,
                 "Method": asset.macrs_method,
                 "Convention": asset.macrs_convention,
+
+                # Book Depreciation (GAAP) - for UiPath manual entry
+                "Book Life": asset.book_life or asset.macrs_life,  # Default to Tax if not set
+                "Book Method": asset.book_method or "SL",  # Default to Straight-Line
+                "Book Convention": asset.book_convention or asset.macrs_convention,
+
+                # State Depreciation - for UiPath manual entry
+                "State Life": asset.state_life or asset.macrs_life,  # Default to Tax if not set
+                "State Method": asset.state_method or asset.macrs_method,
+                "State Convention": asset.state_convention or asset.macrs_convention,
+                "State Bonus Allowed": asset.state_bonus_allowed,
+
+                # Metadata
                 "Confidence": asset.confidence_score,
-                "Source": "rules", # Default to rules for now
-                "Transaction Type": "Addition", # Default to Addition
-                "Business Use %": 1.0, # Default to 100%
-                "Tax Year": date.today().year # Default to current year
+                "Source": "rules",  # Default to rules for now
+                "Transaction Type": "Addition",  # Default to Addition
+                "Business Use %": 1.0,  # Default to 100%
+                "Tax Year": date.today().year  # Default to current year
             }
             data.append(row)
 
