@@ -54,7 +54,14 @@ export function Import({ onUploadSuccess }) {
 
         } catch (err) {
             console.error("Upload failed:", err);
-            setError("Failed to process file. Is the backend running?");
+            // Show detailed error message from backend if available
+            if (err.response && err.response.data && err.response.data.detail) {
+                setError(`Error: ${err.response.data.detail}`);
+            } else if (err.message) {
+                setError(`Failed to process file: ${err.message}`);
+            } else {
+                setError("Failed to process file. Is the backend running?");
+            }
         } finally {
             setIsUploading(false);
         }

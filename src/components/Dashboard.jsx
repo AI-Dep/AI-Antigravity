@@ -127,11 +127,13 @@ export function Dashboard() {
                         <CardTitle className="text-sm font-medium">FA CS Connection</CardTitle>
                         {facsConnected ?
                             <Monitor className="h-4 w-4 text-green-500" /> :
-                            <MonitorOff className="h-4 w-4 text-yellow-500" />
+                            isOnline ?
+                                <Monitor className="h-4 w-4 text-green-400" /> :
+                                <MonitorOff className="h-4 w-4 text-red-500" />
                         }
                     </CardHeader>
                     <CardContent>
-                        <div className={`text-sm font-bold ${facsConnected ? "text-green-600" : isOnline ? "text-yellow-600" : "text-red-600"}`}>
+                        <div className={`text-sm font-bold ${facsConnected ? "text-green-600" : isOnline ? "text-green-500" : "text-red-600"}`}>
                             {systemStatus}
                         </div>
                         {isRemoteMode && isOnline && (
