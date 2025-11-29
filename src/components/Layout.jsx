@@ -2,7 +2,7 @@ import React from 'react';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 
-export function Layout({ children, activeTab, setActiveTab }) {
+export default function Layout({ children, activeTab, setActiveTab }) {
     // Derive title from active tab
     const getTitle = () => {
         switch (activeTab) {

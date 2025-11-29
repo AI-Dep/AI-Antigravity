@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../co
 import { Activity, FileText, CheckCircle, AlertCircle, RefreshCw, Monitor, MonitorOff } from 'lucide-react';
 import { Button } from '../components/ui/button';
 
-export function Dashboard() {
+export default function Dashboard() {
     const [systemStatus, setSystemStatus] = useState("Checking...");
     const [isOnline, setIsOnline] = useState(false);
     const [facsConnected, setFacsConnected] = useState(false);
@@ -210,11 +210,10 @@ export function Dashboard() {
                                 {stats.needs_review + stats.errors} items need attention
                             </p>
                         </div>
-                        <div className={`p-4 border rounded-lg transition-colors ${
-                            stats.ready_for_export
+                        <div className={`p-4 border rounded-lg transition-colors ${stats.ready_for_export
                                 ? 'bg-green-50 border-green-200 hover:bg-green-100 cursor-pointer'
                                 : 'bg-gray-50 border-gray-200 cursor-not-allowed opacity-60'
-                        }`}>
+                            }`}>
                             <p className="font-medium">
                                 {stats.ready_for_export ? 'Export to FA CS' : 'Export Not Ready'}
                             </p>

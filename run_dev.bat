@@ -7,6 +7,7 @@ echo.
 
 SET PATH=%PATH%;C:\Program Files\nodejs
 
+SET ELECTRON_RUN_AS_NODE=
 call venv\Scripts\activate.bat
 call npm run dev
 pause
