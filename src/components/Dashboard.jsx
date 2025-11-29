@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
-import { Activity, FileText, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { Activity, FileText, CheckCircle, AlertCircle, RefreshCw, Monitor, MonitorOff } from 'lucide-react';
 import { Button } from '../components/ui/button';
 
 export function Dashboard() {
     const [systemStatus, setSystemStatus] = useState("Checking...");
     const [isOnline, setIsOnline] = useState(false);
+    const [facsConnected, setFacsConnected] = useState(false);
+    const [isRemoteMode, setIsRemoteMode] = useState(true);
     const [stats, setStats] = useState({
         total: 0,
         errors: 0,
@@ -20,16 +22,39 @@ export function Dashboard() {
         try {
             const response = await fetch('http://127.0.0.1:8000/check-facs');
             const data = await response.json();
+            setIsRemoteMode(data.remote_mode || false);
+            setFacsConnected(data.running || false);
+
             if (data.running) {
-                setSystemStatus("Operational (FA CS Connected)");
+                setSystemStatus(data.remote_mode ? "Remote FA CS Connected" : "FA CS Connected");
                 setIsOnline(true);
             } else {
-                setSystemStatus("Backend Online (FA CS Not Found)");
+                setSystemStatus(data.remote_mode ? "Backend Online (Confirm FA CS)" : "Backend Online (FA CS Not Found)");
                 setIsOnline(true);
             }
         } catch (error) {
             setSystemStatus("Backend Offline");
             setIsOnline(false);
+        }
+    };
+
+    const confirmFacsConnection = async () => {
+        try {
+            await fetch('http://127.0.0.1:8000/facs/confirm-connected', { method: 'POST' });
+            setFacsConnected(true);
+            setSystemStatus("Remote FA CS Connected");
+        } catch (error) {
+            console.error("Failed to confirm FA CS connection");
+        }
+    };
+
+    const disconnectFacs = async () => {
+        try {
+            await fetch('http://127.0.0.1:8000/facs/disconnect', { method: 'POST' });
+            setFacsConnected(false);
+            setSystemStatus("Backend Online (Confirm FA CS)");
+        } catch (error) {
+            console.error("Failed to disconnect FA CS");
         }
     };
 
@@ -99,16 +124,44 @@ export function Dashboard() {
                 </Card>
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">System Status</CardTitle>
-                        <CheckCircle className={isOnline ? "h-4 w-4 text-green-500" : "h-4 w-4 text-red-500"} />
+                        <CardTitle className="text-sm font-medium">FA CS Connection</CardTitle>
+                        {facsConnected ?
+                            <Monitor className="h-4 w-4 text-green-500" /> :
+                            <MonitorOff className="h-4 w-4 text-yellow-500" />
+                        }
                     </CardHeader>
                     <CardContent>
-                        <div className={`text-lg font-bold ${isOnline ? "text-green-600" : "text-red-600"}`}>
+                        <div className={`text-sm font-bold ${facsConnected ? "text-green-600" : isOnline ? "text-yellow-600" : "text-red-600"}`}>
                             {systemStatus}
                         </div>
-                        <Button variant="ghost" size="sm" onClick={checkStatus} className="h-6 px-2 mt-1 text-xs">
-                            <RefreshCw size={12} className="mr-1" /> Retry
-                        </Button>
+                        {isRemoteMode && isOnline && (
+                            <div className="mt-2 flex gap-1">
+                                {!facsConnected ? (
+                                    <Button
+                                        variant="default"
+                                        size="sm"
+                                        onClick={confirmFacsConnection}
+                                        className="h-7 px-3 text-xs bg-blue-600 hover:bg-blue-700"
+                                    >
+                                        <Monitor size={12} className="mr-1" /> I'm Connected to FA CS
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={disconnectFacs}
+                                        className="h-7 px-3 text-xs"
+                                    >
+                                        <MonitorOff size={12} className="mr-1" /> Disconnect
+                                    </Button>
+                                )}
+                            </div>
+                        )}
+                        {!isOnline && (
+                            <Button variant="ghost" size="sm" onClick={checkStatus} className="h-6 px-2 mt-1 text-xs">
+                                <RefreshCw size={12} className="mr-1" /> Retry
+                            </Button>
+                        )}
                     </CardContent>
                 </Card>
             </div>

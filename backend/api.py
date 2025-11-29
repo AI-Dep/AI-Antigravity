@@ -41,15 +41,61 @@ exporter = ExporterService()
 ASSET_STORE: Dict[int, Asset] = {}
 APPROVED_ASSETS: set = set()  # Track CPA-approved row_indexes
 
+# Remote FA CS Configuration
+FACS_CONFIG = {
+    "remote_mode": True,  # FA CS runs on remote server
+    "user_confirmed_connected": False,  # User manually confirms connection
+    "export_path": None  # Custom export path (e.g., shared network folder)
+}
+
 @app.get("/")
 def read_root():
     return {"status": "Backend Online", "version": "1.0.0"}
 
 @app.get("/check-facs")
 def check_facs():
-    # SAFETY CHECK: Is Fixed Assets CS running?
-    running = "FAwin.exe" in (p.name() for p in psutil.process_iter())
-    return {"running": running}
+    """
+    Check FA CS connection status.
+    Remote mode: relies on user confirmation (can't auto-detect remote app)
+    Local mode: checks if FAwin.exe is running
+    """
+    if FACS_CONFIG["remote_mode"]:
+        return {
+            "running": FACS_CONFIG["user_confirmed_connected"],
+            "remote_mode": True,
+            "message": "Remote FA CS - Please confirm you are connected" if not FACS_CONFIG["user_confirmed_connected"] else "Connected to remote FA CS",
+            "export_path": FACS_CONFIG["export_path"]
+        }
+    else:
+        # Local mode - auto-detect
+        running = "FAwin.exe" in (p.name() for p in psutil.process_iter())
+        return {"running": running, "remote_mode": False}
+
+@app.post("/facs/confirm-connected")
+def confirm_facs_connected():
+    """User confirms they are connected to remote FA CS session."""
+    FACS_CONFIG["user_confirmed_connected"] = True
+    return {"confirmed": True, "message": "FA CS connection confirmed"}
+
+@app.post("/facs/disconnect")
+def disconnect_facs():
+    """User indicates they disconnected from FA CS."""
+    FACS_CONFIG["user_confirmed_connected"] = False
+    return {"confirmed": False, "message": "FA CS disconnected"}
+
+@app.post("/facs/set-export-path")
+def set_export_path(path: str = Body(..., embed=True)):
+    """
+    Set custom export path (e.g., shared network folder accessible from remote session).
+    Example: "\\\\server\\shared\\FA_Imports" or "Z:\\FA_Imports"
+    """
+    FACS_CONFIG["export_path"] = path
+    return {"export_path": path, "message": f"Export path set to: {path}"}
+
+@app.get("/facs/config")
+def get_facs_config():
+    """Get current FA CS configuration."""
+    return FACS_CONFIG
 
 @app.get("/stats")
 def get_stats():
@@ -217,9 +263,13 @@ def export_assets():
     
     # Generate Excel
     excel_file = exporter.generate_fa_cs_export(assets)
-    
-    # Save to Bot Handoff Folder
-    handoff_dir = os.path.join(os.getcwd(), "bot_handoff")
+
+    # Save to Bot Handoff Folder (use custom path if set)
+    if FACS_CONFIG["export_path"]:
+        handoff_dir = FACS_CONFIG["export_path"]
+    else:
+        handoff_dir = os.path.join(os.getcwd(), "bot_handoff")
+
     os.makedirs(handoff_dir, exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
