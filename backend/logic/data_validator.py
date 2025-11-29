@@ -556,17 +556,25 @@ def validate_asset_data(df: pd.DataFrame, tax_year: int) -> tuple[List[Validatio
     """
     Validate asset dataframe.
 
+    IMPORTANT: Validation is ADVISORY only. Processing should NOT stop
+    due to validation errors. The CPA reviews and decides what to do.
+
+    The system should NEVER exclude assets without human CPA approval.
+
     Args:
         df: Asset dataframe
         tax_year: Current tax year
 
     Returns:
         Tuple of (errors_list, should_stop_processing)
-        should_stop_processing is True if CRITICAL errors found
+        should_stop_processing is ALWAYS False - validation is advisory only
     """
     validator = AssetDataValidator(tax_year)
     errors = validator.validate_dataframe(df)
 
-    should_stop = validator.has_critical_errors()
+    # CRITICAL CHANGE: NEVER stop processing due to validation errors
+    # All validation errors are advisory - CPA reviews and decides
+    # The system does NOT exclude assets without human approval
+    should_stop = False  # Was: validator.has_critical_errors()
 
     return errors, should_stop

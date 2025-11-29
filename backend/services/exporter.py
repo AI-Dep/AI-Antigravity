@@ -6,9 +6,22 @@ from backend.models.asset import Asset
 from backend.logic.fa_export import build_fa, export_fa_excel
 from backend.logic.fa_export_formatters import _apply_professional_formatting
 
+
 class ExporterService:
     """
     Generates Excel files formatted for Fixed Assets CS import.
+
+    FA CS REQUIRED COLUMNS (must match exactly):
+    - Asset #
+    - Description
+    - Date In Service (NOT "In Service Date")
+    - Tax Cost
+    - Tax Method
+    - Tax Life
+    - FA_CS_Wizard_Category (for RPA automation)
+
+    IMPORTANT: ALL assets are exported, even those with validation errors.
+    The CPA reviews and decides what to do - the system doesn't exclude anything.
     """
 
     def _format_asset_number(self, asset_id, row_index: int) -> int:
@@ -109,13 +122,22 @@ class ExporterService:
             row = {
                 "Asset #": self._format_asset_number(asset.asset_id, asset.row_index),
                 "Description": asset.description,
-                "Cost": asset.cost,
+
+                # Dates - FA CS requires "Date In Service" column name
+                # The build_fa function converts "In Service Date" -> "Date In Service"
                 "Acquisition Date": asset.acquisition_date,
-                "In Service Date": asset.in_service_date or asset.acquisition_date,
-                "Final Category": asset.macrs_class,
+                "In Service Date": asset.in_service_date if asset.in_service_date else asset.acquisition_date,
+
+                # Cost and depreciation
+                "Cost": asset.cost if asset.cost else 0.0,
+
+                # Classification (from AI/rules)
+                "Final Category": asset.macrs_class if asset.macrs_class else "Unclassified",
                 "MACRS Life": asset.macrs_life,
                 "Method": asset.macrs_method,
                 "Convention": asset.macrs_convention,
+
+                # Metadata for tracking
                 "Confidence": asset.confidence_score,
                 "Source": "rules",
                 "Transaction Type": "Addition",

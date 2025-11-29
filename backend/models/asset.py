@@ -4,35 +4,27 @@ from datetime import date, datetime
 
 class Asset(BaseModel):
     """
-    Represents a single fixed asset with strict validation.
+    Represents a single fixed asset with flexible validation.
+
+    IMPORTANT: Assets should NOT be rejected due to missing cost or dates.
+    The validation rules are advisory - they flag issues but don't prevent processing.
     """
     row_index: int = Field(..., description="Original row number in Excel")
 
     # Critical Fields
     asset_id: Optional[str] = Field(None, description="Unique Asset Identifier")
-    description: str = Field(..., min_length=2, description="Asset Description")
-    cost: float = Field(..., gt=0, description="Acquisition Cost")
+    description: str = Field(..., min_length=1, description="Asset Description")
+    cost: float = Field(0.0, ge=0, description="Acquisition Cost (0 if unknown)")
 
-    # Dates
+    # Dates (all optional - some assets may not have dates)
     acquisition_date: Optional[date] = Field(None, description="Date Acquired")
     in_service_date: Optional[date] = Field(None, description="Date Placed in Service")
 
-    # Tax Depreciation (Federal MACRS)
+    # Classification (AI Predicted)
     macrs_class: Optional[str] = None
     macrs_life: Optional[float] = None
-    macrs_method: Optional[str] = None  # 200DB, 150DB, SL, ADS
-    macrs_convention: Optional[str] = None  # HY, MQ, MM
-
-    # Book Depreciation (GAAP/Financial)
-    book_life: Optional[float] = None
-    book_method: Optional[str] = None  # SL, DB, etc.
-    book_convention: Optional[str] = None
-
-    # State Depreciation (may differ from federal)
-    state_life: Optional[float] = None
-    state_method: Optional[str] = None
-    state_convention: Optional[str] = None
-    state_bonus_allowed: bool = True  # Some states don't allow bonus
+    macrs_method: Optional[str] = None
+    macrs_convention: Optional[str] = None
 
     # Flags
     confidence_score: float = Field(0.0, ge=0.0, le=1.0)
@@ -46,22 +38,43 @@ class Asset(BaseModel):
     # Audit Trail
     audit_trail: List['AuditEvent'] = []
 
-    # Validation Errors and Warnings (For UI Display)
-    validation_errors: List[str] = []  # Critical issues that block export
-    validation_warnings: List[str] = []  # Non-critical issues (info only)
+    # Validation Errors (For UI Display - advisory only)
+    validation_errors: List[str] = []
 
-    @validator('acquisition_date', pre=True)
+    @validator('acquisition_date', 'in_service_date', pre=True)
     def parse_date(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, date):
+            return v
+        if isinstance(v, datetime):
+            return v.date()
         if isinstance(v, str):
-            try:
-                return datetime.strptime(v, '%Y-%m-%d').date()
-            except ValueError:
-                return None
-        return v
+            # Try multiple date formats
+            formats = ['%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d']
+            for fmt in formats:
+                try:
+                    return datetime.strptime(v, fmt).date()
+                except ValueError:
+                    continue
+            return None
+        # Try pandas Timestamp
+        try:
+            import pandas as pd
+            if pd.notna(v):
+                return pd.to_datetime(v).date()
+        except:
+            pass
+        return None
 
-    @validator('cost')
+    @validator('cost', pre=True)
     def validate_cost_type(cls, v):
-        return v
+        if v is None:
+            return 0.0
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return 0.0
 
     def check_validity(self):
         """
