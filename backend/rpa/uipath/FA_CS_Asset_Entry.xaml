@@ -1,0 +1,369 @@
+<Activity mc:Ignorable="sap sap2010 sads" x:Class="FA_CS_Asset_Entry"
+ xmlns="http://schemas.microsoft.com/netfx/2009/xaml/activities"
+ xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+ xmlns:sap="http://schemas.microsoft.com/netfx/2009/xaml/activities/presentation"
+ xmlns:sap2010="http://schemas.microsoft.com/netfx/2010/xaml/activities/presentation"
+ xmlns:sads="http://schemas.microsoft.com/netfx/2010/xaml/activities/debugger"
+ xmlns:scg="clr-namespace:System.Collections.Generic;assembly=mscorlib"
+ xmlns:ui="http://schemas.uipath.com/workflow/activities"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+  ============================================================================
+  FA CS ASSET ENTRY AUTOMATION - UiPath Workflow
+  ============================================================================
+
+  PURPOSE:
+  Automates asset entry into Thomson Reuters Fixed Asset CS by reading
+  data from the Fixed Asset AI Tool export file and entering each asset
+  using FA CS's Add Asset dialog with wizard selection.
+
+  WORKFLOW:
+  1. Read Excel export file (FA_CS_Import worksheet)
+  2. For each asset row:
+     a. Click "Add" button in FA CS
+     b. Enter Description
+     c. Enter Date in Service
+     d. Enter Tax Cost
+     e. Click Wizard button
+     f. Select asset type from dropdown (FA_CS_Wizard_Category)
+     g. Click OK to save
+  3. After all assets: Elect Section 179
+     a. Tasks menu -> Elect Section 179
+     b. Click "Max All" button
+     c. Click OK
+
+  PREREQUISITES:
+  - FA CS must be open with client selected
+  - Asset list (Miscellaneous or appropriate folder) must be visible
+  - Export file path must be configured
+
+  AUTHOR: Fixed Asset AI Tool
+  VERSION: 1.0
+  ============================================================================
+  -->
+
+  <Sequence DisplayName="FA CS Asset Entry Automation">
+
+    <!-- ================================================================ -->
+    <!-- VARIABLES -->
+    <!-- ================================================================ -->
+    <Sequence.Variables>
+      <Variable x:TypeArguments="x:String" Name="ExcelFilePath" Default="C:\Exports\FA_Export.xlsx" />
+      <Variable x:TypeArguments="ui:DataTable" Name="AssetData" />
+      <Variable x:TypeArguments="ui:DataRow" Name="CurrentRow" />
+      <Variable x:TypeArguments="x:String" Name="Description" />
+      <Variable x:TypeArguments="x:String" Name="DateInService" />
+      <Variable x:TypeArguments="x:String" Name="TaxCost" />
+      <Variable x:TypeArguments="x:String" Name="WizardCategory" />
+      <Variable x:TypeArguments="x:Int32" Name="RowIndex" Default="0" />
+      <Variable x:TypeArguments="x:Int32" Name="TotalAssets" Default="0" />
+      <Variable x:TypeArguments="x:Int32" Name="SuccessCount" Default="0" />
+      <Variable x:TypeArguments="x:Int32" Name="ErrorCount" Default="0" />
+    </Sequence.Variables>
+
+    <!-- ================================================================ -->
+    <!-- STEP 1: CONFIGURATION INPUT -->
+    <!-- ================================================================ -->
+    <ui:InputDialog
+      DisplayName="Enter Export File Path"
+      Title="FA CS Asset Entry - Configuration"
+      Label="Enter the path to the FA Export Excel file:"
+      Result="ExcelFilePath" />
+
+    <!-- ================================================================ -->
+    <!-- STEP 2: READ EXCEL FILE -->
+    <!-- ================================================================ -->
+    <ui:ExcelApplicationScope
+      DisplayName="Read Export File"
+      WorkbookPath="[ExcelFilePath]">
+      <ui:ExcelApplicationScope.Body>
+        <ui:ReadRange
+          DisplayName="Read FA_CS_Import Sheet"
+          SheetName="FA_CS_Import"
+          AddHeaders="True"
+          DataTable="[AssetData]" />
+      </ui:ExcelApplicationScope.Body>
+    </ui:ExcelApplicationScope>
+
+    <Assign DisplayName="Get Total Asset Count">
+      <Assign.To>
+        <OutArgument x:TypeArguments="x:Int32">[TotalAssets]</OutArgument>
+      </Assign.To>
+      <Assign.Value>
+        <InArgument x:TypeArguments="x:Int32">[AssetData.Rows.Count]</InArgument>
+      </Assign.Value>
+    </Assign>
+
+    <ui:LogMessage
+      DisplayName="Log Start"
+      Level="Info"
+      Message="[&quot;Starting FA CS Asset Entry. Total assets to process: &quot; + TotalAssets.ToString()]" />
+
+    <!-- ================================================================ -->
+    <!-- STEP 3: ATTACH TO FA CS WINDOW -->
+    <!-- ================================================================ -->
+    <ui:AttachWindow
+      DisplayName="Attach to Fixed Asset CS"
+      Selector="&lt;wnd app='facs.exe' cls='ThunderRT6FormDC' /&gt;">
+      <ui:AttachWindow.Body>
+        <Sequence DisplayName="FA CS Automation Sequence">
+
+          <!-- ================================================================ -->
+          <!-- STEP 4: LOOP THROUGH EACH ASSET -->
+          <!-- ================================================================ -->
+          <ForEach x:TypeArguments="ui:DataRow"
+            DisplayName="Process Each Asset"
+            Values="[AssetData.Rows]"
+            CurrentItem="[CurrentRow]">
+            <Sequence DisplayName="Add Single Asset">
+
+              <!-- Increment row counter -->
+              <Assign DisplayName="Increment Row Index">
+                <Assign.To>
+                  <OutArgument x:TypeArguments="x:Int32">[RowIndex]</OutArgument>
+                </Assign.To>
+                <Assign.Value>
+                  <InArgument x:TypeArguments="x:Int32">[RowIndex + 1]</InArgument>
+                </Assign.Value>
+              </Assign>
+
+              <!-- Extract data from current row -->
+              <Assign DisplayName="Get Description">
+                <Assign.To>
+                  <OutArgument x:TypeArguments="x:String">[Description]</OutArgument>
+                </Assign.To>
+                <Assign.Value>
+                  <InArgument x:TypeArguments="x:String">[CurrentRow("Description").ToString()]</InArgument>
+                </Assign.Value>
+              </Assign>
+
+              <Assign DisplayName="Get Date In Service">
+                <Assign.To>
+                  <OutArgument x:TypeArguments="x:String">[DateInService]</OutArgument>
+                </Assign.To>
+                <Assign.Value>
+                  <InArgument x:TypeArguments="x:String">[CurrentRow("Date In Service").ToString()]</InArgument>
+                </Assign.Value>
+              </Assign>
+
+              <Assign DisplayName="Get Tax Cost">
+                <Assign.To>
+                  <OutArgument x:TypeArguments="x:String">[TaxCost]</OutArgument>
+                </Assign.To>
+                <Assign.Value>
+                  <InArgument x:TypeArguments="x:String">[CurrentRow("Tax Cost").ToString()]</InArgument>
+                </Assign.Value>
+              </Assign>
+
+              <Assign DisplayName="Get Wizard Category">
+                <Assign.To>
+                  <OutArgument x:TypeArguments="x:String">[WizardCategory]</OutArgument>
+                </Assign.To>
+                <Assign.Value>
+                  <InArgument x:TypeArguments="x:String">[CurrentRow("FA_CS_Wizard_Category").ToString()]</InArgument>
+                </Assign.Value>
+              </Assign>
+
+              <ui:LogMessage
+                DisplayName="Log Processing Asset"
+                Level="Info"
+                Message="[&quot;Processing asset &quot; + RowIndex.ToString() + &quot;/&quot; + TotalAssets.ToString() + &quot;: &quot; + Description]" />
+
+              <TryCatch DisplayName="Try Add Asset">
+                <TryCatch.Try>
+                  <Sequence DisplayName="Add Asset Sequence">
+
+                    <!-- 4a. Click Add Button -->
+                    <ui:Click
+                      DisplayName="Click Add Button"
+                      Selector="&lt;wnd app='facs.exe' cls='ThunderRT6FormDC' /&gt;&lt;wnd aaname='Add' cls='ThunderRT6CommandButton' /&gt;"
+                      ClickType="CLICK_SINGLE"
+                      MouseButton="BTN_LEFT" />
+
+                    <ui:Delay Duration="00:00:01" DisplayName="Wait for Add Dialog" />
+
+                    <!-- 4b. Enter Description -->
+                    <ui:TypeInto
+                      DisplayName="Enter Description"
+                      Selector="&lt;wnd app='facs.exe' cls='#32770' /&gt;&lt;wnd aaname='Description:' cls='ThunderRT6TextBox' /&gt;"
+                      Text="[Description]"
+                      EmptyField="True" />
+
+                    <!-- 4c. Enter Date in Service -->
+                    <ui:TypeInto
+                      DisplayName="Enter Date In Service"
+                      Selector="&lt;wnd app='facs.exe' cls='#32770' /&gt;&lt;wnd aaname='Date in service:' cls='ThunderRT6TextBox' /&gt;"
+                      Text="[DateInService]"
+                      EmptyField="True" />
+
+                    <ui:Delay Duration="00:00:00.500" DisplayName="Wait for fields to enable" />
+
+                    <!-- 4d. Enter Tax Cost -->
+                    <ui:TypeInto
+                      DisplayName="Enter Tax Cost"
+                      Selector="&lt;wnd app='facs.exe' cls='#32770' /&gt;&lt;wnd aaname='Cost/Basis' cls='ThunderRT6TextBox' idx='1' /&gt;"
+                      Text="[TaxCost]"
+                      EmptyField="True" />
+
+                    <!-- 4e. Click Wizard Button -->
+                    <ui:Click
+                      DisplayName="Click Wizard Button"
+                      Selector="&lt;wnd app='facs.exe' cls='#32770' /&gt;&lt;wnd cls='ThunderRT6PictureBoxDC' idx='1' /&gt;"
+                      ClickType="CLICK_SINGLE"
+                      MouseButton="BTN_LEFT" />
+
+                    <ui:Delay Duration="00:00:00.500" DisplayName="Wait for Wizard Dropdown" />
+
+                    <!-- 4f. Select Wizard Category -->
+                    <!-- Type first few characters to filter, then use arrow keys and Enter -->
+                    <ui:SelectItem
+                      DisplayName="Select Asset Type from Wizard"
+                      Selector="&lt;wnd app='facs.exe' cls='#32770' /&gt;&lt;wnd cls='ThunderRT6ComboBox' /&gt;"
+                      Item="[WizardCategory]" />
+
+                    <ui:Delay Duration="00:00:00.500" DisplayName="Wait for auto-fill" />
+
+                    <!-- 4g. Click OK to save -->
+                    <ui:Click
+                      DisplayName="Click OK Button"
+                      Selector="&lt;wnd app='facs.exe' cls='#32770' /&gt;&lt;wnd aaname='OK' cls='ThunderRT6CommandButton' /&gt;"
+                      ClickType="CLICK_SINGLE"
+                      MouseButton="BTN_LEFT" />
+
+                    <ui:Delay Duration="00:00:00.500" DisplayName="Wait for dialog to close" />
+
+                    <!-- Increment success counter -->
+                    <Assign DisplayName="Increment Success Count">
+                      <Assign.To>
+                        <OutArgument x:TypeArguments="x:Int32">[SuccessCount]</OutArgument>
+                      </Assign.To>
+                      <Assign.Value>
+                        <InArgument x:TypeArguments="x:Int32">[SuccessCount + 1]</InArgument>
+                      </Assign.Value>
+                    </Assign>
+
+                  </Sequence>
+                </TryCatch.Try>
+                <TryCatch.Catches>
+                  <Catch x:TypeArguments="s:Exception" xmlns:s="clr-namespace:System;assembly=mscorlib">
+                    <ActivityAction x:TypeArguments="s:Exception">
+                      <ActivityAction.Argument>
+                        <DelegateInArgument x:TypeArguments="s:Exception" Name="exception" />
+                      </ActivityAction.Argument>
+                      <Sequence DisplayName="Handle Error">
+                        <ui:LogMessage
+                          DisplayName="Log Error"
+                          Level="Error"
+                          Message="[&quot;Error adding asset: &quot; + Description + &quot; - &quot; + exception.Message]" />
+
+                        <!-- Increment error counter -->
+                        <Assign DisplayName="Increment Error Count">
+                          <Assign.To>
+                            <OutArgument x:TypeArguments="x:Int32">[ErrorCount]</OutArgument>
+                          </Assign.To>
+                          <Assign.Value>
+                            <InArgument x:TypeArguments="x:Int32">[ErrorCount + 1]</InArgument>
+                          </Assign.Value>
+                        </Assign>
+
+                        <!-- Try to close any open dialogs -->
+                        <ui:SendHotkey Key="esc" DisplayName="Press Escape to close dialog" />
+                        <ui:Delay Duration="00:00:00.500" DisplayName="Wait" />
+                      </Sequence>
+                    </ActivityAction>
+                  </Catch>
+                </TryCatch.Catches>
+              </TryCatch>
+
+            </Sequence>
+          </ForEach>
+
+          <!-- ================================================================ -->
+          <!-- STEP 5: ELECT SECTION 179 -->
+          <!-- ================================================================ -->
+          <ui:LogMessage
+            DisplayName="Log Starting 179 Election"
+            Level="Info"
+            Message="Starting Section 179 election..." />
+
+          <TryCatch DisplayName="Try Elect Section 179">
+            <TryCatch.Try>
+              <Sequence DisplayName="Section 179 Election Sequence">
+
+                <!-- 5a. Click Tasks Menu -->
+                <ui:Click
+                  DisplayName="Click Tasks Menu"
+                  Selector="&lt;wnd app='facs.exe' cls='ThunderRT6FormDC' /&gt;&lt;wnd aaname='Tasks' cls='ThunderRT6CommandButton' /&gt;"
+                  ClickType="CLICK_SINGLE"
+                  MouseButton="BTN_LEFT" />
+
+                <ui:Delay Duration="00:00:00.500" DisplayName="Wait for menu" />
+
+                <!-- 5b. Click Elect Section 179 -->
+                <ui:Click
+                  DisplayName="Click Elect Section 179"
+                  Selector="&lt;wnd app='facs.exe' /&gt;&lt;wnd aaname='Elect Section 179...' cls='#32768' /&gt;"
+                  ClickType="CLICK_SINGLE"
+                  MouseButton="BTN_LEFT" />
+
+                <ui:Delay Duration="00:00:01" DisplayName="Wait for 179 dialog" />
+
+                <!-- 5c. Click Max All Button -->
+                <ui:Click
+                  DisplayName="Click Max All Button"
+                  Selector="&lt;wnd app='facs.exe' cls='#32770' /&gt;&lt;wnd aaname='Max All' cls='ThunderRT6CommandButton' /&gt;"
+                  ClickType="CLICK_SINGLE"
+                  MouseButton="BTN_LEFT" />
+
+                <ui:Delay Duration="00:00:01" DisplayName="Wait for 179 calculation" />
+
+                <!-- 5d. Click OK -->
+                <ui:Click
+                  DisplayName="Click OK Button"
+                  Selector="&lt;wnd app='facs.exe' cls='#32770' /&gt;&lt;wnd aaname='OK' cls='ThunderRT6CommandButton' /&gt;"
+                  ClickType="CLICK_SINGLE"
+                  MouseButton="BTN_LEFT" />
+
+                <ui:LogMessage
+                  DisplayName="Log 179 Complete"
+                  Level="Info"
+                  Message="Section 179 election completed successfully." />
+
+              </Sequence>
+            </TryCatch.Try>
+            <TryCatch.Catches>
+              <Catch x:TypeArguments="s:Exception" xmlns:s="clr-namespace:System;assembly=mscorlib">
+                <ActivityAction x:TypeArguments="s:Exception">
+                  <ActivityAction.Argument>
+                    <DelegateInArgument x:TypeArguments="s:Exception" Name="exception179" />
+                  </ActivityAction.Argument>
+                  <ui:LogMessage
+                    DisplayName="Log 179 Error"
+                    Level="Error"
+                    Message="[&quot;Error during Section 179 election: &quot; + exception179.Message]" />
+                </ActivityAction>
+              </Catch>
+            </TryCatch.Catches>
+          </TryCatch>
+
+        </Sequence>
+      </ui:AttachWindow.Body>
+    </ui:AttachWindow>
+
+    <!-- ================================================================ -->
+    <!-- STEP 6: COMPLETION SUMMARY -->
+    <!-- ================================================================ -->
+    <ui:LogMessage
+      DisplayName="Log Completion"
+      Level="Info"
+      Message="[&quot;FA CS Asset Entry Complete. Success: &quot; + SuccessCount.ToString() + &quot;, Errors: &quot; + ErrorCount.ToString()]" />
+
+    <ui:MessageBox
+      DisplayName="Show Completion Message"
+      Text="[&quot;FA CS Asset Entry Automation Complete!&quot; + vbCrLf + vbCrLf + &quot;Assets Processed: &quot; + TotalAssets.ToString() + vbCrLf + &quot;Successful: &quot; + SuccessCount.ToString() + vbCrLf + &quot;Errors: &quot; + ErrorCount.ToString()]"
+      Caption="Automation Complete"
+      Buttons="OK" />
+
+  </Sequence>
+</Activity>

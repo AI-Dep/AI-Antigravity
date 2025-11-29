@@ -1,0 +1,31 @@
+{
+  "rpa_settings": {
+    "fa_cs_process_name": "FAwin.exe",
+    "fa_cs_window_title": "Fixed Assets CS",
+    "enable_failsafe": true,
+    "screenshot_on_error": true,
+    "max_retries": 3
+  },
+  "timing": {
+    "wait_after_click": 0.5,
+    "wait_after_typing": 0.3,
+    "wait_for_window": 2.0,
+    "wait_for_dialog": 1.5,
+    "retry_delay": 1.0
+  },
+  "field_mapping": {
+    "asset_id_tab_count": 1,
+    "description_tab_count": 2,
+    "date_in_service_tab_count": 3,
+    "cost_tab_count": 4,
+    "method_tab_count": 5,
+    "life_tab_count": 6,
+    "convention_tab_count": 7
+  },
+  "notes": [
+    "Adjust timing values if FA CS is slow on your system",
+    "enable_failsafe: Move mouse to screen corner to emergency stop RPA",
+    "screenshot_on_error: Automatically capture screenshots when errors occur",
+    "Modify fa_cs_process_name if your Fixed Asset CS executable has a different name"
+  ]
+}

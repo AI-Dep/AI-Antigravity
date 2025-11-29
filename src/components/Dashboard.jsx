@@ -6,11 +6,18 @@ import { Button } from '../components/ui/button';
 export function Dashboard() {
     const [systemStatus, setSystemStatus] = useState("Checking...");
     const [isOnline, setIsOnline] = useState(false);
+    const [stats, setStats] = useState({
+        total: 0,
+        errors: 0,
+        needs_review: 0,
+        high_confidence: 0,
+        approved: 0,
+        ready_for_export: false
+    });
 
     const checkStatus = async () => {
         setSystemStatus("Connecting...");
         try {
-            // In a real Electron app, you might use IPC, but HTTP is easier for the hybrid approach
             const response = await fetch('http://127.0.0.1:8000/check-facs');
             const data = await response.json();
             if (data.running) {
@@ -26,10 +33,27 @@ export function Dashboard() {
         }
     };
 
+    const fetchStats = async () => {
+        try {
+            const response = await fetch('http://127.0.0.1:8000/stats');
+            if (response.ok) {
+                const data = await response.json();
+                setStats(data);
+            }
+        } catch (error) {
+            // Stats fetch failed, keep defaults
+        }
+    };
+
     useEffect(() => {
         checkStatus();
-        const interval = setInterval(checkStatus, 10000); // Poll every 10s
-        return () => clearInterval(interval);
+        fetchStats();
+        const statusInterval = setInterval(checkStatus, 10000);
+        const statsInterval = setInterval(fetchStats, 5000); // Update stats every 5s
+        return () => {
+            clearInterval(statusInterval);
+            clearInterval(statsInterval);
+        };
     }, []);
 
     return (
@@ -37,38 +61,46 @@ export function Dashboard() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Assets Processed</CardTitle>
+                        <CardTitle className="text-sm font-medium">Total Assets</CardTitle>
                         <Activity className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">1,284</div>
-                        <p className="text-xs text-muted-foreground">+20.1% from last month</p>
+                        <div className="text-2xl font-bold">{stats.total}</div>
+                        <p className="text-xs text-muted-foreground">
+                            {stats.approved} approved, {stats.high_confidence} high confidence
+                        </p>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Pending Reviews</CardTitle>
-                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <CardTitle className="text-sm font-medium">Needs Review</CardTitle>
+                        <FileText className={`h-4 w-4 ${stats.needs_review > 0 ? 'text-yellow-500' : 'text-muted-foreground'}`} />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">12</div>
-                        <p className="text-xs text-muted-foreground">Requires attention</p>
+                        <div className={`text-2xl font-bold ${stats.needs_review > 0 ? 'text-yellow-600' : ''}`}>
+                            {stats.needs_review}
+                        </div>
+                        <p className="text-xs text-muted-foreground">Low confidence items</p>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
-                        <CheckCircle className="h-4 w-4 text-muted-foreground" />
+                        <CardTitle className="text-sm font-medium">Errors</CardTitle>
+                        <AlertCircle className={`h-4 w-4 ${stats.errors > 0 ? 'text-red-500' : 'text-green-500'}`} />
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">98.5%</div>
-                        <p className="text-xs text-muted-foreground">+2% improvement</p>
+                        <div className={`text-2xl font-bold ${stats.errors > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            {stats.errors}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                            {stats.errors > 0 ? 'Must fix before export' : 'Ready to proceed'}
+                        </p>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">System Status</CardTitle>
-                        <AlertCircle className={isOnline ? "h-4 w-4 text-green-500" : "h-4 w-4 text-red-500"} />
+                        <CheckCircle className={isOnline ? "h-4 w-4 text-green-500" : "h-4 w-4 text-red-500"} />
                     </CardHeader>
                     <CardContent>
                         <div className={`text-lg font-bold ${isOnline ? "text-green-600" : "text-red-600"}`}>
@@ -119,7 +151,26 @@ export function Dashboard() {
                         </div>
                         <div className="p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors">
                             <p className="font-medium">Review Pending Items</p>
-                            <p className="text-sm text-muted-foreground">12 items waiting</p>
+                            <p className="text-sm text-muted-foreground">
+                                {stats.needs_review + stats.errors} items need attention
+                            </p>
+                        </div>
+                        <div className={`p-4 border rounded-lg transition-colors ${
+                            stats.ready_for_export
+                                ? 'bg-green-50 border-green-200 hover:bg-green-100 cursor-pointer'
+                                : 'bg-gray-50 border-gray-200 cursor-not-allowed opacity-60'
+                        }`}>
+                            <p className="font-medium">
+                                {stats.ready_for_export ? 'Export to FA CS' : 'Export Not Ready'}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                                {stats.ready_for_export
+                                    ? `${stats.total} assets ready`
+                                    : stats.errors > 0
+                                        ? `Fix ${stats.errors} error(s) first`
+                                        : 'Upload assets first'
+                                }
+                            </p>
                         </div>
                     </CardContent>
                 </Card>
