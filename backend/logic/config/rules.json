@@ -298,13 +298,17 @@
     {
       "name": "Warehouse Racking and Shelving",
       "keywords": [
-        "pallet rack", "pallet racking", "selective rack",
+        "racking", "rack system", "storage rack", "warehouse rack",
+        "pallet rack", "pallet racking", "selective rack", "selective racking",
         "warehouse racking", "warehouse shelving", "industrial racking",
-        "pallet shelving", "cantilever rack", "drive-in rack",
-        "push back rack", "flow rack", "carton flow rack",
-        "wire shelving", "bulk rack"
+        "pallet shelving", "cantilever rack", "drive-in rack", "drive-in racking",
+        "push back rack", "flow rack", "carton flow rack", "gravity flow rack",
+        "wire shelving", "bulk rack", "bulk storage",
+        "mezzanine rack", "mezzanine", "mezzanine storage",
+        "shelving unit", "industrial shelving", "metal shelving",
+        "storage system", "bin shelving", "pick module"
       ],
-      "exclude": ["interior", "remodel", "tenant improvement"],
+      "exclude": ["interior", "remodel", "tenant improvement", "office shelf", "bookshelf"],
       "class": "Machinery & Equipment",
       "life": 7,
       "method": "200DB",
@@ -565,6 +569,75 @@
       "bonus": true,
       "qip": false,
       "weight": 1.9
+    },
+
+    {
+      "name": "Shop Tooling - Dies, Molds, and Fixtures",
+      "keywords": [
+        "die", "dies", "die set", "die tooling",
+        "cutting die", "cutting dies", "stamping die", "punch die",
+        "press die", "press tooling", "forming die", "extrusion die",
+        "mold", "molds", "mould", "moulds", "injection mold",
+        "casting mold", "blow mold", "rotational mold", "compression mold",
+        "jig", "jigs", "welding jig", "assembly jig", "drill jig",
+        "fixture", "fixtures", "work fixture", "holding fixture",
+        "clamp fixture", "checking fixture", "inspection fixture",
+        "gauge", "go-no-go gauge", "plug gauge", "ring gauge",
+        "stamp", "stamps", "stamping tool", "punch tool"
+      ],
+      "exclude": ["rubber stamp", "postage stamp", "office stamp"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.7
+    },
+
+    {
+      "name": "IT Peripherals and Accessories",
+      "keywords": [
+        "docking station", "dock station", "laptop dock", "usb dock",
+        "thunderbolt dock", "usb-c dock", "port replicator",
+        "ups battery", "ups unit", "battery backup", "apc ups",
+        "surge protector", "power strip", "pdu", "power distribution",
+        "kvm switch", "kvm", "keyboard video mouse",
+        "external hard drive", "external ssd", "nas drive",
+        "webcam", "web camera", "conference camera", "logitech webcam",
+        "headset", "headphones", "usb headset", "wireless headset",
+        "keyboard", "wireless keyboard", "mechanical keyboard",
+        "mouse", "wireless mouse", "ergonomic mouse", "trackball"
+      ],
+      "exclude": [],
+      "class": "Computer Equipment",
+      "life": 5,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.2
+    },
+
+    {
+      "name": "HVAC - Machine and Process Specific",
+      "keywords": [
+        "server room cooling", "data center cooling", "computer room ac",
+        "crac unit", "crah unit", "precision cooling",
+        "machine cooling", "equipment cooling", "process cooling",
+        "industrial hvac", "manufacturing hvac", "process chiller",
+        "spot cooler", "portable ac industrial",
+        "cleanroom hvac", "laboratory hvac", "lab cooling"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.8,
+      "notes": "Machine-specific HVAC is 7-year equipment, not 15-year building component per IRC 1.168(i)-4"
     },
 
     {
