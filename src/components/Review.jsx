@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download } from 'lucide-react';
+import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download, Info } from 'lucide-react';
 import { cn } from '../lib/utils';
 import axios from 'axios';
 
@@ -11,6 +11,34 @@ function Review({ assets = [] }) {
     const [localAssets, setLocalAssets] = useState(assets);
     const [filter, setFilter] = useState('all'); // all, errors, review, approved
     const [approvedIds, setApprovedIds] = useState(new Set());
+    const [warnings, setWarnings] = useState({ critical: [], warnings: [], info: [], summary: {} });
+    const [taxYear, setTaxYear] = useState(new Date().getFullYear());
+
+    // Fetch warnings when assets change
+    useEffect(() => {
+        if (assets.length > 0) {
+            fetchWarnings();
+            fetchTaxConfig();
+        }
+    }, [assets]);
+
+    const fetchWarnings = async () => {
+        try {
+            const response = await axios.get('http://127.0.0.1:8000/warnings');
+            setWarnings(response.data);
+        } catch (error) {
+            console.error('Failed to fetch warnings:', error);
+        }
+    };
+
+    const fetchTaxConfig = async () => {
+        try {
+            const response = await axios.get('http://127.0.0.1:8000/config/tax');
+            setTaxYear(response.data.tax_year);
+        } catch (error) {
+            console.error('Failed to fetch tax config:', error);
+        }
+    };
 
     // Sync local assets when props change
     React.useEffect(() => {
@@ -205,6 +233,44 @@ function Review({ assets = [] }) {
                 </div>
             </div>
 
+            {/* Critical Warnings Banner */}
+            {warnings.critical?.length > 0 && (
+                <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-red-800 font-semibold mb-2">
+                        <AlertTriangle className="w-5 h-5" />
+                        Critical Compliance Warnings ({warnings.critical.length})
+                    </div>
+                    {warnings.critical.slice(0, 2).map((warning, idx) => (
+                        <div key={idx} className="text-sm text-red-700 mb-1">
+                            <strong>{warning.type}:</strong> {warning.message}
+                            <span className="text-red-600 ml-2">({warning.affected_count} assets)</span>
+                        </div>
+                    ))}
+                    <div className="text-xs text-red-600 mt-2">
+                        Go to Settings to configure tax year and resolve warnings.
+                    </div>
+                </div>
+            )}
+
+            {/* Transaction Type Summary */}
+            {warnings.info?.find(i => i.type === 'TRANSACTION_SUMMARY') && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <Info className="w-4 h-4 text-blue-600" />
+                        <span className="text-sm text-blue-800">
+                            Tax Year {taxYear} | Transaction Types:
+                        </span>
+                        {Object.entries(
+                            warnings.info.find(i => i.type === 'TRANSACTION_SUMMARY')?.breakdown || {}
+                        ).map(([type, count]) => (
+                            <span key={type} className="text-sm bg-blue-100 px-2 py-0.5 rounded text-blue-700">
+                                {type}: {count}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Error Banner */}
             {hasBlockingErrors && (
                 <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
@@ -232,6 +298,7 @@ function Review({ assets = [] }) {
                                     <th className="px-4 py-3">Asset ID</th>
                                     <th className="px-4 py-3">Description</th>
                                     <th className="px-4 py-3">Cost</th>
+                                    <th className="px-4 py-3">Trans. Type</th>
                                     <th className="px-4 py-3">Class</th>
                                     <th className="px-4 py-3">Life</th>
                                     <th className="px-4 py-3">Method</th>
@@ -300,6 +367,20 @@ function Review({ assets = [] }) {
                                             </td>
                                             <td className="px-4 py-3 font-mono text-slate-600">
                                                 ${(asset.cost || 0).toLocaleString()}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <span className={cn(
+                                                    "px-2 py-1 rounded text-xs font-medium",
+                                                    asset.transaction_type === "Current Year Addition" && "bg-green-100 text-green-700",
+                                                    asset.transaction_type === "Existing Asset" && "bg-slate-100 text-slate-700",
+                                                    asset.transaction_type === "Disposal" && "bg-red-100 text-red-700",
+                                                    asset.transaction_type === "Transfer" && "bg-purple-100 text-purple-700",
+                                                    !asset.transaction_type && "bg-yellow-100 text-yellow-700"
+                                                )}>
+                                                    {asset.transaction_type === "Current Year Addition" ? "Addition" :
+                                                     asset.transaction_type === "Existing Asset" ? "Existing" :
+                                                     asset.transaction_type || "Unknown"}
+                                                </span>
                                             </td>
 
                                             {editingId === asset.row_index ? (

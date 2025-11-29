@@ -33,7 +33,8 @@ class Asset(BaseModel):
 
     # Source tracking (for multi-sheet support)
     source_sheet: Optional[str] = Field(None, description="Source Excel sheet name")
-    transaction_type: Optional[str] = Field("addition", description="Transaction type: addition, disposal, transfer")
+    transaction_type: Optional[str] = Field("addition", description="Transaction type: addition, disposal, transfer, existing")
+    classification_reason: Optional[str] = Field(None, description="Reason for transaction type classification")
 
     # Audit Trail
     audit_trail: List['AuditEvent'] = []
