@@ -10,6 +10,10 @@ from typing import List, Dict
 from datetime import datetime
 import traceback
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 # Add project root to sys.path to allow imports
 # This must happen BEFORE importing services that depend on backend.logic
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
