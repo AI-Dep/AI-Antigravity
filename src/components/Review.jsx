@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download, Info, ChevronDown, ChevronUp, Shield, AlertOctagon, Car } from 'lucide-react';
+import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download, Info, ChevronDown, ChevronUp, Shield, AlertOctagon, Car, Eye, EyeOff, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
 import axios from 'axios';
 
@@ -10,6 +10,7 @@ function Review({ assets = [] }) {
     const [editForm, setEditForm] = useState({});
     const [localAssets, setLocalAssets] = useState(assets);
     const [filter, setFilter] = useState('all'); // all, errors, review, approved
+    const [showExistingAssets, setShowExistingAssets] = useState(false); // Hide existing by default
     const [approvedIds, setApprovedIds] = useState(new Set());
     const [warnings, setWarnings] = useState({ critical: [], warnings: [], info: [], summary: {} });
     const [taxYear, setTaxYear] = useState(new Date().getFullYear());
@@ -70,31 +71,61 @@ function Review({ assets = [] }) {
         const approved = approvedIds.size;
         const totalCost = localAssets.reduce((sum, a) => sum + (a.cost || 0), 0);
 
+        // Count by transaction type
+        const additions = localAssets.filter(a =>
+            a.transaction_type === "Current Year Addition"
+        ).length;
+        const disposals = localAssets.filter(a =>
+            a.transaction_type === "Disposal"
+        ).length;
+        const transfers = localAssets.filter(a =>
+            a.transaction_type === "Transfer"
+        ).length;
+        const existing = localAssets.filter(a =>
+            a.transaction_type === "Existing Asset"
+        ).length;
+        const actionable = additions + disposals + transfers;
+
         return {
             total: localAssets.length,
             errors,
             needsReview,
             highConfidence,
             approved,
-            totalCost
+            totalCost,
+            additions,
+            disposals,
+            transfers,
+            existing,
+            actionable
         };
     }, [localAssets, approvedIds]);
 
     // Filter assets
     const filteredAssets = useMemo(() => {
+        // First apply the showExistingAssets filter
+        let baseAssets = localAssets;
+        if (!showExistingAssets) {
+            // Hide existing assets - only show actionable items (additions, disposals, transfers)
+            baseAssets = localAssets.filter(a =>
+                a.transaction_type !== "Existing Asset"
+            );
+        }
+
+        // Then apply the status filter
         switch (filter) {
             case 'errors':
-                return localAssets.filter(a => a.validation_errors?.length > 0);
+                return baseAssets.filter(a => a.validation_errors?.length > 0);
             case 'review':
-                return localAssets.filter(a =>
+                return baseAssets.filter(a =>
                     !a.validation_errors?.length && a.confidence_score <= 0.8
                 );
             case 'approved':
-                return localAssets.filter(a => approvedIds.has(a.row_index));
+                return baseAssets.filter(a => approvedIds.has(a.row_index));
             default:
-                return localAssets;
+                return baseAssets;
         }
-    }, [localAssets, filter, approvedIds]);
+    }, [localAssets, filter, approvedIds, showExistingAssets]);
 
     // Check if export should be disabled
     const hasBlockingErrors = stats.errors > 0;
@@ -170,6 +201,15 @@ function Review({ assets = [] }) {
                     >
                         <CheckCircle className="w-4 h-4 mr-2" />
                         Approve All High Confidence
+                    </Button>
+                    <Button
+                        variant="outline"
+                        onClick={() => window.open('http://127.0.0.1:8000/export/audit', '_blank')}
+                        className="text-slate-600 hover:bg-slate-50"
+                        title="Download full asset schedule for audit documentation"
+                    >
+                        <FileText className="w-4 h-4 mr-2" />
+                        Audit Report
                     </Button>
                     <Button
                         onClick={handleExport}
@@ -367,6 +407,60 @@ function Review({ assets = [] }) {
                 </div>
             )}
 
+            {/* View Toggle - Actionable vs All Assets */}
+            <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-slate-700">View:</span>
+                        <button
+                            onClick={() => setShowExistingAssets(false)}
+                            className={cn(
+                                "px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
+                                !showExistingAssets
+                                    ? "bg-blue-600 text-white"
+                                    : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-100"
+                            )}
+                        >
+                            Actionable Only ({stats.actionable})
+                        </button>
+                        <button
+                            onClick={() => setShowExistingAssets(true)}
+                            className={cn(
+                                "px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
+                                showExistingAssets
+                                    ? "bg-blue-600 text-white"
+                                    : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-100"
+                            )}
+                        >
+                            All Assets ({stats.total})
+                        </button>
+                    </div>
+                    <div className="h-6 w-px bg-slate-300" />
+                    <div className="flex items-center gap-3 text-xs text-slate-500">
+                        <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded">
+                            {stats.additions} Additions
+                        </span>
+                        <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded">
+                            {stats.disposals} Disposals
+                        </span>
+                        <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+                            {stats.transfers} Transfers
+                        </span>
+                        {showExistingAssets && (
+                            <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                                {stats.existing} Existing
+                            </span>
+                        )}
+                    </div>
+                </div>
+                {!showExistingAssets && stats.existing > 0 && (
+                    <div className="text-xs text-slate-500 flex items-center gap-1">
+                        <EyeOff className="w-3 h-3" />
+                        {stats.existing} existing assets hidden (no action required)
+                    </div>
+                )}
+            </div>
+
             {/* Table */}
             <Card>
                 <CardContent className="p-0">
@@ -539,13 +633,18 @@ function Review({ assets = [] }) {
 
             {/* Footer */}
             <div className="mt-4 text-sm text-slate-500 text-center">
-                Showing {filteredAssets.length} of {stats.total} assets
-                {filter !== 'all' && (
+                Showing {filteredAssets.length} of {showExistingAssets ? stats.total : stats.actionable} {showExistingAssets ? 'total' : 'actionable'} assets
+                {!showExistingAssets && stats.existing > 0 && (
+                    <span className="text-slate-400 ml-1">
+                        ({stats.existing} existing assets hidden)
+                    </span>
+                )}
+                {(filter !== 'all' || !showExistingAssets) && (
                     <button
-                        onClick={() => setFilter('all')}
+                        onClick={() => { setFilter('all'); setShowExistingAssets(true); }}
                         className="ml-2 text-blue-600 hover:underline"
                     >
-                        Show all
+                        Show all {stats.total}
                     </button>
                 )}
             </div>

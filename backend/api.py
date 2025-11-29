@@ -639,6 +639,118 @@ def export_assets():
         headers={"Content-Disposition": "attachment; filename=FA_CS_Import.xlsx"}
     )
 
+
+@app.get("/export/audit")
+def export_audit_documentation():
+    """
+    Generates a comprehensive audit documentation Excel file.
+    Includes ALL assets (additions, disposals, transfers, AND existing assets)
+    with full classification details, confidence scores, and reasoning.
+
+    This is separate from the FA CS export and is meant for:
+    - IRS audit documentation
+    - Internal compliance records
+    - Year-over-year reconciliation
+    """
+    if not ASSET_STORE:
+        raise HTTPException(status_code=400, detail="No assets to export")
+
+    assets = list(ASSET_STORE.values())
+    tax_year = TAX_CONFIG["tax_year"]
+
+    # Create comprehensive audit DataFrame
+    audit_data = []
+    for a in assets:
+        audit_data.append({
+            "Asset ID": a.asset_id or "",
+            "Description": a.description,
+            "Cost": a.cost,
+            "Acquisition Date": a.acquisition_date.isoformat() if a.acquisition_date else "",
+            "In Service Date": a.in_service_date.isoformat() if a.in_service_date else "",
+            "Transaction Type": a.transaction_type or "",
+            "Classification Reason": a.classification_reason or "",
+            "MACRS Class": a.macrs_class or "",
+            "MACRS Life": a.macrs_life or "",
+            "MACRS Method": a.macrs_method or "",
+            "MACRS Convention": a.macrs_convention or "",
+            "Classification Confidence": f"{(a.confidence_score or 0) * 100:.0f}%",
+            "Bonus Eligible": "Yes" if a.is_bonus_eligible else "No",
+            "Qualified Improvement": "Yes" if a.is_qualified_improvement else "No",
+            "Validation Errors": "; ".join(a.validation_errors) if a.validation_errors else "",
+            "Validation Warnings": "; ".join(a.validation_warnings) if a.validation_warnings else "",
+            "Source Sheet": a.source_sheet or "",
+            "Row Index": a.row_index
+        })
+
+    df = pd.DataFrame(audit_data)
+
+    # Create summary statistics
+    summary_data = {
+        "Metric": [
+            "Tax Year",
+            "Total Assets",
+            "Total Cost",
+            "Current Year Additions",
+            "Existing Assets",
+            "Disposals",
+            "Transfers",
+            "Unknown (Missing Date)",
+            "Assets with Errors",
+            "High Confidence (>80%)",
+            "Low Confidence (<80%)",
+            "Export Generated"
+        ],
+        "Value": [
+            str(tax_year),
+            str(len(assets)),
+            f"${sum(a.cost or 0 for a in assets):,.2f}",
+            str(len([a for a in assets if a.transaction_type == "Current Year Addition"])),
+            str(len([a for a in assets if a.transaction_type == "Existing Asset"])),
+            str(len([a for a in assets if a.transaction_type == "Disposal"])),
+            str(len([a for a in assets if a.transaction_type == "Transfer"])),
+            str(len([a for a in assets if a.transaction_type and "Unknown" in a.transaction_type])),
+            str(len([a for a in assets if a.validation_errors])),
+            str(len([a for a in assets if (a.confidence_score or 0) > 0.8])),
+            str(len([a for a in assets if (a.confidence_score or 0) <= 0.8])),
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ]
+    }
+    summary_df = pd.DataFrame(summary_data)
+
+    # Create Excel file with multiple sheets
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # Summary sheet first
+        summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+        # All assets - sorted by transaction type
+        df_sorted = df.sort_values(['Transaction Type', 'Asset ID'])
+        df_sorted.to_excel(writer, sheet_name='All Assets', index=False)
+
+        # Separate sheets by transaction type for easier navigation
+        for trans_type in ['Current Year Addition', 'Existing Asset', 'Disposal', 'Transfer']:
+            type_df = df[df['Transaction Type'] == trans_type]
+            if len(type_df) > 0:
+                sheet_name = trans_type.replace(' ', '_')[:31]  # Excel sheet name limit
+                type_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+        # Errors sheet (if any)
+        errors_df = df[df['Validation Errors'] != '']
+        if len(errors_df) > 0:
+            errors_df.to_excel(writer, sheet_name='Validation_Errors', index=False)
+
+    output.seek(0)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"Audit_Documentation_{tax_year}_{timestamp}.xlsx"
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
 # ==============================================================================
 # DATA QUALITY & ANALYSIS ENDPOINTS
 # ==============================================================================
