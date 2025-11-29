@@ -133,25 +133,56 @@ function Review({ assets = [] }) {
         localAssets.filter(a => !a.validation_errors?.length && a.confidence_score <= 0.8)
             .every(a => approvedIds.has(a.row_index));
 
+    // FA CS Wizard dropdown options by recovery period
+    const FA_CS_WIZARD_OPTIONS = {
+        5: [
+            "Computer, monitor, laptop, PDA, other computer related, property used in research",
+            "Automobile - passenger (used over 50% for business)",
+            "Light truck or van (actual weight under 13,000 lbs)",
+            "Appliance - large (refrigerator, stove, washer, dryer, etc.)",
+            "Calculator, copier, fax, noncomputer office machine, typewriter",
+        ],
+        7: [
+            "Furniture and fixtures - office",
+            "Machinery and equipment - manufacturing",
+        ],
+        15: [
+            "Land improvement (sidewalk, road, bridge, fence, landscaping)",
+            "Qualified improvement property (QIP) - 15 year",
+        ],
+        27.5: [
+            "Residential rental property (27.5 year)",
+        ],
+        39: [
+            "Nonresidential real property (39 year)",
+        ],
+    };
+
     const handleEditClick = (asset) => {
         setEditingId(asset.row_index);
         setEditForm({
             macrs_class: asset.macrs_class,
             macrs_life: asset.macrs_life,
-            macrs_method: asset.macrs_method
+            macrs_method: asset.macrs_method,
+            fa_cs_wizard_category: asset.fa_cs_wizard_category
         });
     };
 
     const handleSave = async (rowIndex) => {
         try {
+            // Include fa_cs_wizard_category in the update
+            const updateData = {
+                ...editForm,
+                fa_cs_wizard_category: editForm.fa_cs_wizard_category
+            };
             const updatedAssets = localAssets.map(a =>
-                a.row_index === rowIndex ? { ...a, ...editForm, confidence_score: 1.0 } : a
+                a.row_index === rowIndex ? { ...a, ...updateData, confidence_score: 1.0 } : a
             );
             setLocalAssets(updatedAssets);
             setEditingId(null);
             setApprovedIds(prev => new Set([...prev, rowIndex]));
 
-            await axios.post(`http://127.0.0.1:8000/assets/${rowIndex}/update`, editForm);
+            await axios.post(`http://127.0.0.1:8000/assets/${rowIndex}/update`, updateData);
         } catch (error) {
             console.error("Failed to save update:", error);
         }
@@ -476,7 +507,7 @@ function Review({ assets = [] }) {
                                     <th className="px-4 py-3">Trans. Type</th>
                                     <th className="px-4 py-3">Class</th>
                                     <th className="px-4 py-3">Life</th>
-                                    <th className="px-4 py-3">Method</th>
+                                    <th className="px-4 py-3">FA CS Category</th>
                                     <th className="px-4 py-3 w-32">Actions</th>
                                 </tr>
                             </thead>
@@ -576,11 +607,18 @@ function Review({ assets = [] }) {
                                                         />
                                                     </td>
                                                     <td className="px-4 py-3">
-                                                        <input
-                                                            className="border rounded px-2 py-1 w-20 text-sm"
-                                                            value={editForm.macrs_method}
-                                                            onChange={(e) => setEditForm({ ...editForm, macrs_method: e.target.value })}
-                                                        />
+                                                        <select
+                                                            className="border rounded px-2 py-1 text-sm max-w-xs"
+                                                            value={editForm.fa_cs_wizard_category || ""}
+                                                            onChange={(e) => setEditForm({ ...editForm, fa_cs_wizard_category: e.target.value })}
+                                                        >
+                                                            <option value="">Select FA CS Category...</option>
+                                                            {Object.entries(FA_CS_WIZARD_OPTIONS).flatMap(([life, options]) =>
+                                                                options.map(opt => (
+                                                                    <option key={opt} value={opt}>{opt}</option>
+                                                                ))
+                                                            )}
+                                                        </select>
                                                     </td>
                                                     <td className="px-4 py-3">
                                                         <button onClick={() => handleSave(asset.row_index)} className="p-1.5 hover:bg-green-100 text-green-600 rounded mr-1">
@@ -599,7 +637,14 @@ function Review({ assets = [] }) {
                                                         </span>
                                                     </td>
                                                     <td className="px-4 py-3 text-slate-600">{asset.macrs_life} yr</td>
-                                                    <td className="px-4 py-3 text-slate-600">{asset.macrs_method}</td>
+                                                    <td className="px-4 py-3 text-slate-600 max-w-xs">
+                                                        <span
+                                                            className="block truncate cursor-help"
+                                                            title={asset.fa_cs_wizard_category || asset.macrs_method}
+                                                        >
+                                                            {asset.fa_cs_wizard_category || asset.macrs_method}
+                                                        </span>
+                                                    </td>
                                                     <td className="px-4 py-3">
                                                         <div className="flex gap-1">
                                                             {!isApproved && !hasErrors && (
