@@ -87,3 +87,7 @@ xref-*.html
 # Misc
 *.bak
 *.backup
+
+# Reference files (development only)
+DEP-reference/
+DEP-main*.zip
