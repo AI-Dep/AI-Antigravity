@@ -91,8 +91,10 @@ class Asset(BaseModel):
 
         # === CRITICAL ERRORS (Block Export) ===
 
-        # 1. Cost Validation - Must have valid cost
-        if self.cost <= 0:
+        # 1. Cost Validation - Must have valid cost (except for Transfers)
+        # Transfers don't require cost as they're just moving assets between locations/departments
+        is_transfer = self.transaction_type and self.transaction_type.lower() == "transfer"
+        if self.cost <= 0 and not is_transfer:
             self.validation_errors.append("Cost must be positive.")
 
         # 2. Description Validation - Must have meaningful description
@@ -100,8 +102,10 @@ class Asset(BaseModel):
             self.validation_errors.append("Description is too short.")
 
         # 3. Classification Validation - Must be classified (not Unclassified or None)
-        if not self.macrs_class or self.macrs_class in ["Unclassified", "Unknown", ""]:
-            self.validation_errors.append("Asset not classified - needs MACRS class.")
+        # Transfers don't require classification - they reference existing assets
+        if not is_transfer:
+            if not self.macrs_class or self.macrs_class in ["Unclassified", "Unknown", ""]:
+                self.validation_errors.append("Asset not classified - needs MACRS class.")
 
         # 4. Method Validation (only if method is set and invalid)
         valid_methods = ["200DB", "150DB", "SL", "ADS", "Unknown", None, ""]

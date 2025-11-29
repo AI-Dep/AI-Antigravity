@@ -291,8 +291,12 @@ def get_warnings():
             "examples": existing_as_additions[:5]
         })
 
-    # 2. Check for assets missing cost
-    zero_cost = [a for a in assets if a.cost <= 0]
+    # 2. Check for assets missing cost (exclude transfers - they don't require cost)
+    # Transfers just move assets between departments/locations, cost is already recorded
+    zero_cost = [
+        a for a in assets
+        if a.cost <= 0 and not (a.transaction_type and a.transaction_type.lower() == "transfer")
+    ]
     if zero_cost:
         critical_warnings.append({
             "type": "MISSING_COST",
@@ -302,20 +306,34 @@ def get_warnings():
             "affected_count": len(zero_cost)
         })
 
+    # 3. Check for assets with Unknown (Missing Date) transaction type - CRITICAL
+    unknown_trans_type = [
+        a for a in assets
+        if a.transaction_type and "unknown" in a.transaction_type.lower()
+    ]
+    if unknown_trans_type:
+        critical_warnings.append({
+            "type": "UNKNOWN_TRANSACTION_TYPE",
+            "message": f"{len(unknown_trans_type)} assets have unknown transaction type due to missing dates",
+            "impact": "Cannot determine if Section 179/Bonus eligible - potential tax compliance issue",
+            "action": "Add in-service dates to properly classify as Current Year Addition or Existing Asset",
+            "affected_count": len(unknown_trans_type)
+        })
+
     # ===== REGULAR WARNINGS =====
 
-    # 3. Check for assets missing dates
+    # 4. Check for assets missing dates (informational - already covered by Unknown transaction type)
     missing_dates = [a for a in assets if not a.in_service_date and not a.acquisition_date]
     if missing_dates:
         warnings.append({
             "type": "MISSING_DATES",
             "message": f"{len(missing_dates)} assets have no in-service or acquisition date",
-            "impact": "Cannot determine if current year addition or existing asset",
+            "impact": "Classified as 'Unknown (Missing Date)' - requires manual review",
             "action": "Add in-service dates for proper classification",
             "affected_count": len(missing_dates)
         })
 
-    # 4. Transaction type breakdown check
+    # 5. Transaction type breakdown check
     trans_types = {}
     for a in assets:
         tt = a.transaction_type or "unknown"
@@ -332,7 +350,7 @@ def get_warnings():
             "affected_count": len(assets)
         })
 
-    # 5. De minimis candidates
+    # 6. De minimis candidates
     de_minimis_threshold = TAX_CONFIG["de_minimis_threshold"]
     de_minimis_candidates = [
         a for a in assets
@@ -348,8 +366,12 @@ def get_warnings():
             "affected_count": len(de_minimis_candidates)
         })
 
-    # 6. Unclassified assets
-    unclassified = [a for a in assets if a.macrs_class in ["Unclassified", "Unknown", None, ""]]
+    # 7. Unclassified assets (exclude transfers - they don't need classification)
+    unclassified = [
+        a for a in assets
+        if a.macrs_class in ["Unclassified", "Unknown", None, ""]
+        and not (a.transaction_type and a.transaction_type.lower() == "transfer")
+    ]
     if unclassified:
         warnings.append({
             "type": "UNCLASSIFIED_ASSETS",
@@ -361,7 +383,26 @@ def get_warnings():
 
     # ===== INFO MESSAGES =====
 
-    # 7. Transaction type summary
+    # 8. Transfer assets info (they don't require cost)
+    transfer_assets = [
+        a for a in assets
+        if a.transaction_type and a.transaction_type.lower() == "transfer"
+    ]
+    if transfer_assets:
+        transfer_with_cost = [a for a in transfer_assets if a.cost > 0]
+        transfer_no_cost = [a for a in transfer_assets if a.cost <= 0]
+        info_messages.append({
+            "type": "TRANSFER_ASSETS_INFO",
+            "message": f"{len(transfer_assets)} transfer records detected",
+            "details": {
+                "with_cost": len(transfer_with_cost),
+                "without_cost": len(transfer_no_cost),
+                "note": "Transfers track asset movement between departments/locations - cost field is optional"
+            },
+            "affected_count": len(transfer_assets)
+        })
+
+    # 9. Transaction type summary
     info_messages.append({
         "type": "TRANSACTION_SUMMARY",
         "message": "Asset classification summary",
@@ -369,7 +410,7 @@ def get_warnings():
         "tax_year": tax_year
     })
 
-    # 8. OBBBA 2025 info
+    # 10. OBBBA 2025 info
     if tax_year >= 2025:
         info_messages.append({
             "type": "OBBBA_2025_EFFECTIVE",
@@ -597,6 +638,118 @@ def export_assets():
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=FA_CS_Import.xlsx"}
     )
+
+
+@app.get("/export/audit")
+def export_audit_documentation():
+    """
+    Generates a comprehensive audit documentation Excel file.
+    Includes ALL assets (additions, disposals, transfers, AND existing assets)
+    with full classification details, confidence scores, and reasoning.
+
+    This is separate from the FA CS export and is meant for:
+    - IRS audit documentation
+    - Internal compliance records
+    - Year-over-year reconciliation
+    """
+    if not ASSET_STORE:
+        raise HTTPException(status_code=400, detail="No assets to export")
+
+    assets = list(ASSET_STORE.values())
+    tax_year = TAX_CONFIG["tax_year"]
+
+    # Create comprehensive audit DataFrame
+    audit_data = []
+    for a in assets:
+        audit_data.append({
+            "Asset ID": a.asset_id or "",
+            "Description": a.description,
+            "Cost": a.cost,
+            "Acquisition Date": a.acquisition_date.isoformat() if a.acquisition_date else "",
+            "In Service Date": a.in_service_date.isoformat() if a.in_service_date else "",
+            "Transaction Type": a.transaction_type or "",
+            "Classification Reason": a.classification_reason or "",
+            "MACRS Class": a.macrs_class or "",
+            "MACRS Life": a.macrs_life or "",
+            "MACRS Method": a.macrs_method or "",
+            "MACRS Convention": a.macrs_convention or "",
+            "Classification Confidence": f"{(a.confidence_score or 0) * 100:.0f}%",
+            "Bonus Eligible": "Yes" if a.is_bonus_eligible else "No",
+            "Qualified Improvement": "Yes" if a.is_qualified_improvement else "No",
+            "Validation Errors": "; ".join(a.validation_errors) if a.validation_errors else "",
+            "Validation Warnings": "; ".join(a.validation_warnings) if a.validation_warnings else "",
+            "Source Sheet": a.source_sheet or "",
+            "Row Index": a.row_index
+        })
+
+    df = pd.DataFrame(audit_data)
+
+    # Create summary statistics
+    summary_data = {
+        "Metric": [
+            "Tax Year",
+            "Total Assets",
+            "Total Cost",
+            "Current Year Additions",
+            "Existing Assets",
+            "Disposals",
+            "Transfers",
+            "Unknown (Missing Date)",
+            "Assets with Errors",
+            "High Confidence (>80%)",
+            "Low Confidence (<80%)",
+            "Export Generated"
+        ],
+        "Value": [
+            str(tax_year),
+            str(len(assets)),
+            f"${sum(a.cost or 0 for a in assets):,.2f}",
+            str(len([a for a in assets if a.transaction_type == "Current Year Addition"])),
+            str(len([a for a in assets if a.transaction_type == "Existing Asset"])),
+            str(len([a for a in assets if a.transaction_type == "Disposal"])),
+            str(len([a for a in assets if a.transaction_type == "Transfer"])),
+            str(len([a for a in assets if a.transaction_type and "Unknown" in a.transaction_type])),
+            str(len([a for a in assets if a.validation_errors])),
+            str(len([a for a in assets if (a.confidence_score or 0) > 0.8])),
+            str(len([a for a in assets if (a.confidence_score or 0) <= 0.8])),
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ]
+    }
+    summary_df = pd.DataFrame(summary_data)
+
+    # Create Excel file with multiple sheets
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # Summary sheet first
+        summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+        # All assets - sorted by transaction type
+        df_sorted = df.sort_values(['Transaction Type', 'Asset ID'])
+        df_sorted.to_excel(writer, sheet_name='All Assets', index=False)
+
+        # Separate sheets by transaction type for easier navigation
+        for trans_type in ['Current Year Addition', 'Existing Asset', 'Disposal', 'Transfer']:
+            type_df = df[df['Transaction Type'] == trans_type]
+            if len(type_df) > 0:
+                sheet_name = trans_type.replace(' ', '_')[:31]  # Excel sheet name limit
+                type_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+        # Errors sheet (if any)
+        errors_df = df[df['Validation Errors'] != '']
+        if len(errors_df) > 0:
+            errors_df.to_excel(writer, sheet_name='Validation_Errors', index=False)
+
+    output.seek(0)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"Audit_Documentation_{tax_year}_{timestamp}.xlsx"
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
 
 # ==============================================================================
 # DATA QUALITY & ANALYSIS ENDPOINTS
