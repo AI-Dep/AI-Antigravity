@@ -1,0 +1,218 @@
+{
+  "it_equipment": [
+    "computer",
+    "pc ",
+    "pc-",
+    "pc:",
+    "laptop",
+    "notebook",
+    "desktop",
+    "workstation",
+    "server",
+    "firewall",
+    "router",
+    "switch",
+    "access point",
+    "printer",
+    "scanner",
+    "copier",
+    "monitor",
+    "display",
+    "ups battery",
+    "docking station"
+  ],
+
+  "desktop_computers": [
+    "thinkcentre",
+    "thinkstation",
+    "optiplex",
+    "elitedesk",
+    "precision workstation",
+    "minipc",
+    "micro pc",
+    "lenovo m90q",
+    "m90q",
+    "m80q",
+    "mac mini",
+    "mac studio",
+    "hp z workstation",
+    "dell workstation"
+  ],
+
+  "office_furniture": [
+    "desk",
+    "table",
+    "conference table",
+    "meeting table",
+    "chair",
+    "stool",
+    "file cabinet",
+    "filing cabinet",
+    "bookcase",
+    "bookshelf",
+    "credenza",
+    "hutch",
+    "reception desk",
+    "cubicle",
+    "partition",
+    "workbench",
+    "office bench"
+  ],
+
+  "heavy_equipment": [
+    "forklift",
+    "lift truck",
+    "lifttruck",
+    "reach truck",
+    "reachtruck",
+    "pallet jack",
+    "palletjack",
+    "scissor lift",
+    "scissorlift",
+    "telehandler",
+    "boom lift",
+    "skid steer",
+    "skidsteer",
+    "bobcat",
+    "loader",
+    "front loader",
+    "backhoe",
+    "excavator",
+    "mini excavator",
+    "tow motor"
+  ],
+
+  "shop_tooling": [
+    "tooling",
+    "cutting die",
+    "cutting dies",
+    "die set",
+    "die tooling",
+    "press tooling",
+    "press die",
+    "mold",
+    "molds",
+    "mould",
+    "moulds",
+    "jig",
+    "jigs",
+    "fixture",
+    "fixtures",
+    "stamp",
+    "stamps",
+    "stamping die",
+    "punch die"
+  ],
+
+  "warehouse_racking": [
+    "shelving",
+    "shelf",
+    "racking",
+    "rack",
+    "pallet rack",
+    "storage rack",
+    "warehouse rack",
+    "mezzanine rack",
+    "cantilever rack"
+  ],
+
+  "power_tools": [
+    "drill",
+    "impact driver",
+    "router tool",
+    "angle grinder",
+    "grinder",
+    "saw",
+    "circular saw",
+    "miter saw",
+    "bandsaw",
+    "planer",
+    "sander",
+    "drill press",
+    "powertool",
+    "power tool"
+  ],
+
+  "hvac_machine_specific": [
+    "server room",
+    "data center",
+    "machine cooling",
+    "equipment cooling",
+    "process cooling",
+    "industrial hvac",
+    "manufacturing hvac",
+    "chiller",
+    "cooling unit for machine"
+  ],
+
+  "hvac_building_component": [
+    "hvac",
+    "rtu",
+    "rooftop unit",
+    "furnace",
+    "air handler",
+    "makeup air",
+    "make-up air"
+  ],
+
+  "land_improvements": [
+    "parking",
+    "parking lot",
+    "paving",
+    "asphalt",
+    "driveway",
+    "curb",
+    "curbing",
+    "sidewalk",
+    "fence",
+    "fencing",
+    "gate",
+    "retaining wall",
+    "landscape",
+    "landscaping",
+    "exterior lighting",
+    "site improvement",
+    "site work"
+  ],
+
+  "brand_computers": [
+    "lenovo",
+    "thinkcentre",
+    "thinkpad",
+    "dell",
+    "optiplex",
+    "precision",
+    "hp",
+    "elitedesk",
+    "zbook",
+    "apple",
+    "macbook",
+    "imac",
+    "mac mini",
+    "mac studio"
+  ],
+
+  "brand_machinery": [
+    "haas",
+    "mazak",
+    "dmg mori",
+    "doosan",
+    "okuma",
+    "toyota forklift",
+    "hyster",
+    "caterpillar",
+    "cat ",
+    "john deere",
+    "komatsu"
+  ],
+
+  "override_patterns": {
+    "5yr": 5,
+    "7yr": 7,
+    "15yr": 15,
+    "27.5yr": 27.5,
+    "39yr": 39
+  },
+
+  "notes": "Keyword groups used by the deterministic rule engine and smart override engine."
+}

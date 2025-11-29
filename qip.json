@@ -1,0 +1,18 @@
+{
+  "positive_terms": [
+    "interior", "buildout", "build-out", "fitout", "fit-out",
+    "tenant improvement", "remodel", "renovation", "drywall",
+    "ceiling", "ceiling grid", "flooring", "carpet",
+    "interior lighting", "lighting upgrade", "partition"
+  ],
+  "negative_terms": [
+    "roof", "exterior", "shell", "façade", "foundation",
+    "structural", "load-bearing", "elevator", "escalator",
+    "enlargement", "parking", "site work"
+  ],
+  "life": 15,
+  "method": "MACRS GDS",
+  "convention": "HY",
+  "bonus_eligible": true,
+  "notes": "QIP applies to interior improvements to nonresidential buildings, excluding elevators, structural components, roofs, enlargements."
+}

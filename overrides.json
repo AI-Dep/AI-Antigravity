@@ -1,0 +1,38 @@
+{
+  "by_asset_id": {
+    "BA-1001": {
+      "class": "Office Furniture",
+      "life": 7,
+      "method": "MACRS GDS",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false
+    },
+    "EQ-2024-09": {
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "MACRS GDS",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false
+    }
+  },
+  "by_client_category": {
+    "Leasehold Improvements": {
+      "class": "QIP",
+      "life": 15,
+      "method": "MACRS GDS",
+      "convention": "HY",
+      "bonus": true,
+      "qip": true
+    },
+    "IT Hardware": {
+      "class": "Office Equipment",
+      "life": 5,
+      "method": "MACRS GDS",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false
+    }
+  }
+}

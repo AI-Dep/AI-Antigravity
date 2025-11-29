@@ -1,0 +1,87 @@
+{
+  "_description": "FA CS Import Field Mapping Configuration",
+  "_notes": [
+    "This file defines how to map our export columns to FA CS import fields",
+    "Each client may have different mapping requirements",
+    "The 'default' mapping is used when no client-specific mapping exists",
+    "FA CS import feature typically allows saving/loading mapping templates"
+  ],
+
+  "default": {
+    "mapping_name": "Default AI Export Mapping",
+    "description": "Standard mapping for AI-generated fixed asset exports",
+    "field_mappings": {
+      "Asset #": "Asset Number",
+      "Description": "Asset Description",
+      "Date In Service": "Date Placed in Service",
+      "Acquisition Date": "Acquisition Date",
+      "Tax Cost": "Cost/Basis",
+      "Tax Method": "Depreciation Method",
+      "Tax Life": "Recovery Period",
+      "Convention": "Convention",
+      "Tax Sec 179 Expensed": "Section 179 Deduction",
+      "Bonus Amount": "Bonus Depreciation",
+      "Tax Prior Depreciation": "Prior Depreciation",
+      "Tax Cur Depreciation": "Current Year Depreciation",
+      "Transaction Type": "Transaction Type",
+      "Quarter (MQ)": "Quarter"
+    },
+    "import_settings": {
+      "skip_header_rows": 0,
+      "update_existing_assets": false,
+      "validate_before_import": true,
+      "create_backup": true
+    }
+  },
+
+  "example_client_123": {
+    "mapping_name": "Client 123 Custom Mapping",
+    "description": "Custom mapping for Client 123 with specific field requirements",
+    "field_mappings": {
+      "Asset #": "Asset ID",
+      "Description": "Property Description",
+      "Date In Service": "Service Date",
+      "Acquisition Date": "Purchase Date",
+      "Tax Cost": "Basis",
+      "Tax Method": "Method",
+      "Tax Life": "Life (Years)",
+      "Convention": "Convention",
+      "Tax Sec 179 Expensed": "Sec 179",
+      "Bonus Amount": "Bonus Depr",
+      "Tax Prior Depreciation": "Accumulated Depr",
+      "Tax Cur Depreciation": "Current Depr"
+    },
+    "import_settings": {
+      "skip_header_rows": 0,
+      "update_existing_assets": true,
+      "validate_before_import": true,
+      "create_backup": true
+    }
+  },
+
+  "_fa_cs_standard_fields": [
+    "Asset Number",
+    "Asset Description",
+    "Date Placed in Service",
+    "Acquisition Date",
+    "Cost/Basis",
+    "Depreciation Method",
+    "Recovery Period",
+    "Convention",
+    "Section 179 Deduction",
+    "Bonus Depreciation",
+    "Prior Depreciation",
+    "Current Year Depreciation",
+    "Transaction Type",
+    "Quarter",
+    "Disposal Date",
+    "Disposal Proceeds"
+  ],
+
+  "_supported_transaction_types": [
+    "Current Year Addition",
+    "Prior Year Addition",
+    "Disposal",
+    "Adjustment"
+  ]
+}

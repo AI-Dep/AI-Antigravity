@@ -1,0 +1,32 @@
+{
+  "tcja_phaseout": [
+    { "year": 2022, "bonus": 100 },
+    { "year": 2023, "bonus": 80 },
+    { "year": 2024, "bonus": 80 },
+    { "year": 2025, "bonus": 80, "notes": "80% until OBBBA effective date" },
+    { "year": 2026, "bonus": 60 },
+    { "year": 2027, "bonus": 40 },
+    { "year": 2028, "bonus": 20 },
+    { "year": 2029, "bonus": 0 }
+  ],
+  "obbba": {
+    "effective_date": "2025-01-19",
+    "bonus": 100,
+    "requirement": "Property must be BOTH acquired AND placed in service after effective date"
+  },
+  "eligible_lives": [3, 5, 7, 10, 15, 20],
+  "eligible_property": [
+    "MACRS property with recovery period <= 20 years",
+    "Computer software (3-year)",
+    "Water utility property",
+    "Qualified film, television, and live theatrical production property",
+    "Specified plants"
+  ],
+  "ineligible_property": [
+    "Real property (27.5-year, 39-year)",
+    "Property used predominantly outside the United States",
+    "Tax-exempt bond financed property",
+    "Property with floor plan financing interest (dealer exception)"
+  ],
+  "notes": "TCJA IRC §168(k) bonus depreciation. OBBBA restores 100% bonus for property acquired and placed in service after 1/19/2025. Main code uses tax_year_config.py for calculations - this file is reference only."
+}

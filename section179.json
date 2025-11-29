@@ -1,0 +1,51 @@
+{
+  "limits_by_year": {
+    "2023": {
+      "max_deduction": 1160000,
+      "phaseout_threshold": 2890000,
+      "source": "IRS Rev. Proc. 2022-38"
+    },
+    "2024": {
+      "max_deduction": 1220000,
+      "phaseout_threshold": 3050000,
+      "source": "IRS Rev. Proc. 2023-34"
+    },
+    "2025": {
+      "max_deduction": 2500000,
+      "phaseout_threshold": 4000000,
+      "source": "OBBBA Act effective 1/1/2025",
+      "notes": "Increased limits under One Big Beautiful Bill Act"
+    },
+    "2026": {
+      "max_deduction": 2500000,
+      "phaseout_threshold": 4000000,
+      "source": "OBBBA Act - subject to inflation adjustment"
+    }
+  },
+  "eligible_property": [
+    "Tangible personal property",
+    "Off-the-shelf computer software",
+    "Qualified improvement property (QIP)",
+    "Certain real property improvements (roofs, HVAC, fire protection, alarms, security)",
+    "Single purpose agricultural/horticultural structures",
+    "Storage facilities for petroleum distribution"
+  ],
+  "ineligible_property": [
+    "Buildings and structural components (general)",
+    "Land",
+    "Property used predominantly outside the US",
+    "Property acquired from related parties",
+    "Property received by gift/inheritance"
+  ],
+  "special_limits": {
+    "heavy_suv_2024": 28900,
+    "heavy_suv_2025": 30500,
+    "notes": "SUVs over 6,000 lbs GVW have separate Section 179 limit per IRC §179(b)(5)(A)"
+  },
+  "taxable_income_limitation": {
+    "rule": "Section 179 deduction cannot exceed taxable income from active trade/business",
+    "carryforward": "Unlimited carryforward per IRC §179(b)(3)(B)",
+    "irc_reference": "IRC §179(b)(3)"
+  },
+  "notes": "Main code uses tax_year_config.py for calculations - this file is reference documentation. All limits subject to annual inflation adjustments."
+}
