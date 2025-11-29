@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '../lib/utils';
 import axios from 'axios';
 
 export default function Review({ assets = [] }) {
@@ -287,7 +287,7 @@ export default function Review({ assets = [] }) {
                                                 <span className={cn(
                                                     "text-xs font-mono",
                                                     asset.confidence_score > 0.8 ? "text-green-600" :
-                                                    asset.confidence_score > 0.5 ? "text-yellow-600" : "text-red-600"
+                                                        asset.confidence_score > 0.5 ? "text-yellow-600" : "text-red-600"
                                                 )}>
                                                     {Math.round((asset.confidence_score || 0) * 100)}%
                                                 </span>

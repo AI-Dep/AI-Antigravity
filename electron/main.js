@@ -43,6 +43,12 @@ function createWindow() {
 
     console.log(`Loading URL: ${startUrl}`);
     win.loadURL(startUrl);
+
+    // Open DevTools and log console messages to terminal
+    win.webContents.openDevTools();
+    win.webContents.on('console-message', (event, level, message, line, sourceId) => {
+        console.log(`[Console]: ${message} (${sourceId}:${line})`);
+    });
 }
 
 app.whenReady().then(() => {
