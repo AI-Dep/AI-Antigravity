@@ -86,10 +86,9 @@ class ImporterService:
                     macrs_method=str(row.get(col_map.get("method"))) if col_map.get("method") else None,
                     macrs_convention=str(row.get(col_map.get("convention"))) if col_map.get("convention") else None
                 )
-                
-                # Run Validation Rules
-                asset.check_validity()
-                
+
+                # NOTE: Validation is run AFTER classification in classifier.py
+                # This ensures we can check if classification succeeded
                 assets.append(asset)
             except Exception as e:
                 print(f"Skipping row {idx}: {e}")
