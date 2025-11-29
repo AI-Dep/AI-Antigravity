@@ -10,6 +10,10 @@ from typing import List, Dict
 from datetime import datetime
 import traceback
 
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 # Add project root to sys.path to allow imports
 # This must happen BEFORE importing services that depend on backend.logic
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -19,6 +23,13 @@ from backend.services.classifier import ClassifierService
 from backend.services.auditor import AuditorService
 from backend.services.exporter import ExporterService
 from backend.models.asset import Asset
+
+# Import logic modules for new features
+from backend.logic.data_quality_score import calculate_data_quality_score, DataQualityScore
+from backend.logic.smart_tab_analyzer import analyze_tabs, TabAnalysisResult
+from backend.logic.rollforward_reconciliation import reconcile_rollforward, RollforwardResult
+from backend.logic.depreciation_projection import project_portfolio_depreciation
+import pandas as pd
 
 app = FastAPI()
 
@@ -40,6 +51,8 @@ exporter = ExporterService()
 # In-Memory Store (Replace with DB later)
 ASSET_STORE: Dict[int, Asset] = {}
 APPROVED_ASSETS: set = set()  # Track CPA-approved row_indexes
+TAB_ANALYSIS_RESULT = None  # Store latest tab analysis for UI
+LAST_UPLOAD_FILENAME = None  # Track filename for display
 
 # Remote FA CS Configuration
 FACS_CONFIG = {
@@ -47,6 +60,23 @@ FACS_CONFIG = {
     "user_confirmed_connected": False,  # User manually confirms connection
     "export_path": None  # Custom export path (e.g., shared network folder)
 }
+
+# Tax Configuration - CRITICAL for proper classification
+from datetime import date
+TAX_CONFIG = {
+    "tax_year": date.today().year,  # Default to current year
+    "de_minimis_threshold": 2500,   # Default to non-AFS threshold ($2,500)
+    "has_afs": False,               # Audited Financial Statement status
+    "bonus_rate": None,             # Will be calculated based on tax year
+    "section_179_limit": None,      # Will be set based on tax year
+}
+
+# Import tax year config for bonus rates
+try:
+    from backend.logic import tax_year_config
+    TAX_YEAR_CONFIG_AVAILABLE = True
+except ImportError:
+    TAX_YEAR_CONFIG_AVAILABLE = False
 
 @app.get("/")
 def read_root():
@@ -112,37 +142,318 @@ def get_stats():
                           and getattr(a, 'confidence_score', 1.0) > 0.8)
     approved = len(APPROVED_ASSETS)
 
+    # Transaction type breakdown
+    trans_types = {}
+    for a in assets:
+        tt = getattr(a, 'transaction_type', 'addition') or 'addition'
+        trans_types[tt] = trans_types.get(tt, 0) + 1
+
     return {
         "total": total,
         "errors": errors,
         "needs_review": needs_review,
         "high_confidence": high_confidence,
         "approved": approved,
-        "ready_for_export": errors == 0 and total > 0
+        "ready_for_export": errors == 0 and total > 0,
+        "transaction_types": trans_types,
+        "tax_year": TAX_CONFIG["tax_year"]
+    }
+
+
+# ==============================================================================
+# TAX CONFIGURATION ENDPOINTS
+# ==============================================================================
+
+@app.get("/config/tax")
+def get_tax_config():
+    """
+    Get current tax configuration including:
+    - Tax year
+    - De minimis threshold
+    - Bonus depreciation rate
+    - Section 179 limits
+    """
+    config = dict(TAX_CONFIG)
+    tax_year = config["tax_year"]
+
+    # Calculate bonus rate based on tax year
+    if TAX_YEAR_CONFIG_AVAILABLE:
+        bonus_info = tax_year_config.get_bonus_depreciation_rate(tax_year)
+        config["bonus_rate"] = bonus_info.get("rate", 0) if isinstance(bonus_info, dict) else bonus_info
+        config["section_179_limit"] = tax_year_config.get_section_179_limit(tax_year)
+        config["obbba_effective"] = tax_year >= 2025  # OBBBA passed in 2025
+        config["obbba_info"] = {
+            "name": "One Big Beautiful Bill Act (OBBBA) 2025",
+            "effective_date": "2025-01-19",
+            "bonus_rate_post_obbba": 100 if tax_year >= 2025 else None,
+            "section_179_limit_increase": "$2.5M (up from $1.2M)" if tax_year >= 2025 else None
+        }
+    else:
+        # Fallback defaults
+        config["bonus_rate"] = 60 if tax_year == 2024 else 40 if tax_year == 2025 else 0
+        config["section_179_limit"] = 1220000 if tax_year < 2025 else 2500000
+
+    return config
+
+
+@app.post("/config/tax")
+def set_tax_config(
+    tax_year: int = Body(..., embed=True, ge=2020, le=2030),
+    de_minimis_threshold: int = Body(2500, ge=0, le=5000),
+    has_afs: bool = Body(False)
+):
+    """
+    Set tax configuration for the session.
+
+    Args:
+        tax_year: Tax year for depreciation calculations (2020-2030)
+        de_minimis_threshold: De minimis safe harbor threshold ($0-$5000)
+                             - $2,500 for taxpayers WITHOUT audited financial statements
+                             - $5,000 for taxpayers WITH audited financial statements
+        has_afs: Whether taxpayer has Audited Financial Statements
+
+    IMPORTANT: Setting tax year will RECLASSIFY all loaded assets!
+    """
+    global TAX_CONFIG
+
+    TAX_CONFIG["tax_year"] = tax_year
+    TAX_CONFIG["de_minimis_threshold"] = de_minimis_threshold
+    TAX_CONFIG["has_afs"] = has_afs
+
+    # Update classifier's tax year
+    classifier.set_tax_year(tax_year)
+
+    # Reclassify loaded assets with new tax year
+    if ASSET_STORE:
+        assets = list(ASSET_STORE.values())
+        classifier._classify_transaction_types(assets, tax_year)
+
+        # Count reclassified assets
+        trans_types = {}
+        for a in assets:
+            tt = a.transaction_type or 'unknown'
+            trans_types[tt] = trans_types.get(tt, 0) + 1
+
+    return {
+        "status": "updated",
+        "tax_year": tax_year,
+        "de_minimis_threshold": de_minimis_threshold,
+        "has_afs": has_afs,
+        "assets_reclassified": len(ASSET_STORE),
+        "transaction_type_breakdown": trans_types if ASSET_STORE else {}
+    }
+
+
+# ==============================================================================
+# DATA WARNINGS & COMPLETENESS ENDPOINTS
+# ==============================================================================
+
+@app.get("/warnings")
+def get_warnings():
+    """
+    Get comprehensive warnings about the loaded data including:
+    - Missing asset detection warnings
+    - Transaction type classification issues
+    - De minimis candidates
+    - Tax compliance warnings
+    """
+    assets = list(ASSET_STORE.values())
+    if not assets:
+        return {"warnings": [], "critical": [], "info": []}
+
+    critical_warnings = []
+    warnings = []
+    info_messages = []
+    tax_year = TAX_CONFIG["tax_year"]
+
+    # ===== CRITICAL WARNINGS =====
+
+    # 1. Check for existing assets incorrectly classified as additions
+    existing_as_additions = []
+    for a in assets:
+        if a.in_service_date:
+            asset_year = a.in_service_date.year
+            if asset_year < tax_year and "addition" in (a.transaction_type or "").lower():
+                existing_as_additions.append({
+                    "asset_id": a.asset_id,
+                    "description": a.description[:50],
+                    "in_service_year": asset_year,
+                    "tax_year": tax_year
+                })
+
+    if existing_as_additions:
+        critical_warnings.append({
+            "type": "MISCLASSIFIED_EXISTING_ASSETS",
+            "message": f"{len(existing_as_additions)} existing assets may be incorrectly classified as additions",
+            "impact": "Section 179 and Bonus depreciation NOT allowed on existing assets",
+            "action": "Review transaction type classification and set correct tax year",
+            "affected_count": len(existing_as_additions),
+            "examples": existing_as_additions[:5]
+        })
+
+    # 2. Check for assets missing cost
+    zero_cost = [a for a in assets if a.cost <= 0]
+    if zero_cost:
+        critical_warnings.append({
+            "type": "MISSING_COST",
+            "message": f"{len(zero_cost)} assets have $0 or missing cost",
+            "impact": "Cannot calculate depreciation without cost basis",
+            "action": "Enter cost for each asset",
+            "affected_count": len(zero_cost)
+        })
+
+    # ===== REGULAR WARNINGS =====
+
+    # 3. Check for assets missing dates
+    missing_dates = [a for a in assets if not a.in_service_date and not a.acquisition_date]
+    if missing_dates:
+        warnings.append({
+            "type": "MISSING_DATES",
+            "message": f"{len(missing_dates)} assets have no in-service or acquisition date",
+            "impact": "Cannot determine if current year addition or existing asset",
+            "action": "Add in-service dates for proper classification",
+            "affected_count": len(missing_dates)
+        })
+
+    # 4. Transaction type breakdown check
+    trans_types = {}
+    for a in assets:
+        tt = a.transaction_type or "unknown"
+        trans_types[tt] = trans_types.get(tt, 0) + 1
+
+    # Check if ALL assets are additions (suspicious)
+    additions_count = trans_types.get("Current Year Addition", 0) + trans_types.get("addition", 0)
+    if additions_count == len(assets) and len(assets) > 10:
+        warnings.append({
+            "type": "ALL_ADDITIONS_SUSPICIOUS",
+            "message": f"All {len(assets)} assets classified as additions - this may indicate missing data",
+            "impact": "Typical asset schedules include existing assets, disposals, and transfers",
+            "action": "Verify data includes complete asset schedule with all transaction types",
+            "affected_count": len(assets)
+        })
+
+    # 5. De minimis candidates
+    de_minimis_threshold = TAX_CONFIG["de_minimis_threshold"]
+    de_minimis_candidates = [
+        a for a in assets
+        if 0 < a.cost <= de_minimis_threshold and "Current Year Addition" in (a.transaction_type or "")
+    ]
+    if de_minimis_candidates:
+        info_messages.append({
+            "type": "DE_MINIMIS_CANDIDATES",
+            "message": f"{len(de_minimis_candidates)} current year additions qualify for de minimis safe harbor",
+            "threshold": de_minimis_threshold,
+            "total_value": sum(a.cost for a in de_minimis_candidates),
+            "benefit": "Can expense immediately instead of capitalizing and depreciating",
+            "affected_count": len(de_minimis_candidates)
+        })
+
+    # 6. Unclassified assets
+    unclassified = [a for a in assets if a.macrs_class in ["Unclassified", "Unknown", None, ""]]
+    if unclassified:
+        warnings.append({
+            "type": "UNCLASSIFIED_ASSETS",
+            "message": f"{len(unclassified)} assets could not be automatically classified",
+            "impact": "Manual MACRS class assignment required before export",
+            "action": "Review and assign MACRS class to each unclassified asset",
+            "affected_count": len(unclassified)
+        })
+
+    # ===== INFO MESSAGES =====
+
+    # 7. Transaction type summary
+    info_messages.append({
+        "type": "TRANSACTION_SUMMARY",
+        "message": "Asset classification summary",
+        "breakdown": trans_types,
+        "tax_year": tax_year
+    })
+
+    # 8. OBBBA 2025 info
+    if tax_year >= 2025:
+        info_messages.append({
+            "type": "OBBBA_2025_EFFECTIVE",
+            "message": "One Big Beautiful Bill Act (OBBBA) 2025 provisions apply",
+            "details": {
+                "bonus_depreciation": "100% for assets acquired AND placed in service after 1/19/2025",
+                "section_179_limit": "$2.5 million (increased from $1.2 million)",
+                "phase_out_threshold": "$4 million"
+            }
+        })
+
+    return {
+        "critical": critical_warnings,
+        "warnings": warnings,
+        "info": info_messages,
+        "summary": {
+            "total_assets": len(assets),
+            "critical_issues": len(critical_warnings),
+            "warnings": len(warnings),
+            "tax_year": tax_year
+        }
     }
 
 @app.post("/upload", response_model=List[Asset])
 async def upload_file(file: UploadFile = File(...)):
     """
     Uploads an Excel file, parses it, and returns classified assets.
+
+    Uses the configured tax year for proper transaction classification:
+    - Current Year Additions (eligible for Section 179/Bonus)
+    - Existing Assets (NOT eligible for Section 179/Bonus)
+    - Disposals
+    - Transfers
     """
+    global TAB_ANALYSIS_RESULT, LAST_UPLOAD_FILENAME
+
     temp_file = f"temp_{file.filename}"
+    LAST_UPLOAD_FILENAME = file.filename
+
     try:
         # Save uploaded file temporarily
         with open(temp_file, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-            
+
+        # Perform tab analysis before processing
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(temp_file, data_only=True)
+            sheets = {}
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                data = []
+                for row in ws.iter_rows(values_only=True):
+                    data.append(row)
+                sheets[sheet_name] = pd.DataFrame(data)
+            wb.close()
+
+            # Run tab analysis
+            TAB_ANALYSIS_RESULT = analyze_tabs(sheets, TAX_CONFIG["tax_year"])
+            print(f"Tab analysis: {len(TAB_ANALYSIS_RESULT.tabs)} tabs detected")
+        except Exception as tab_err:
+            print(f"Tab analysis error (non-fatal): {tab_err}")
+            TAB_ANALYSIS_RESULT = None
+
         # 1. Parse Excel
         assets = importer.parse_excel(temp_file)
-        
-        # 2. Classify Assets
-        classified_assets = classifier.classify_batch(assets)
-        
+
+        # 2. Classify Assets (MACRS + Transaction Types)
+        # Uses the configured tax year for proper classification
+        tax_year = TAX_CONFIG["tax_year"]
+        classified_assets = classifier.classify_batch(assets, tax_year=tax_year)
+
         # 3. Store in Memory
         ASSET_STORE.clear()  # Clear previous upload for now
         APPROVED_ASSETS.clear()  # Clear approvals too
         for asset in classified_assets:
             ASSET_STORE[asset.row_index] = asset
+
+        # Log transaction type summary
+        trans_types = {}
+        for a in classified_assets:
+            tt = a.transaction_type or "unknown"
+            trans_types[tt] = trans_types.get(tt, 0) + 1
+        print(f"Classification Summary (Tax Year {tax_year}): {trans_types}")
 
         return classified_assets
         
@@ -286,6 +597,374 @@ def export_assets():
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=FA_CS_Import.xlsx"}
     )
+
+# ==============================================================================
+# DATA QUALITY & ANALYSIS ENDPOINTS
+# ==============================================================================
+
+@app.get("/quality")
+def get_data_quality():
+    """
+    Get data quality score with A-F grade and detailed breakdown.
+    Returns a comprehensive quality assessment for the loaded assets.
+    """
+    if not ASSET_STORE:
+        return {
+            "grade": "-",
+            "score": 0,
+            "is_export_ready": False,
+            "summary": "No assets loaded",
+            "checks": [],
+            "critical_issues": [],
+            "recommendations": ["Upload an asset schedule to begin"]
+        }
+
+    # Convert assets to DataFrame for quality scoring
+    assets = list(ASSET_STORE.values())
+    df_data = []
+    for a in assets:
+        df_data.append({
+            "Asset ID": a.asset_id,
+            "Description": a.description,
+            "Cost": a.cost,
+            "In Service Date": a.in_service_date,
+            "Final Category": a.macrs_class,
+            "MACRS Life": a.macrs_life,
+            "Method": a.macrs_method,
+            "Transaction Type": a.transaction_type,
+        })
+
+    df = pd.DataFrame(df_data)
+
+    try:
+        quality_result = calculate_data_quality_score(df, TAX_CONFIG["tax_year"])
+
+        # Convert checks to serializable format
+        checks_data = []
+        for check in quality_result.checks:
+            checks_data.append({
+                "name": check.name,
+                "passed": check.passed,
+                "score": round(check.score, 1),
+                "max_score": check.max_score,
+                "weight": check.weight,
+                "details": check.details,
+                "fix_suggestion": check.fix_suggestion
+            })
+
+        return {
+            "grade": quality_result.grade,
+            "score": round(quality_result.score, 1),
+            "is_export_ready": quality_result.is_export_ready,
+            "summary": quality_result.summary,
+            "checks": checks_data,
+            "critical_issues": quality_result.critical_issues,
+            "recommendations": quality_result.recommendations
+        }
+    except Exception as e:
+        print(f"Quality score error: {e}")
+        return {
+            "grade": "?",
+            "score": 0,
+            "is_export_ready": False,
+            "summary": f"Error calculating quality: {str(e)}",
+            "checks": [],
+            "critical_issues": [str(e)],
+            "recommendations": []
+        }
+
+
+@app.get("/tabs")
+def get_tab_analysis():
+    """
+    Get the tab analysis results from the last upload.
+    Shows which tabs were detected and their roles.
+    """
+    global TAB_ANALYSIS_RESULT
+
+    if TAB_ANALYSIS_RESULT is None:
+        return {
+            "tabs": [],
+            "target_fiscal_year": TAX_CONFIG["tax_year"],
+            "warnings": [],
+            "summary": "No file uploaded yet",
+            "efficiency": {}
+        }
+
+    # Convert tab analysis to serializable format
+    tabs_data = []
+    for tab in TAB_ANALYSIS_RESULT.tabs:
+        tabs_data.append({
+            "tab_name": tab.tab_name,
+            "role": tab.role.value,
+            "role_label": tab.role_label,
+            "icon": tab.icon,
+            "fiscal_year": tab.fiscal_year,
+            "row_count": tab.row_count,
+            "data_row_count": tab.data_row_count,
+            "has_cost_data": tab.has_cost_data,
+            "has_date_data": tab.has_date_data,
+            "should_process": tab.should_process,
+            "skip_reason": tab.skip_reason,
+            "confidence": round(tab.confidence, 2),
+            "detection_notes": tab.detection_notes
+        })
+
+    efficiency = TAB_ANALYSIS_RESULT.get_efficiency_stats()
+
+    return {
+        "tabs": tabs_data,
+        "target_fiscal_year": TAB_ANALYSIS_RESULT.target_fiscal_year,
+        "warnings": TAB_ANALYSIS_RESULT.warnings,
+        "summary_tabs": TAB_ANALYSIS_RESULT.summary_tabs,
+        "detail_tabs": TAB_ANALYSIS_RESULT.detail_tabs,
+        "disposal_tabs": TAB_ANALYSIS_RESULT.disposal_tabs,
+        "efficiency": efficiency,
+        "filename": LAST_UPLOAD_FILENAME
+    }
+
+
+@app.get("/rollforward")
+def get_rollforward_status():
+    """
+    Get rollforward reconciliation status for loaded assets.
+    Shows beginning balance, additions, disposals, and ending balance.
+    """
+    if not ASSET_STORE:
+        return {
+            "is_balanced": True,
+            "beginning_balance": 0,
+            "additions": 0,
+            "disposals": 0,
+            "transfers_in": 0,
+            "transfers_out": 0,
+            "expected_ending": 0,
+            "variance": 0,
+            "details": {},
+            "warnings": ["No assets loaded"],
+            "status_label": "No Data"
+        }
+
+    # Convert assets to DataFrame
+    assets = list(ASSET_STORE.values())
+    df_data = []
+    for a in assets:
+        df_data.append({
+            "Cost": a.cost,
+            "Transaction Type": a.transaction_type or "",
+        })
+
+    df = pd.DataFrame(df_data)
+
+    try:
+        result = reconcile_rollforward(df, cost_column="Cost", trans_type_column="Transaction Type")
+
+        status_label = "Balanced" if result.is_balanced else f"Out of Balance (${result.variance:,.2f})"
+
+        return {
+            "is_balanced": result.is_balanced,
+            "beginning_balance": round(result.beginning_balance, 2),
+            "additions": round(result.additions, 2),
+            "disposals": round(result.disposals, 2),
+            "transfers_in": round(result.transfers_in, 2),
+            "transfers_out": round(result.transfers_out, 2),
+            "expected_ending": round(result.expected_ending, 2),
+            "actual_ending": round(result.actual_ending, 2),
+            "variance": round(result.variance, 2),
+            "details": result.details,
+            "warnings": result.warnings,
+            "status_label": status_label
+        }
+    except Exception as e:
+        print(f"Rollforward error: {e}")
+        return {
+            "is_balanced": False,
+            "beginning_balance": 0,
+            "additions": 0,
+            "disposals": 0,
+            "transfers_in": 0,
+            "transfers_out": 0,
+            "expected_ending": 0,
+            "variance": 0,
+            "details": {},
+            "warnings": [f"Error: {str(e)}"],
+            "status_label": "Error"
+        }
+
+
+@app.get("/projection")
+def get_depreciation_projection():
+    """
+    Get 10-year depreciation projection for loaded assets.
+    Shows year-by-year tax depreciation forecast.
+    """
+    if not ASSET_STORE:
+        return {
+            "years": [],
+            "depreciation": [],
+            "total_10_year": 0,
+            "current_year": 0,
+            "summary": "No assets loaded"
+        }
+
+    # Convert assets to DataFrame with required columns
+    assets = list(ASSET_STORE.values())
+    df_data = []
+    for a in assets:
+        # Calculate depreciable basis (simplified - full calc in export)
+        depreciable_basis = a.cost or 0
+
+        df_data.append({
+            "Depreciable Basis": depreciable_basis,
+            "Recovery Period": a.macrs_life or 7,
+            "Method": a.macrs_method or "200DB",
+            "Convention": a.macrs_convention or "HY",
+            "In Service Date": a.in_service_date,
+        })
+
+    df = pd.DataFrame(df_data)
+    current_year = TAX_CONFIG["tax_year"]
+
+    try:
+        projection_df = project_portfolio_depreciation(df, current_year, projection_years=10)
+
+        years = projection_df["Tax Year"].tolist()
+        depreciation = [round(d, 2) for d in projection_df["Total Depreciation"].tolist()]
+
+        total_10_year = sum(depreciation)
+        current_year_dep = depreciation[0] if depreciation else 0
+
+        return {
+            "years": years,
+            "depreciation": depreciation,
+            "total_10_year": round(total_10_year, 2),
+            "current_year": round(current_year_dep, 2),
+            "asset_count": len(assets),
+            "summary": f"${total_10_year:,.0f} total depreciation over 10 years"
+        }
+    except Exception as e:
+        print(f"Projection error: {e}")
+        traceback.print_exc()
+        return {
+            "years": [],
+            "depreciation": [],
+            "total_10_year": 0,
+            "current_year": 0,
+            "summary": f"Error calculating projection: {str(e)}"
+        }
+
+
+@app.get("/confidence")
+def get_confidence_breakdown():
+    """
+    Get breakdown of assets by confidence level.
+    Helps CPAs prioritize review time.
+    """
+    if not ASSET_STORE:
+        return {
+            "high": {"count": 0, "pct": 0},
+            "medium": {"count": 0, "pct": 0},
+            "low": {"count": 0, "pct": 0},
+            "total": 0,
+            "auto_approve_eligible": 0
+        }
+
+    assets = list(ASSET_STORE.values())
+    total = len(assets)
+
+    # Count by confidence tier
+    high = sum(1 for a in assets if a.confidence_score > 0.8)
+    medium = sum(1 for a in assets if 0.5 < a.confidence_score <= 0.8)
+    low = sum(1 for a in assets if a.confidence_score <= 0.5)
+
+    # Count auto-approve eligible (high confidence + no errors)
+    auto_approve = sum(1 for a in assets
+                       if a.confidence_score > 0.8
+                       and not getattr(a, 'validation_errors', None))
+
+    return {
+        "high": {
+            "count": high,
+            "pct": round(high / total * 100, 1) if total > 0 else 0,
+            "label": "High (80%+)"
+        },
+        "medium": {
+            "count": medium,
+            "pct": round(medium / total * 100, 1) if total > 0 else 0,
+            "label": "Medium (50-80%)"
+        },
+        "low": {
+            "count": low,
+            "pct": round(low / total * 100, 1) if total > 0 else 0,
+            "label": "Low (<50%)"
+        },
+        "total": total,
+        "auto_approve_eligible": auto_approve
+    }
+
+
+@app.get("/system-status")
+def get_system_status():
+    """
+    Get system status including AI availability, memory patterns, etc.
+    """
+    # Check OpenAI API availability
+    ai_available = True
+    ai_status = "Online"
+    try:
+        import os
+        if not os.getenv("OPENAI_API_KEY"):
+            ai_available = False
+            ai_status = "No API Key"
+    except Exception:
+        ai_available = False
+        ai_status = "Error"
+
+    # Check memory engine patterns
+    memory_patterns = 0
+    try:
+        from pathlib import Path
+        memory_path = Path(__file__).resolve().parent / "logic" / "classification_memory.json"
+        if memory_path.exists():
+            import json
+            with open(memory_path, "r") as f:
+                memory_data = json.load(f)
+                memory_patterns = len(memory_data.get("assets", []))
+    except Exception:
+        pass
+
+    # Count classification rules
+    rules_count = 0
+    try:
+        rules_path = Path(__file__).resolve().parent / "config" / "rules.json"
+        if rules_path.exists():
+            import json
+            with open(rules_path, "r") as f:
+                rules_data = json.load(f)
+                rules_count = len(rules_data.get("rules", []))
+    except Exception:
+        pass
+
+    return {
+        "ai": {
+            "available": ai_available,
+            "status": ai_status,
+            "model": "GPT-4o-mini" if ai_available else "Rules Only"
+        },
+        "memory": {
+            "patterns_learned": memory_patterns,
+            "status": "Active" if memory_patterns > 0 else "Empty"
+        },
+        "rules": {
+            "count": rules_count,
+            "status": "Loaded" if rules_count > 0 else "Not Found"
+        },
+        "backend": {
+            "status": "Online",
+            "version": "1.0.0"
+        }
+    }
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)

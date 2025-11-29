@@ -3,6 +3,7 @@ import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
 import { Import } from './components/Import';
 import { Review } from './components/Review';
+import { Settings } from './components/Settings';
 
 export default function App() {
     const [activeTab, setActiveTab] = useState("dashboard");
@@ -18,7 +19,7 @@ export default function App() {
             case "dashboard": return <Dashboard />;
             case "import": return <Import onUploadSuccess={handleUploadSuccess} />;
             case "review": return <Review assets={assets} />;
-            case "settings": return <div className="p-8">Settings (Coming Soon)</div>;
+            case "settings": return <Settings />;
             default: return <Dashboard />;
         }
     };

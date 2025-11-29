@@ -565,8 +565,15 @@ def classify_assets_batch(
 
 def _try_fast_classification(asset: Dict, rules: Dict, overrides: Dict) -> Optional[Dict]:
     """
-    Try to classify asset using rules/overrides/keywords (no GPT needed).
+    Try to classify asset using rules/overrides/memory/keywords (no GPT needed).
     Returns None if GPT is needed.
+
+    Classification order:
+    1. User overrides (100% confidence)
+    2. Quick keyword patterns (85% confidence)
+    3. Rule engine (80-98% confidence)
+    4. Memory engine (up to 90% confidence)
+    Returns None → triggers GPT fallback
     """
     # Check override first
     aid = _normalize(_safe_get(asset, ["Asset ID", "asset_id"], ""))
@@ -650,6 +657,28 @@ def _try_fast_classification(asset: Dict, rules: Dict, overrides: Dict) -> Optio
                 "low_confidence": confidence < 0.85,
                 "notes": f"Rule match: {rule.get('name', 'unnamed')} (score: {match_score:.1f})"
             }
+
+    # Check memory engine for learned patterns
+    if MEMORY_ENABLED:
+        try:
+            memory_match = memory_engine.query_similar(desc, threshold=0.82)
+            if memory_match:
+                mem_class = memory_match.get("classification", {})
+                similarity = memory_match.get("similarity", 0.82)
+                return {
+                    "final_class": mem_class.get("class") or mem_class.get("final_class"),
+                    "final_life": mem_class.get("life") or mem_class.get("final_life"),
+                    "final_method": mem_class.get("method") or mem_class.get("final_method"),
+                    "final_convention": mem_class.get("convention") or mem_class.get("final_convention"),
+                    "bonus": mem_class.get("bonus", False),
+                    "qip": mem_class.get("qip", False),
+                    "source": "memory_engine",
+                    "confidence": min(0.90, similarity),
+                    "low_confidence": False,
+                    "notes": f"Memory match (similarity: {similarity:.2f})"
+                }
+        except Exception as e:
+            logger.debug(f"Memory engine check failed: {e}")
 
     return None  # Need GPT
 
@@ -750,7 +779,7 @@ def _keyword_fallback_classification(asset: Dict) -> Dict:
         asset: Asset dict with Description
 
     Returns:
-        Classification dict with class, life, method, convention, confidence
+        Classification dict with final_class, final_life, final_method, final_convention, confidence
     """
     desc_raw = _safe_get(asset, ["Description", "description"], "")
     desc = sanitize_description(desc_raw).lower()
@@ -760,21 +789,21 @@ def _keyword_fallback_classification(asset: Dict) -> Dict:
         # Computer equipment (5-year)
         (["computer", "laptop", "desktop", "server", "monitor", "printer", "scanner",
           "pos system", "workstation", "tablet", "ipad", "macbook"], {
-            "class": "Computer Equipment", "life": 5, "method": "200DB",
-            "convention": "HY", "bonus": True, "qip": False, "confidence": 0.75
+            "final_class": "Computer Equipment", "final_life": 5, "final_method": "200DB",
+            "final_convention": "HY", "bonus": True, "qip": False, "confidence": 0.75
         }),
 
         # Software (3-year)
         (["software", "license", "subscription", "saas"], {
-            "class": "Software", "life": 3, "method": "SL",
-            "convention": "HY", "bonus": True, "qip": False, "confidence": 0.70
+            "final_class": "Software", "final_life": 3, "final_method": "SL",
+            "final_convention": "HY", "bonus": True, "qip": False, "confidence": 0.70
         }),
 
         # Furniture (7-year)
         (["desk", "chair", "table", "cabinet", "bookcase", "credenza", "sofa",
           "couch", "reception", "conference"], {
-            "class": "Office Furniture", "life": 7, "method": "200DB",
-            "convention": "HY", "bonus": True, "qip": False, "confidence": 0.75
+            "final_class": "Office Furniture", "final_life": 7, "final_method": "200DB",
+            "final_convention": "HY", "bonus": True, "qip": False, "confidence": 0.75
         }),
 
         # Vehicles (5-year)
@@ -783,47 +812,47 @@ def _keyword_fallback_classification(asset: Dict) -> Dict:
         # - "van" alone matches "advantage", "canvas" - use " van", "van "
         (["vehicle", "car ", " car", "truck", " van", "van ", "automobile", "ford", "chevy",
           "toyota", "honda", "suv"], {
-            "class": "Passenger Automobile", "life": 5, "method": "200DB",
-            "convention": "HY", "bonus": True, "qip": False, "confidence": 0.70
+            "final_class": "Passenger Automobile", "final_life": 5, "final_method": "200DB",
+            "final_convention": "HY", "bonus": True, "qip": False, "confidence": 0.70
         }),
 
         # Land improvements (15-year)
         (["parking lot", "paving", "fence", "fencing", "landscaping", "sidewalk",
           "driveway", "signage", "sign"], {
-            "class": "Land Improvement", "life": 15, "method": "150DB",
-            "convention": "HY", "bonus": True, "qip": False, "confidence": 0.70
+            "final_class": "Land Improvement", "final_life": 15, "final_method": "150DB",
+            "final_convention": "HY", "bonus": True, "qip": False, "confidence": 0.70
         }),
 
         # QIP (15-year)
         (["interior", "leasehold", "tenant improvement", "remodel", "renovation",
           "flooring", "carpet", "painting", "lighting fixture"], {
-            "class": "QIP - Qualified Improvement Property", "life": 15, "method": "SL",
-            "convention": "HY", "bonus": True, "qip": True, "confidence": 0.65
+            "final_class": "QIP - Qualified Improvement Property", "final_life": 15, "final_method": "SL",
+            "final_convention": "HY", "bonus": True, "qip": True, "confidence": 0.65
         }),
 
         # Building systems (15-year)
         (["hvac", "air conditioning", "heating", "electrical", "plumbing",
           "roof", "elevator", "fire alarm", "security system"], {
-            "class": "Building Equipment", "life": 15, "method": "150DB",
-            "convention": "HY", "bonus": True, "qip": False, "confidence": 0.65
+            "final_class": "Building Equipment", "final_life": 15, "final_method": "150DB",
+            "final_convention": "HY", "bonus": True, "qip": False, "confidence": 0.65
         }),
 
         # Building (39-year)
         (["building", "warehouse", "office building", "structure"], {
-            "class": "Nonresidential Real Property", "life": 39, "method": "SL",
-            "convention": "MM", "bonus": False, "qip": False, "confidence": 0.60
+            "final_class": "Nonresidential Real Property", "final_life": 39, "final_method": "SL",
+            "final_convention": "MM", "bonus": False, "qip": False, "confidence": 0.60
         }),
 
         # Land (not depreciable)
         (["land", "lot", "property", "acreage"], {
-            "class": "Nondepreciable Land", "life": None, "method": None,
-            "convention": None, "bonus": False, "qip": False, "confidence": 0.65
+            "final_class": "Nondepreciable Land", "final_life": None, "final_method": None,
+            "final_convention": None, "bonus": False, "qip": False, "confidence": 0.65
         }),
 
         # General equipment (7-year default)
         (["equipment", "machine", "appliance", "tool"], {
-            "class": "Machinery & Equipment", "life": 7, "method": "200DB",
-            "convention": "HY", "bonus": True, "qip": False, "confidence": 0.60
+            "final_class": "Machinery & Equipment", "final_life": 7, "final_method": "200DB",
+            "final_convention": "HY", "bonus": True, "qip": False, "confidence": 0.60
         }),
     ]
 
@@ -832,21 +861,25 @@ def _keyword_fallback_classification(asset: Dict) -> Dict:
         for kw in keywords:
             if kw in desc:
                 result = classification.copy()
-                result["reasoning"] = f"Keyword fallback: matched '{kw}' in description"
-                logger.debug(f"Keyword fallback matched '{kw}' -> {result['class']}")
+                result["source"] = "keyword_fallback"
+                result["low_confidence"] = result["confidence"] < LOW_CONF_THRESHOLD
+                result["notes"] = f"Keyword fallback: matched '{kw}' in description"
+                logger.debug(f"Keyword fallback matched '{kw}' -> {result['final_class']}")
                 return result
 
     # Default fallback: 7-year equipment (most common)
     logger.warning(f"No keyword match for description: {desc[:50]}... using default")
     return {
-        "class": "Machinery & Equipment",
-        "life": 7,
-        "method": "200DB",
-        "convention": "HY",
+        "final_class": "Machinery & Equipment",
+        "final_life": 7,
+        "final_method": "200DB",
+        "final_convention": "HY",
         "bonus": True,
         "qip": False,
         "confidence": 0.40,
-        "reasoning": "No keyword match - using default 7-year equipment classification"
+        "source": "default_fallback",
+        "low_confidence": True,
+        "notes": "No keyword match - using default 7-year equipment classification"
     }
 
 
@@ -1129,6 +1162,46 @@ def classify_asset(
         return result
 
     # ========================================================================
+    # TIER 2.5: Memory Engine - Learned patterns from prior classifications
+    # ========================================================================
+    if MEMORY_ENABLED:
+        try:
+            desc_raw = _safe_get(asset, ["Description", "description"], "")
+            desc = sanitize_description(desc_raw)
+
+            # Query memory engine for similar past classifications
+            memory_match = memory_engine.query_similar(desc, threshold=0.82)
+
+            if memory_match:
+                mem_class = memory_match.get("classification", {})
+                similarity = memory_match.get("similarity", 0.82)
+
+                # Use memory classification if similarity is high enough
+                result = {
+                    "final_class": mem_class.get("class") or mem_class.get("final_class"),
+                    "final_life": mem_class.get("life") or mem_class.get("final_life"),
+                    "final_method": mem_class.get("method") or mem_class.get("final_method"),
+                    "final_convention": mem_class.get("convention") or mem_class.get("final_convention"),
+                    "bonus": mem_class.get("bonus", False),
+                    "qip": mem_class.get("qip", False),
+                    "source": "memory_engine",
+                    "confidence": min(0.90, similarity),  # Cap at 0.90 for memory matches
+                    "low_confidence": False,
+                    "notes": f"Memory match (similarity: {similarity:.2f}) from prior classification"
+                }
+
+                # CRITICAL: Verify QIP eligibility based on in-service date
+                if result.get("qip"):
+                    result = _verify_qip_eligibility(asset, result)
+
+                logger.info(f"Memory engine matched: '{desc[:40]}...' -> {result['final_class']}")
+                return result
+
+        except Exception as e:
+            logger.warning(f"Memory engine error (non-fatal): {e}")
+            # Continue to next tier if memory engine fails
+
+    # ========================================================================
     # TIER 3: Client Category Mapping
     # ========================================================================
     # CRITICAL: Some client categories are too broad and need GPT verification
@@ -1240,5 +1313,24 @@ def classify_asset(
     # CRITICAL: Verify QIP eligibility based on in-service date
     if result.get("qip"):
         result = _verify_qip_eligibility(asset, result)
+
+    # Store successful GPT classification in memory for future similar assets
+    if MEMORY_ENABLED and result.get("final_class") and result.get("confidence", 0) >= 0.7:
+        try:
+            desc_raw = _safe_get(asset, ["Description", "description"], "")
+            desc = sanitize_description(desc_raw)
+
+            # Store the classification for future reference
+            memory_engine.store(desc, {
+                "class": result["final_class"],
+                "life": result["final_life"],
+                "method": result["final_method"],
+                "convention": result["final_convention"],
+                "bonus": result.get("bonus", False),
+                "qip": result.get("qip", False),
+            })
+            logger.info(f"Stored GPT classification in memory: '{desc[:40]}...' -> {result['final_class']}")
+        except Exception as e:
+            logger.warning(f"Failed to store in memory engine: {e}")
 
     return result

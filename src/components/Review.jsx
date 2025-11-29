@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download } from 'lucide-react';
+import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download, Info, ChevronDown, ChevronUp, Shield, AlertOctagon, Car } from 'lucide-react';
 import { cn } from '../lib/utils';
 import axios from 'axios';
 
@@ -11,6 +11,46 @@ function Review({ assets = [] }) {
     const [localAssets, setLocalAssets] = useState(assets);
     const [filter, setFilter] = useState('all'); // all, errors, review, approved
     const [approvedIds, setApprovedIds] = useState(new Set());
+    const [warnings, setWarnings] = useState({ critical: [], warnings: [], info: [], summary: {} });
+    const [taxYear, setTaxYear] = useState(new Date().getFullYear());
+    const [confidence, setConfidence] = useState({ high: {}, medium: {}, low: {}, total: 0 });
+    const [showConfidenceBreakdown, setShowConfidenceBreakdown] = useState(false);
+
+    // Fetch warnings and confidence when assets change
+    useEffect(() => {
+        if (assets.length > 0) {
+            fetchWarnings();
+            fetchTaxConfig();
+            fetchConfidence();
+        }
+    }, [assets]);
+
+    const fetchWarnings = async () => {
+        try {
+            const response = await axios.get('http://127.0.0.1:8000/warnings');
+            setWarnings(response.data);
+        } catch (error) {
+            console.error('Failed to fetch warnings:', error);
+        }
+    };
+
+    const fetchTaxConfig = async () => {
+        try {
+            const response = await axios.get('http://127.0.0.1:8000/config/tax');
+            setTaxYear(response.data.tax_year);
+        } catch (error) {
+            console.error('Failed to fetch tax config:', error);
+        }
+    };
+
+    const fetchConfidence = async () => {
+        try {
+            const response = await axios.get('http://127.0.0.1:8000/confidence');
+            setConfidence(response.data);
+        } catch (error) {
+            console.error('Failed to fetch confidence:', error);
+        }
+    };
 
     // Sync local assets when props change
     React.useEffect(() => {
@@ -205,6 +245,113 @@ function Review({ assets = [] }) {
                 </div>
             </div>
 
+            {/* Confidence Breakdown - Collapsible */}
+            {confidence.total > 0 && (
+                <Card className="mb-4">
+                    <div
+                        className="flex items-center justify-between p-4 cursor-pointer hover:bg-slate-50 transition-colors"
+                        onClick={() => setShowConfidenceBreakdown(!showConfidenceBreakdown)}
+                    >
+                        <div className="flex items-center gap-4">
+                            <Shield className="w-5 h-5 text-blue-600" />
+                            <div>
+                                <div className="font-semibold text-sm">Classification Confidence Breakdown</div>
+                                <div className="text-xs text-muted-foreground">
+                                    {confidence.auto_approve_eligible || 0} assets eligible for auto-approval
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            {/* Mini confidence bars */}
+                            <div className="flex items-center gap-2 text-xs">
+                                <span className="text-green-600">{confidence.high?.count || 0} high</span>
+                                <span className="text-yellow-600">{confidence.medium?.count || 0} med</span>
+                                <span className="text-red-600">{confidence.low?.count || 0} low</span>
+                            </div>
+                            {showConfidenceBreakdown ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </div>
+                    </div>
+
+                    {showConfidenceBreakdown && (
+                        <CardContent className="pt-0 pb-4">
+                            <div className="grid grid-cols-3 gap-4">
+                                <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-medium text-green-700">High Confidence</span>
+                                        <span className="text-xs text-green-600">80%+</span>
+                                    </div>
+                                    <div className="text-2xl font-bold text-green-600">{confidence.high?.count || 0}</div>
+                                    <div className="text-xs text-green-600 mt-1">
+                                        {confidence.high?.pct || 0}% of assets - Auto-approve eligible
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-medium text-yellow-700">Medium Confidence</span>
+                                        <span className="text-xs text-yellow-600">50-80%</span>
+                                    </div>
+                                    <div className="text-2xl font-bold text-yellow-600">{confidence.medium?.count || 0}</div>
+                                    <div className="text-xs text-yellow-600 mt-1">
+                                        {confidence.medium?.pct || 0}% of assets - Quick review needed
+                                    </div>
+                                </div>
+                                <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-medium text-red-700">Low Confidence</span>
+                                        <span className="text-xs text-red-600">&lt;50%</span>
+                                    </div>
+                                    <div className="text-2xl font-bold text-red-600">{confidence.low?.count || 0}</div>
+                                    <div className="text-xs text-red-600 mt-1">
+                                        {confidence.low?.pct || 0}% of assets - CPA attention required
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="mt-3 text-xs text-muted-foreground text-center">
+                                Classification sources: Rule-based (85-98%), Client Category (85%), GPT Fallback (50-90%), Keyword Match (70-80%)
+                            </div>
+                        </CardContent>
+                    )}
+                </Card>
+            )}
+
+            {/* Critical Warnings Banner */}
+            {warnings.critical?.length > 0 && (
+                <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-red-800 font-semibold mb-2">
+                        <AlertTriangle className="w-5 h-5" />
+                        Critical Compliance Warnings ({warnings.critical.length})
+                    </div>
+                    {warnings.critical.slice(0, 2).map((warning, idx) => (
+                        <div key={idx} className="text-sm text-red-700 mb-1">
+                            <strong>{warning.type}:</strong> {warning.message}
+                            <span className="text-red-600 ml-2">({warning.affected_count} assets)</span>
+                        </div>
+                    ))}
+                    <div className="text-xs text-red-600 mt-2">
+                        Go to Settings to configure tax year and resolve warnings.
+                    </div>
+                </div>
+            )}
+
+            {/* Transaction Type Summary */}
+            {warnings.info?.find(i => i.type === 'TRANSACTION_SUMMARY') && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <Info className="w-4 h-4 text-blue-600" />
+                        <span className="text-sm text-blue-800">
+                            Tax Year {taxYear} | Transaction Types:
+                        </span>
+                        {Object.entries(
+                            warnings.info.find(i => i.type === 'TRANSACTION_SUMMARY')?.breakdown || {}
+                        ).map(([type, count]) => (
+                            <span key={type} className="text-sm bg-blue-100 px-2 py-0.5 rounded text-blue-700">
+                                {type}: {count}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Error Banner */}
             {hasBlockingErrors && (
                 <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
@@ -232,6 +379,7 @@ function Review({ assets = [] }) {
                                     <th className="px-4 py-3">Asset ID</th>
                                     <th className="px-4 py-3">Description</th>
                                     <th className="px-4 py-3">Cost</th>
+                                    <th className="px-4 py-3">Trans. Type</th>
                                     <th className="px-4 py-3">Class</th>
                                     <th className="px-4 py-3">Life</th>
                                     <th className="px-4 py-3">Method</th>
@@ -300,6 +448,20 @@ function Review({ assets = [] }) {
                                             </td>
                                             <td className="px-4 py-3 font-mono text-slate-600">
                                                 ${(asset.cost || 0).toLocaleString()}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <span className={cn(
+                                                    "px-2 py-1 rounded text-xs font-medium",
+                                                    asset.transaction_type === "Current Year Addition" && "bg-green-100 text-green-700",
+                                                    asset.transaction_type === "Existing Asset" && "bg-slate-100 text-slate-700",
+                                                    asset.transaction_type === "Disposal" && "bg-red-100 text-red-700",
+                                                    asset.transaction_type === "Transfer" && "bg-purple-100 text-purple-700",
+                                                    !asset.transaction_type && "bg-yellow-100 text-yellow-700"
+                                                )}>
+                                                    {asset.transaction_type === "Current Year Addition" ? "Addition" :
+                                                     asset.transaction_type === "Existing Asset" ? "Existing" :
+                                                     asset.transaction_type || "Unknown"}
+                                                </span>
                                             </td>
 
                                             {editingId === asset.row_index ? (
