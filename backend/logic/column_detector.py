@@ -58,9 +58,10 @@ FA_SYNONYMS = {
     "tag": {"id", "number", "label"},
 
     # Description
-    "description": {"desc", "name", "details", "item"},
+    "description": {"desc", "name", "details", "item", "asset", "particulars"},
     "desc": {"description", "name"},
     "name": {"description", "title", "label"},
+    "particulars": {"description", "details"},
 
     # Cost/value
     "cost": {"basis", "amount", "value", "price"},
@@ -395,9 +396,13 @@ HEADER_KEYS = {
         "property", "property description", "asset name", "item name",
         # Variations
         "equipment description", "equipment", "details", "item",
-        "asset details", "name", "title",
+        "asset details", "name", "title", "asset",
         # Specific
-        "make/model", "make and model", "model", "type/description"
+        "make/model", "make and model", "model", "type/description",
+        # Additional common variations
+        "fixed asset", "fa description", "fa desc", "asset desc",
+        "asset detail", "asset info", "information", "particulars",
+        "equipment name", "property name", "item details"
     ],
 
     "category": [

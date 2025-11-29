@@ -50,9 +50,9 @@ from .column_detector import (
 )
 
 # Import from refactored sheet analyzer module (provides skip/role detection)
+# Note: _should_skip_sheet is NOT imported - using local version with less aggressive patterns
 from .sheet_analyzer import (
     SheetRole,
-    _should_skip_sheet,
     _is_prior_year_sheet,
     _detect_sheet_role,
     _extract_fiscal_year_from_sheet,
