@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import Layout from './components/Layout';
-import Dashboard from './components/Dashboard';
-import Import from './components/Import';
-import Review from './components/Review';
+import { Layout } from './components/Layout';
+import { Dashboard } from './components/Dashboard';
+import { Import } from './components/Import';
+import { Review } from './components/Review';
 
 export default function App() {
     const [activeTab, setActiveTab] = useState("dashboard");
