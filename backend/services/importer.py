@@ -48,18 +48,14 @@ class ImporterService:
         
         df = pd.read_excel(file_path, sheet_name=best_sheet, header=header_row_idx)
         
-        # 3. Map Columns using ColumnDetector (via sheet_loader logic)
-        # We'll use the column mappings from the logic module
-        from backend.logic.column_detector import find_column_match
-        
-        col_map = {}
-        # Map critical and important fields
-        all_fields = sheet_loader.COL_CRITICAL_FIELDS + sheet_loader.COL_IMPORTANT_FIELDS + sheet_loader.OPTIONAL_FIELDS
-        
-        for field in all_fields:
-            col_name, mapping = find_column_match(df, field)
-            if col_name:
-                col_map[field] = col_name
+        # 3. Map Columns using ColumnDetector
+        from backend.logic.column_detector import detect_columns
+
+        # Get column headers as list
+        column_headers = df.columns.tolist()
+
+        # Detect column mappings
+        col_map, mappings, warnings = detect_columns(column_headers)
                 
         # 4. Extract Data
         assets = []
