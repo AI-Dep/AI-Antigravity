@@ -9,6 +9,7 @@ import sys
 from typing import List, Dict
 from datetime import datetime
 import traceback
+import io
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
