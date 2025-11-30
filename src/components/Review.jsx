@@ -193,8 +193,22 @@ function Review({ assets = [] }) {
         setApprovedIds(prev => new Set([...prev, ...highConfIds]));
     };
 
+    // Helper function to download file without opening new window
+    const downloadFile = (url) => {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = '';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     const handleExport = () => {
-        window.open('http://127.0.0.1:8000/export', '_blank');
+        downloadFile('http://127.0.0.1:8000/export');
+    };
+
+    const handleAuditReport = () => {
+        downloadFile('http://127.0.0.1:8000/export/audit');
     };
 
     if (!localAssets || localAssets.length === 0) {
@@ -229,7 +243,7 @@ function Review({ assets = [] }) {
                     </Button>
                     <Button
                         variant="outline"
-                        onClick={() => window.open('http://127.0.0.1:8000/export/audit', '_blank')}
+                        onClick={handleAuditReport}
                         className="text-slate-600 hover:bg-slate-50"
                         title="Download full asset schedule for audit documentation"
                     >
