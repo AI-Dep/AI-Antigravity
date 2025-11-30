@@ -992,7 +992,8 @@ def build_fa(
     if "Asset ID" not in df.columns:
         from datetime import datetime
         batch_prefix = datetime.now().strftime("%y%m%d%H%M")  # YYMMDDHHMM format
-        df["Asset ID"] = df.index.astype(str).apply(lambda x: f"{batch_prefix}-{x}")
+        # FIX: Use list comprehension instead of Index.apply() for pandas compatibility
+        df["Asset ID"] = [f"{batch_prefix}-{i}" for i in df.index]
 
     # Parse cost
     if "Cost" in df.columns:
