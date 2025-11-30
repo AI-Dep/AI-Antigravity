@@ -1,0 +1,43 @@
+# ==============================================================================
+# FA CS Automator - Docker Compose Configuration
+# ==============================================================================
+# For testers: docker-compose up
+# For production: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # Backend API Service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+    volumes:
+      - ./bot_handoff:/app/bot_handoff
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Frontend Web Service
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+# Optional: Add volume for persistent data
+volumes:
+  bot_handoff:
