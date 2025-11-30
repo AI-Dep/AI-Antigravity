@@ -956,22 +956,40 @@
     },
 
     {
-      "name": "Security Systems",
+      "name": "Security Systems - Standalone Equipment",
       "keywords": [
-        "security system", "alarm system", "camera system",
-        "surveillance", "cctv", "security camera",
-        "access control", "card access", "keypad entry",
-        "video surveillance", "nvr", "dvr recorder"
+        "security camera", "surveillance camera", "cctv camera",
+        "nvr", "dvr recorder", "video recorder security",
+        "standalone security", "portable security", "wireless camera"
       ],
-      "exclude": [],
-      "class": "Building Systems - Security",
-      "life": 15,
-      "method": "150DB",
+      "exclude": ["building integrated", "hardwired", "permanent installation"],
+      "class": "Computer Equipment",
+      "life": 5,
+      "method": "200DB",
       "convention": "HY",
       "bonus": true,
       "qip": false,
+      "weight": 2.3,
+      "notes": "Standalone/portable security equipment is 5-year property per Pub 946"
+    },
+
+    {
+      "name": "Security Systems - Building Integrated",
+      "keywords": [
+        "security system", "alarm system", "building security",
+        "access control", "card access", "keypad entry",
+        "fire alarm", "burglar alarm", "intrusion detection",
+        "surveillance system installed", "hardwired security"
+      ],
+      "exclude": [],
+      "class": "Building Equipment",
+      "life": 39,
+      "method": "SL",
+      "convention": "MM",
+      "bonus": false,
+      "qip": false,
       "weight": 2.1,
-      "notes": "IRC §1.168(i)-8: Security systems attached to buildings are structural components, 15-year 150DB per Pub 946"
+      "notes": "Per Treas. Reg. §1.168(i)-8: Security systems permanently attached to buildings are structural components, classified as 39-year nonresidential real property"
     },
 
     {
