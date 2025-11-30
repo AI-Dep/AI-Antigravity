@@ -258,16 +258,24 @@ def set_tax_config(
 
     # Reclassify loaded assets with new tax year
     trans_types = {}
+    errors_count = 0
     if ASSET_STORE:
         assets = list(ASSET_STORE.values())
         print(f"[Tax Year Change] Reclassifying {len(assets)} assets for tax year {tax_year}")
         classifier._classify_transaction_types(assets, tax_year)
 
-        # Count reclassified assets
+        # Re-run validation for each asset with new tax year
+        # This will flag assets with dates after the tax year as errors
         for a in assets:
+            a.check_validity(tax_year=tax_year)
             tt = a.transaction_type or 'unknown'
             trans_types[tt] = trans_types.get(tt, 0) + 1
+            if a.validation_errors:
+                errors_count += 1
+
         print(f"[Tax Year Change] Reclassification complete: {trans_types}")
+        if errors_count > 0:
+            print(f"[Tax Year Change] {errors_count} assets have validation errors (may include future dates)")
     else:
         print(f"[Tax Year Change] No assets in ASSET_STORE to reclassify")
 
