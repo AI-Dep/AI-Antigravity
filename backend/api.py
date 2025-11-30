@@ -1118,7 +1118,7 @@ def get_system_status():
     # Count classification rules
     rules_count = 0
     try:
-        rules_path = Path(__file__).resolve().parent / "config" / "rules.json"
+        rules_path = Path(__file__).resolve().parent / "logic" / "config" / "rules.json"
         if rules_path.exists():
             import json
             with open(rules_path, "r") as f:
