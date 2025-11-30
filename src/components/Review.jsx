@@ -587,7 +587,28 @@ function Review({ assets = [] }) {
                                                 "text-slate-600",
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
                                             )}>
-                                                {asset.date_in_service || asset.acquisition_date || "-"}
+                                                {asset.date_in_service ? (
+                                                    asset.date_in_service
+                                                ) : asset.acquisition_date ? (
+                                                    <span className="flex items-center gap-1" title="Using acquisition date (no in-service date provided)">
+                                                        <span className={asset.transaction_type === "Transfer" ? "text-amber-600" : ""}>
+                                                            {asset.acquisition_date}
+                                                        </span>
+                                                        {asset.transaction_type === "Transfer" && (
+                                                            <Info className="w-3.5 h-3.5 text-amber-500" />
+                                                        )}
+                                                    </span>
+                                                ) : (
+                                                    <span className={cn(
+                                                        "flex items-center gap-1",
+                                                        asset.transaction_type === "Transfer" ? "text-slate-400" : "text-amber-600"
+                                                    )} title={asset.transaction_type === "Transfer" ? "No date - transfer of existing asset" : "Missing date - manual review required"}>
+                                                        -
+                                                        {asset.transaction_type !== "Transfer" && (
+                                                            <AlertTriangle className="w-3.5 h-3.5" />
+                                                        )}
+                                                    </span>
+                                                )}
                                             </td>
                                             <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                 <span className={cn(
