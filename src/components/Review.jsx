@@ -483,8 +483,6 @@ function Review({ assets = [] }) {
                                 tableCompact ? "text-[10px]" : "text-xs"
                             )}>
                                 <tr>
-                                    <th className={cn("w-24", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Status</th>
-                                    <th className={cn("w-14", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Conf.</th>
                                     <th className={cn("w-20", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Asset ID</th>
                                     <th className={cn("min-w-[200px]", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Description</th>
                                     <th className={cn("w-24", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Cost</th>
@@ -493,6 +491,8 @@ function Review({ assets = [] }) {
                                     <th className={cn("w-28", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Class</th>
                                     <th className={cn("w-14", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Life</th>
                                     <th className={cn("min-w-[280px]", tableCompact ? "px-2 py-2" : "px-3 py-3")}>FA CS Category</th>
+                                    <th className={cn("w-24", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Status</th>
+                                    <th className={cn("w-14", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Conf.</th>
                                     <th className={cn("w-20", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Actions</th>
                                 </tr>
                             </thead>
@@ -512,63 +512,14 @@ function Review({ assets = [] }) {
                                                 isApproved && "bg-green-50/30"
                                             )}
                                         >
-                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                {hasErrors ? (
-                                                    <div className="group relative flex items-center">
-                                                        <span className={cn(
-                                                            "inline-flex items-center rounded-full font-medium bg-red-100 text-red-800 cursor-help",
-                                                            tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                                                        )}>
-                                                            <AlertTriangle className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
-                                                            Error
-                                                        </span>
-                                                        <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-48 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-10">
-                                                            {asset.validation_errors.map((err, i) => (
-                                                                <div key={i}>• {err}</div>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                ) : isApproved ? (
-                                                    <span className={cn(
-                                                        "inline-flex items-center rounded-full font-medium bg-green-100 text-green-800",
-                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                                                    )}>
-                                                        <Check className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
-                                                        Approved
-                                                    </span>
-                                                ) : asset.confidence_score > 0.8 ? (
-                                                    <span className={cn(
-                                                        "inline-flex items-center rounded-full font-medium bg-green-100 text-green-800",
-                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                                                    )}>
-                                                        High Conf.
-                                                    </span>
-                                                ) : (
-                                                    <span className={cn(
-                                                        "inline-flex items-center rounded-full font-medium bg-yellow-100 text-yellow-800",
-                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                                                    )}>
-                                                        <AlertTriangle className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
-                                                        Review
-                                                    </span>
-                                                )}
-                                            </td>
-                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                <span className={cn(
-                                                    "font-mono",
-                                                    tableCompact ? "text-[10px]" : "text-xs",
-                                                    asset.confidence_score > 0.8 ? "text-green-600" :
-                                                        asset.confidence_score > 0.5 ? "text-yellow-600" : "text-red-600"
-                                                )}>
-                                                    {Math.round((asset.confidence_score || 0) * 100)}%
-                                                </span>
-                                            </td>
+                                            {/* Asset ID */}
                                             <td className={cn(
                                                 "font-medium text-slate-900 dark:text-white",
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
                                             )}>
                                                 {asset.asset_id || "-"}
                                             </td>
+                                            {/* Description */}
                                             <td className={cn(
                                                 "text-slate-600 dark:text-slate-300 truncate",
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
@@ -577,12 +528,14 @@ function Review({ assets = [] }) {
                                                     {asset.description}
                                                 </span>
                                             </td>
+                                            {/* Cost */}
                                             <td className={cn(
                                                 "font-mono text-slate-600",
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
                                             )}>
                                                 ${(asset.cost || 0).toLocaleString()}
                                             </td>
+                                            {/* Date in Service */}
                                             <td className={cn(
                                                 "text-slate-600",
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
@@ -610,6 +563,7 @@ function Review({ assets = [] }) {
                                                     </span>
                                                 )}
                                             </td>
+                                            {/* Transaction Type */}
                                             <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                 <span className={cn(
                                                     "rounded font-medium whitespace-nowrap",
@@ -626,6 +580,7 @@ function Review({ assets = [] }) {
                                                 </span>
                                             </td>
 
+                                            {/* Class, Life, FA CS Category - Edit or Display mode */}
                                             {editingId === asset.row_index ? (
                                                 <>
                                                     <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
@@ -666,22 +621,6 @@ function Review({ assets = [] }) {
                                                             )}
                                                         </select>
                                                     </td>
-                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                        <div className="flex gap-0.5">
-                                                            <button onClick={() => handleSave(asset.row_index)} className={cn(
-                                                                "hover:bg-green-100 text-green-600 rounded",
-                                                                tableCompact ? "p-1" : "p-1.5"
-                                                            )}>
-                                                                <Save className={tableCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
-                                                            </button>
-                                                            <button onClick={() => setEditingId(null)} className={cn(
-                                                                "hover:bg-red-100 text-red-600 rounded",
-                                                                tableCompact ? "p-1" : "p-1.5"
-                                                            )}>
-                                                                <X className={tableCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
-                                                            </button>
-                                                        </div>
-                                                    </td>
                                                 </>
                                             ) : (
                                                 <>
@@ -708,8 +647,82 @@ function Review({ assets = [] }) {
                                                             {asset.fa_cs_wizard_category || asset.macrs_method}
                                                         </span>
                                                     </td>
-                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                        <div className="flex gap-0.5">
+                                                </>
+                                            )}
+
+                                            {/* Status */}
+                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                {hasErrors ? (
+                                                    <div className="group relative flex items-center">
+                                                        <span className={cn(
+                                                            "inline-flex items-center rounded-full font-medium bg-red-100 text-red-800 cursor-help",
+                                                            tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                        )}>
+                                                            <AlertTriangle className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
+                                                            Error
+                                                        </span>
+                                                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-48 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-10">
+                                                            {asset.validation_errors.map((err, i) => (
+                                                                <div key={i}>• {err}</div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ) : isApproved ? (
+                                                    <span className={cn(
+                                                        "inline-flex items-center rounded-full font-medium bg-green-100 text-green-800",
+                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                    )}>
+                                                        <Check className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
+                                                        Approved
+                                                    </span>
+                                                ) : asset.confidence_score > 0.8 ? (
+                                                    <span className={cn(
+                                                        "inline-flex items-center rounded-full font-medium bg-green-100 text-green-800",
+                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                    )}>
+                                                        High Conf.
+                                                    </span>
+                                                ) : (
+                                                    <span className={cn(
+                                                        "inline-flex items-center rounded-full font-medium bg-yellow-100 text-yellow-800",
+                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                    )}>
+                                                        <AlertTriangle className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
+                                                        Review
+                                                    </span>
+                                                )}
+                                            </td>
+                                            {/* Confidence */}
+                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                <span className={cn(
+                                                    "font-mono",
+                                                    tableCompact ? "text-[10px]" : "text-xs",
+                                                    asset.confidence_score > 0.8 ? "text-green-600" :
+                                                        asset.confidence_score > 0.5 ? "text-yellow-600" : "text-red-600"
+                                                )}>
+                                                    {Math.round((asset.confidence_score || 0) * 100)}%
+                                                </span>
+                                            </td>
+                                            {/* Actions */}
+                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                <div className="flex gap-0.5">
+                                                    {editingId === asset.row_index ? (
+                                                        <>
+                                                            <button onClick={() => handleSave(asset.row_index)} className={cn(
+                                                                "hover:bg-green-100 text-green-600 rounded",
+                                                                tableCompact ? "p-1" : "p-1.5"
+                                                            )}>
+                                                                <Save className={tableCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
+                                                            </button>
+                                                            <button onClick={() => setEditingId(null)} className={cn(
+                                                                "hover:bg-red-100 text-red-600 rounded",
+                                                                tableCompact ? "p-1" : "p-1.5"
+                                                            )}>
+                                                                <X className={tableCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <>
                                                             {!isApproved && !hasErrors && (
                                                                 <button
                                                                     onClick={() => handleApprove(asset.row_index)}
@@ -732,10 +745,10 @@ function Review({ assets = [] }) {
                                                             >
                                                                 <Edit2 className={tableCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
                                                             </button>
-                                                        </div>
-                                                    </td>
-                                                </>
-                                            )}
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </td>
                                         </tr>
                                     );
                                 })}
