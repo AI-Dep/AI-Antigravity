@@ -1,19 +1,26 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 import uvicorn
 import psutil
 import os
 import shutil
 import sys
-from typing import List, Dict
+from typing import List, Dict, Optional
 from datetime import datetime
 import traceback
 import io
 from threading import Lock
+from contextlib import asynccontextmanager
+import asyncio
+import logging
 
 # Thread lock for concurrent access to global state
 _state_lock = Lock()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -36,7 +43,45 @@ from backend.logic.rollforward_reconciliation import reconcile_rollforward, Roll
 from backend.logic.depreciation_projection import project_portfolio_depreciation
 import pandas as pd
 
-app = FastAPI()
+# Import scalability modules
+from backend.middleware.rate_limiter import RateLimiter, get_rate_limiter
+from backend.middleware.timeout import TimeoutMiddleware
+from backend.logic.file_cleanup import get_cleanup_manager
+from backend.logic.session_manager import get_session_manager, SessionData
+
+# ==============================================================================
+# APPLICATION LIFECYCLE
+# ==============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application startup and shutdown lifecycle."""
+    # Startup
+    logger.info("Starting FA CS Automator API...")
+
+    # Start session cleanup task
+    session_manager = get_session_manager()
+    await session_manager.start_cleanup_task()
+    logger.info("Session cleanup task started")
+
+    # Start file cleanup task
+    cleanup_manager = get_cleanup_manager()
+    await cleanup_manager.start_scheduled_cleanup()
+    logger.info("File cleanup task started")
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down FA CS Automator API...")
+    session_manager.stop_cleanup_task()
+    cleanup_manager.stop_scheduled_cleanup()
+
+app = FastAPI(
+    title="FA CS Automator API",
+    description="Fixed Asset Classification and Export API",
+    version="2.0.0",
+    lifespan=lifespan
+)
 
 # ==============================================================================
 # CORS CONFIGURATION (Issue 6.2 from IRS Audit Report - Security)
@@ -69,6 +114,50 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add timeout middleware (must be added before other middleware)
+app.add_middleware(TimeoutMiddleware, default_timeout=30)
+
+# ==============================================================================
+# RATE LIMITING MIDDLEWARE
+# ==============================================================================
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Apply rate limiting to all requests."""
+    limiter = get_rate_limiter()
+
+    # Determine operation type from path
+    path = request.url.path.lower()
+
+    if "/upload" in path:
+        operation = "upload"
+    elif "/classify" in path or "/assets" in path and request.method == "POST":
+        operation = "classify"
+    elif "/export" in path:
+        operation = "export"
+    elif request.method == "GET":
+        operation = "read"
+    else:
+        operation = "default"
+
+    try:
+        await limiter.check(request, operation=operation)
+    except HTTPException as e:
+        return JSONResponse(
+            status_code=e.status_code,
+            content=e.detail if isinstance(e.detail, dict) else {"error": e.detail},
+            headers=e.headers
+        )
+
+    response = await call_next(request)
+
+    # Add rate limit headers
+    remaining = limiter.get_remaining(request, operation)
+    response.headers["X-RateLimit-Remaining"] = str(remaining)
+    response.headers["X-RateLimit-Operation"] = operation
+
+    return response
 
 # Initialize Services
 importer = ImporterService()
@@ -513,10 +602,11 @@ async def upload_file(file: UploadFile = File(...)):
     - Disposals
     - Transfers
     """
-    global TAB_ANALYSIS_RESULT, LAST_UPLOAD_FILENAME
+    global TAB_ANALYSIS_RESULT, LAST_UPLOAD_FILENAME, ASSET_ID_COUNTER
 
-    temp_file = f"temp_{file.filename}"
-    LAST_UPLOAD_FILENAME = file.filename
+    # Generate unique temp filename to avoid conflicts
+    import uuid
+    temp_file = f"temp_{uuid.uuid4().hex}_{file.filename}"
 
     try:
         # Save uploaded file temporarily
@@ -536,11 +626,14 @@ async def upload_file(file: UploadFile = File(...)):
                 sheets[sheet_name] = pd.DataFrame(data)
             wb.close()
 
-            # Run tab analysis
-            TAB_ANALYSIS_RESULT = analyze_tabs(sheets, TAX_CONFIG["tax_year"])
-            print(f"Tab analysis: {len(TAB_ANALYSIS_RESULT.tabs)} tabs detected")
+            # Run tab analysis (thread-safe read of TAX_CONFIG)
+            with _state_lock:
+                current_tax_year = TAX_CONFIG["tax_year"]
+
+            TAB_ANALYSIS_RESULT = analyze_tabs(sheets, current_tax_year)
+            logger.info(f"Tab analysis: {len(TAB_ANALYSIS_RESULT.tabs)} tabs detected")
         except Exception as tab_err:
-            print(f"Tab analysis error (non-fatal): {tab_err}")
+            logger.warning(f"Tab analysis error (non-fatal): {tab_err}")
             TAB_ANALYSIS_RESULT = None
 
         # 1. Parse Excel
@@ -548,31 +641,33 @@ async def upload_file(file: UploadFile = File(...)):
 
         # 2. Classify Assets (MACRS + Transaction Types)
         # Uses the configured tax year for proper classification
-        tax_year = TAX_CONFIG["tax_year"]
+        with _state_lock:
+            tax_year = TAX_CONFIG["tax_year"]
+
         classified_assets = classifier.classify_batch(assets, tax_year=tax_year)
 
         # 3. Store in Memory using unique IDs to prevent overwrites
-        # CRITICAL FIX: Use global counter instead of row_index as key
-        # Assets from different sheets can have the same row_index (e.g., row 5)
-        # which would cause overwrites and data loss
-        global ASSET_ID_COUNTER
-        ASSET_STORE.clear()  # Clear previous upload for now
-        APPROVED_ASSETS.clear()  # Clear approvals too
-        ASSET_ID_COUNTER = 0  # Reset counter for new upload
-        for asset in classified_assets:
-            # Store asset's original row_index for reference, use unique_id as key
-            asset.unique_id = ASSET_ID_COUNTER
-            ASSET_STORE[ASSET_ID_COUNTER] = asset
-            ASSET_ID_COUNTER += 1
+        # CRITICAL: Use lock to prevent race condition on global state
+        with _state_lock:
+            ASSET_STORE.clear()  # Clear previous upload for now
+            APPROVED_ASSETS.clear()  # Clear approvals too
+            ASSET_ID_COUNTER = 0  # Reset counter for new upload
+            LAST_UPLOAD_FILENAME = file.filename
 
-        print(f"[Upload] Stored {len(ASSET_STORE)} assets in ASSET_STORE (counter={ASSET_ID_COUNTER})")
+            for asset in classified_assets:
+                # Store asset's original row_index for reference, use unique_id as key
+                asset.unique_id = ASSET_ID_COUNTER
+                ASSET_STORE[ASSET_ID_COUNTER] = asset
+                ASSET_ID_COUNTER += 1
+
+            logger.info(f"[Upload] Stored {len(ASSET_STORE)} assets in ASSET_STORE (counter={ASSET_ID_COUNTER})")
 
         # Log transaction type summary
         trans_types = {}
         for a in classified_assets:
             tt = a.transaction_type or "unknown"
             trans_types[tt] = trans_types.get(tt, 0) + 1
-        print(f"Classification Summary (Tax Year {tax_year}): {trans_types}")
+        logger.info(f"Classification Summary (Tax Year {tax_year}): {trans_types}")
 
         return classified_assets
         
@@ -605,13 +700,31 @@ def update_asset(asset_id: int, update_data: Dict = Body(...)):
     Updates a specific asset and logs the change in the audit trail.
     Note: asset_id here is the unique_id, not the original row_index.
     """
-    if asset_id not in ASSET_STORE:
-        raise HTTPException(status_code=404, detail="Asset not found")
+    # Whitelist of allowed fields to update (security measure)
+    ALLOWED_UPDATE_FIELDS = {
+        "macrs_class", "macrs_life", "macrs_method", "macrs_convention",
+        "fa_cs_wizard_category", "description", "cost", "acquisition_date",
+        "in_service_date", "transaction_type", "is_bonus_eligible",
+        "is_qualified_improvement"
+    }
 
-    asset = ASSET_STORE[asset_id]
+    # Filter out any fields not in the whitelist
+    safe_update_data = {k: v for k, v in update_data.items() if k in ALLOWED_UPDATE_FIELDS}
 
-    # Check for changes and log them
-    for field, new_value in update_data.items():
+    if not safe_update_data:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No valid fields to update. Allowed fields: {', '.join(ALLOWED_UPDATE_FIELDS)}"
+        )
+
+    with _state_lock:
+        if asset_id not in ASSET_STORE:
+            raise HTTPException(status_code=404, detail="Asset not found")
+
+        asset = ASSET_STORE[asset_id]
+
+    # Check for changes and log them (use safe_update_data)
+    for field, new_value in safe_update_data.items():
         if hasattr(asset, field):
             old_value = getattr(asset, field)
             if str(old_value) != str(new_value):
