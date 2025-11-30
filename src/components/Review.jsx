@@ -193,8 +193,47 @@ function Review({ assets = [] }) {
         setApprovedIds(prev => new Set([...prev, ...highConfIds]));
     };
 
+    // Helper function to download file without opening new window (works in Electron)
+    const downloadFile = async (url, defaultFilename) => {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                const errorText = await response.text();
+                alert(`Download failed: ${errorText}`);
+                return;
+            }
+
+            // Get filename from Content-Disposition header or use default
+            const disposition = response.headers.get('Content-Disposition');
+            let filename = defaultFilename;
+            if (disposition) {
+                const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                if (match && match[1]) {
+                    filename = match[1].replace(/['"]/g, '');
+                }
+            }
+
+            // Download as blob and trigger save
+            const blob = await response.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        } catch (error) {
+            alert(`Download error: ${error.message}`);
+        }
+    };
+
     const handleExport = () => {
-        window.open('http://127.0.0.1:8000/export', '_blank');
+        downloadFile('http://127.0.0.1:8000/export', 'FA_CS_Import.xlsx');
+    };
+
+    const handleAuditReport = () => {
+        downloadFile('http://127.0.0.1:8000/export/audit', 'Audit_Report.xlsx');
     };
 
     if (!localAssets || localAssets.length === 0) {
@@ -229,7 +268,7 @@ function Review({ assets = [] }) {
                     </Button>
                     <Button
                         variant="outline"
-                        onClick={() => window.open('http://127.0.0.1:8000/export/audit', '_blank')}
+                        onClick={handleAuditReport}
                         className="text-slate-600 hover:bg-slate-50"
                         title="Download full asset schedule for audit documentation"
                     >
@@ -325,25 +364,6 @@ function Review({ assets = [] }) {
                     ))}
                     <div className="text-xs text-red-600 mt-2">
                         Go to Settings to configure tax year and resolve warnings.
-                    </div>
-                </div>
-            )}
-
-            {/* Transaction Type Summary */}
-            {warnings.info?.find(i => i.type === 'TRANSACTION_SUMMARY') && (
-                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <Info className="w-4 h-4 text-blue-600" />
-                        <span className="text-sm text-blue-800">
-                            Tax Year {taxYear} | Transaction Types:
-                        </span>
-                        {Object.entries(
-                            warnings.info.find(i => i.type === 'TRANSACTION_SUMMARY')?.breakdown || {}
-                        ).map(([type, count]) => (
-                            <span key={type} className="text-sm bg-blue-100 px-2 py-0.5 rounded text-blue-700">
-                                {type}: {count}
-                            </span>
-                        ))}
                     </div>
                 </div>
             )}
