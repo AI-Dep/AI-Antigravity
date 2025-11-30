@@ -524,7 +524,7 @@ function Review({ assets = [] }) {
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
                         <table className={cn(
-                            "w-full text-left min-w-[1400px]",
+                            "w-full text-left min-w-[1500px]",
                             tableCompact ? "text-xs" : "text-sm"
                         )}>
                             <thead className={cn(
@@ -539,7 +539,8 @@ function Review({ assets = [] }) {
                                     <th className={cn("w-24", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Trans. Type</th>
                                     <th className={cn("w-28", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Class</th>
                                     <th className={cn("w-14", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Life</th>
-                                    <th className={cn("min-w-[280px]", tableCompact ? "px-2 py-2" : "px-3 py-3")}>FA CS Category</th>
+                                    <th className={cn("w-16", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Method</th>
+                                    <th className={cn("min-w-[180px] max-w-[280px]", tableCompact ? "px-2 py-2" : "px-3 py-3")}>FA CS Category</th>
                                     <th className={cn("w-24", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Status</th>
                                     <th className={cn("w-14", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Conf.</th>
                                     <th className={cn("w-20", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Actions</th>
@@ -658,6 +659,21 @@ function Review({ assets = [] }) {
                                                         <select
                                                             className={cn(
                                                                 "border rounded w-full",
+                                                                tableCompact ? "px-1 py-0.5 text-xs" : "px-1.5 py-1 text-sm"
+                                                            )}
+                                                            value={editForm.macrs_method || ""}
+                                                            onChange={(e) => setEditForm({ ...editForm, macrs_method: e.target.value })}
+                                                        >
+                                                            <option value="200DB">200DB</option>
+                                                            <option value="150DB">150DB</option>
+                                                            <option value="SL">SL</option>
+                                                            <option value="ADS">ADS</option>
+                                                        </select>
+                                                    </td>
+                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                        <select
+                                                            className={cn(
+                                                                "border rounded w-full",
                                                                 tableCompact ? "px-1.5 py-0.5 text-xs" : "px-2 py-1 text-sm"
                                                             )}
                                                             value={editForm.fa_cs_wizard_category || ""}
@@ -686,15 +702,23 @@ function Review({ assets = [] }) {
                                                         "text-slate-600",
                                                         tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
                                                     )}>{asset.macrs_life} yr</td>
+                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                        <span className={cn(
+                                                            "bg-slate-100 text-slate-700 rounded font-mono font-medium border border-slate-200",
+                                                            tableCompact ? "px-1 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-xs"
+                                                        )}>
+                                                            {asset.macrs_method || "N/A"}
+                                                        </span>
+                                                    </td>
                                                     <td className={cn(
-                                                        "text-slate-600",
+                                                        "text-slate-600 max-w-[280px]",
                                                         tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
                                                     )}>
                                                         <span
                                                             className="block truncate cursor-help"
-                                                            title={asset.fa_cs_wizard_category || asset.macrs_method}
+                                                            title={asset.fa_cs_wizard_category || "-"}
                                                         >
-                                                            {asset.fa_cs_wizard_category || asset.macrs_method}
+                                                            {asset.fa_cs_wizard_category || "-"}
                                                         </span>
                                                     </td>
                                                 </>
