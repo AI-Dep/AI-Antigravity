@@ -668,8 +668,8 @@ function Review({ assets = [] }) {
                                                 "text-slate-600",
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
                                             )}>
-                                                {asset.date_in_service ? (
-                                                    asset.date_in_service
+                                                {asset.in_service_date ? (
+                                                    asset.in_service_date
                                                 ) : asset.acquisition_date ? (
                                                     <span className="flex items-center gap-1" title="Using acquisition date (no in-service date provided)">
                                                         <span className={asset.transaction_type === "Transfer" ? "text-amber-600" : ""}>

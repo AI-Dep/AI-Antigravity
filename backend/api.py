@@ -171,6 +171,38 @@ auditor = AuditorService()
 exporter = ExporterService()
 
 # ==============================================================================
+# STANDARDIZED API ERROR RESPONSES
+# ==============================================================================
+# All errors follow this schema for consistent frontend parsing:
+# {
+#   "error": "ERROR_CODE",           # Machine-readable error code
+#   "message": "Human readable...",   # User-friendly message
+#   "details": {...}                  # Optional additional context
+# }
+
+from pydantic import BaseModel
+from typing import Any
+
+class APIError(BaseModel):
+    """Standardized API error response schema."""
+    error: str  # Machine-readable error code (e.g., "ASSET_NOT_FOUND")
+    message: str  # Human-readable message
+    details: Optional[Dict[str, Any]] = None  # Optional context
+
+def api_error(status_code: int, error_code: str, message: str, details: Dict = None) -> HTTPException:
+    """
+    Create a standardized API error response.
+
+    Usage:
+        raise api_error(404, "ASSET_NOT_FOUND", "Asset with ID 123 not found")
+        raise api_error(400, "VALIDATION_ERROR", "Cannot export", {"errors": 5})
+    """
+    detail = {"error": error_code, "message": message}
+    if details:
+        detail["details"] = details
+    return HTTPException(status_code=status_code, detail=detail)
+
+# ==============================================================================
 # SESSION-BASED STATE MANAGEMENT
 # ==============================================================================
 # All state is now stored per-session for user isolation.
@@ -711,7 +743,7 @@ async def upload_file(request: Request, response: Response, file: UploadFile = F
             print(f"Failed to write to backend_error.log: {log_error}")
             
         # Don't expose internal error details to client
-        raise HTTPException(status_code=500, detail="File processing failed. Please check the file format and try again.")
+        raise api_error(500, "FILE_PROCESSING_FAILED", "File processing failed. Please check the file format and try again.")
     finally:
         # Cleanup
         if os.path.exists(temp_file):
@@ -742,13 +774,14 @@ async def update_asset(request: Request, response: Response, asset_id: int, upda
     safe_update_data = {k: v for k, v in update_data.items() if k in ALLOWED_UPDATE_FIELDS}
 
     if not safe_update_data:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No valid fields to update. Allowed fields: {', '.join(ALLOWED_UPDATE_FIELDS)}"
+        raise api_error(
+            400, "INVALID_UPDATE_FIELDS",
+            f"No valid fields to update. Allowed fields: {', '.join(ALLOWED_UPDATE_FIELDS)}",
+            {"allowed_fields": list(ALLOWED_UPDATE_FIELDS)}
         )
 
     if asset_id not in session.assets:
-        raise HTTPException(status_code=404, detail="Asset not found")
+        raise api_error(404, "ASSET_NOT_FOUND", f"Asset with ID {asset_id} not found")
 
     asset = session.assets[asset_id]
 
@@ -779,13 +812,14 @@ async def approve_asset(request: Request, response: Response, asset_id: int):
     add_session_to_response(response, session.session_id)
 
     if asset_id not in session.assets:
-        raise HTTPException(status_code=404, detail="Asset not found")
+        raise api_error(404, "ASSET_NOT_FOUND", f"Asset with ID {asset_id} not found")
 
     asset = session.assets[asset_id]
 
     # Can't approve assets with validation errors
     if getattr(asset, 'validation_errors', None):
-        raise HTTPException(status_code=400, detail="Cannot approve asset with validation errors")
+        raise api_error(400, "VALIDATION_ERRORS", "Cannot approve asset with validation errors",
+                       {"errors": asset.validation_errors})
 
     session.approved_assets.add(asset_id)
 
@@ -927,7 +961,7 @@ async def export_assets(request: Request, skip_approval_check: bool = Query(Fals
     session = await get_current_session(request)
 
     if not session.assets:
-        raise HTTPException(status_code=400, detail="No assets to export")
+        raise api_error(400, "NO_ASSETS", "No assets to export")
 
     # Get all assets from session
     assets = list(session.assets.values())
@@ -936,9 +970,9 @@ async def export_assets(request: Request, skip_approval_check: bool = Query(Fals
     assets_with_errors = [a for a in assets if getattr(a, 'validation_errors', None)]
     if assets_with_errors:
         error_count = len(assets_with_errors)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting."
+        raise api_error(400, "VALIDATION_ERRORS",
+            f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting.",
+            {"error_count": error_count}
         )
 
     # Validate all actionable assets are approved
@@ -967,11 +1001,9 @@ async def export_assets(request: Request, skip_approval_check: bool = Query(Fals
 
             type_breakdown = ", ".join([f"{count} {tt}" for tt, count in unapproved_by_type.items()])
 
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "Not all assets approved",
-                    "message": f"Cannot export: {unapproved_count} of {total_actionable} actionable assets not approved.",
+            raise api_error(400, "ASSETS_NOT_APPROVED",
+                f"Cannot export: {unapproved_count} of {total_actionable} actionable assets not approved.",
+                {
                     "approved": approved_count,
                     "unapproved": unapproved_count,
                     "unapproved_by_type": unapproved_by_type,
@@ -987,11 +1019,9 @@ async def export_assets(request: Request, skip_approval_check: bool = Query(Fals
         ]
 
         if low_confidence_unreviewed:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "Low confidence assets not reviewed",
-                    "message": f"{len(low_confidence_unreviewed)} low-confidence asset(s) require manual review and approval.",
+            raise api_error(400, "LOW_CONFIDENCE_NOT_REVIEWED",
+                f"{len(low_confidence_unreviewed)} low-confidence asset(s) require manual review and approval.",
+                {
                     "count": len(low_confidence_unreviewed),
                     "hint": "Review and approve all assets with confidence <= 80%."
                 }
@@ -1043,7 +1073,7 @@ def export_audit_documentation():
     - Year-over-year reconciliation
     """
     if not ASSET_STORE:
-        raise HTTPException(status_code=400, detail="No assets to export")
+        raise api_error(400, "NO_ASSETS", "No assets to export")
 
     assets = list(ASSET_STORE.values())
     tax_year = TAX_CONFIG["tax_year"]
