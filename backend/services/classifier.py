@@ -3,6 +3,15 @@ from datetime import date
 from backend.models.asset import Asset
 from backend.logic import macrs_classification
 from backend.logic import transaction_classifier
+from backend.logic.fa_cs_mappings import (
+    FA_CS_WIZARD_5_YEAR,
+    FA_CS_WIZARD_7_YEAR,
+    FA_CS_WIZARD_15_YEAR,
+    FA_CS_WIZARD_27_5_YEAR,
+    FA_CS_WIZARD_39_YEAR,
+    FA_CS_WIZARD_NON_DEPRECIABLE,
+    FA_CS_WIZARD_INTANGIBLE,
+)
 
 
 class ClassifierService:
@@ -140,7 +149,97 @@ class ClassifierService:
         asset.is_qualified_improvement = result.get("qip", False)
         asset.confidence_score = result.get("confidence", 0.0)
 
+        # Set FA CS Wizard Category for UI display
+        # This is the exact dropdown text users select in FA CS Add Asset wizard
+        asset.fa_cs_wizard_category = self._get_wizard_category(
+            asset.description,
+            asset.macrs_class,
+            asset.macrs_life
+        )
+
         # Run validation AFTER classification is applied
         # This ensures we can check if the asset was successfully classified
         asset.check_validity()
+
+    def _get_wizard_category(self, description: str, macrs_class: str, life: float) -> str:
+        """
+        Get FA CS wizard dropdown text for an asset.
+
+        Maps classification to the exact text that appears in FA CS Add Asset Wizard
+        dropdown. This is what users click to set up the asset in FA CS.
+
+        Args:
+            description: Asset description
+            macrs_class: MACRS classification (e.g., "Computer Equipment")
+            life: Recovery period in years (5, 7, 15, etc.)
+
+        Returns:
+            Exact FA CS wizard dropdown text
+        """
+        combined = f"{macrs_class or ''} {description or ''}".lower()
+
+        # Try life-based mapping first for precision
+        try:
+            life_float = float(life) if life else 0
+        except (ValueError, TypeError):
+            life_float = 0
+
+        # Check by recovery period
+        if life_float == 5 or abs(life_float - 5) < 0.1:
+            # 5-year property
+            for keyword, wizard_text in FA_CS_WIZARD_5_YEAR.items():
+                if keyword in combined:
+                    return wizard_text
+            # Default 5-year
+            return "Computer, monitor, laptop, PDA, other computer related, property used in research"
+
+        elif life_float == 7 or abs(life_float - 7) < 0.1:
+            # 7-year property
+            for keyword, wizard_text in FA_CS_WIZARD_7_YEAR.items():
+                if keyword in combined:
+                    return wizard_text
+            # Default 7-year
+            return "Furniture and fixtures - office"
+
+        elif life_float == 15 or abs(life_float - 15) < 0.1:
+            # 15-year property
+            for keyword, wizard_text in FA_CS_WIZARD_15_YEAR.items():
+                if keyword in combined:
+                    return wizard_text
+            # Default 15-year
+            return "Land improvement (sidewalk, road, bridge, fence, landscaping)"
+
+        elif life_float == 27.5 or abs(life_float - 27.5) < 0.1:
+            # 27.5-year residential
+            return "Residential rental property (27.5 year)"
+
+        elif life_float == 39 or abs(life_float - 39) < 0.1:
+            # 39-year nonresidential
+            return "Nonresidential real property (39 year)"
+
+        elif life_float == 3 or abs(life_float - 3) < 0.1:
+            # 3-year property (software)
+            return "Software - off the shelf"
+
+        # Check category keywords for non-standard lives
+        for keyword, wizard_text in FA_CS_WIZARD_NON_DEPRECIABLE.items():
+            if keyword in combined:
+                return wizard_text
+
+        for keyword, wizard_text in FA_CS_WIZARD_INTANGIBLE.items():
+            if keyword in combined:
+                return wizard_text
+
+        # Default based on category analysis
+        if "vehicle" in combined or "auto" in combined or "car" in combined:
+            return "Automobile - passenger (used over 50% for business)"
+        if "computer" in combined or "laptop" in combined or "server" in combined:
+            return "Computer, monitor, laptop, PDA, other computer related, property used in research"
+        if "furniture" in combined or "desk" in combined or "chair" in combined:
+            return "Furniture and fixtures - office"
+        if "equipment" in combined or "machinery" in combined:
+            return "Machinery and equipment - manufacturing"
+
+        # Ultimate fallback
+        return "Machinery and equipment - manufacturing"
 

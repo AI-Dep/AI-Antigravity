@@ -34,9 +34,10 @@ import pandas as pd
 app = FastAPI()
 
 # Enable CORS
+# TODO: Before production, restrict to specific production domains
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -511,7 +512,8 @@ async def upload_file(file: UploadFile = File(...)):
         except Exception as log_error:
             print(f"Failed to write to backend_error.log: {log_error}")
             
-        raise HTTPException(status_code=500, detail=str(e))
+        # Don't expose internal error details to client
+        raise HTTPException(status_code=500, detail="File processing failed. Please check the file format and try again.")
     finally:
         # Cleanup
         if os.path.exists(temp_file):

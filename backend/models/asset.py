@@ -26,6 +26,10 @@ class Asset(BaseModel):
     macrs_method: Optional[str] = None
     macrs_convention: Optional[str] = None
 
+    # FA CS Wizard Category - exact dropdown text for FA CS Add Asset wizard
+    # This is what users select in FA CS; the software auto-fills method/life
+    fa_cs_wizard_category: Optional[str] = None
+
     # Flags
     confidence_score: float = Field(0.0, ge=0.0, le=1.0)
     is_qualified_improvement: bool = False
