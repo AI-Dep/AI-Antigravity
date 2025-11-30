@@ -42,7 +42,24 @@ logger = logging.getLogger(__name__)
 # ==============================================================================
 
 # Secret key for JWT signing - MUST be set in production
-JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-secret-key-change-in-production")
+# In production (ENVIRONMENT=production), missing JWT_SECRET_KEY will raise an error
+_jwt_secret = os.environ.get("JWT_SECRET_KEY")
+_is_production = os.environ.get("ENVIRONMENT", "").lower() == "production"
+
+if _is_production and not _jwt_secret:
+    raise RuntimeError(
+        "CRITICAL: JWT_SECRET_KEY environment variable must be set in production. "
+        "Generate a secure key with: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
+
+# Use environment key or generate a random dev key (never use default in production)
+JWT_SECRET_KEY = _jwt_secret or secrets.token_hex(32)
+if not _jwt_secret:
+    logger.warning(
+        "JWT_SECRET_KEY not set - using randomly generated key. "
+        "This is fine for development but tokens will be invalidated on restart."
+    )
+
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 JWT_REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "7"))

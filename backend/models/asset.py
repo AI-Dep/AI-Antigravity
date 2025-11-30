@@ -42,11 +42,11 @@ class Asset(BaseModel):
     classification_reason: Optional[str] = Field(None, description="Reason for transaction type classification")
 
     # Audit Trail
-    audit_trail: List['AuditEvent'] = []
+    audit_trail: List['AuditEvent'] = Field(default_factory=list)
 
     # Validation Errors and Warnings (For UI Display - advisory only)
-    validation_errors: List[str] = []
-    validation_warnings: List[str] = []
+    validation_errors: List[str] = Field(default_factory=list)
+    validation_warnings: List[str] = Field(default_factory=list)
 
     @validator('acquisition_date', 'in_service_date', pre=True)
     def parse_date(cls, v):

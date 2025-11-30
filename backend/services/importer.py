@@ -249,5 +249,5 @@ class ImporterService:
         try:
             float(val)
             return True
-        except:
+        except (ValueError, TypeError):
             return False
