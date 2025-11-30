@@ -5,6 +5,9 @@ import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download, In
 import { cn } from '../lib/utils';
 import axios from 'axios';
 
+// API base URL - use environment variable in production
+const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+
 function Review({ assets = [] }) {
     const [editingId, setEditingId] = useState(null);
     const [editForm, setEditForm] = useState({});
@@ -15,18 +18,27 @@ function Review({ assets = [] }) {
     const [warnings, setWarnings] = useState({ critical: [], warnings: [], info: [], summary: {} });
     const [taxYear, setTaxYear] = useState(new Date().getFullYear());
     const [tableCompact, setTableCompact] = useState(false); // Table density: false = comfortable, true = compact
+    const [exportStatus, setExportStatus] = useState({ ready: false, reason: null }); // Track export readiness
 
-    // Fetch warnings when assets change
+    // Fetch warnings and export status when assets change
     useEffect(() => {
         if (assets.length > 0) {
             fetchWarnings();
             fetchTaxConfig();
+            fetchExportStatus();
         }
     }, [assets]);
 
+    // Fetch export status whenever approvals change
+    useEffect(() => {
+        if (localAssets.length > 0) {
+            fetchExportStatus();
+        }
+    }, [approvedIds]);
+
     const fetchWarnings = async () => {
         try {
-            const response = await axios.get('http://127.0.0.1:8000/warnings');
+            const response = await axios.get(`${API_BASE}/warnings`);
             setWarnings(response.data);
         } catch (error) {
             console.error('Failed to fetch warnings:', error);
@@ -35,17 +47,30 @@ function Review({ assets = [] }) {
 
     const fetchTaxConfig = async () => {
         try {
-            const response = await axios.get('http://127.0.0.1:8000/config/tax');
+            const response = await axios.get(`${API_BASE}/config/tax`);
             setTaxYear(response.data.tax_year);
         } catch (error) {
             console.error('Failed to fetch tax config:', error);
         }
     };
 
+    const fetchExportStatus = async () => {
+        try {
+            const response = await axios.get(`${API_BASE}/export/status`);
+            setExportStatus(response.data);
+            // Sync approved IDs from backend
+            if (response.data.approved_ids) {
+                setApprovedIds(new Set(response.data.approved_ids));
+            }
+        } catch (error) {
+            console.error('Failed to fetch export status:', error);
+        }
+    };
+
     const handleTaxYearChange = async (e) => {
         const newYear = parseInt(e.target.value, 10);
         try {
-            const response = await axios.post('http://127.0.0.1:8000/config/tax', {
+            const response = await axios.post(`${API_BASE}/config/tax`, {
                 tax_year: newYear
             });
             setTaxYear(newYear);
@@ -59,15 +84,16 @@ function Review({ assets = [] }) {
                 } else {
                     // Backend returned empty array - fetch fresh assets
                     console.warn('Tax year change returned no assets, fetching from server...');
-                    const assetsResponse = await axios.get('http://127.0.0.1:8000/assets');
+                    const assetsResponse = await axios.get(`${API_BASE}/assets`);
                     if (assetsResponse.data && assetsResponse.data.length > 0) {
                         setLocalAssets(assetsResponse.data);
                         setApprovedIds(new Set());
                     }
                 }
             }
-            // Refresh warnings for new tax year
+            // Refresh warnings and export status for new tax year
             fetchWarnings();
+            fetchExportStatus();
         } catch (error) {
             console.error('Failed to update tax year:', error);
         }
@@ -208,25 +234,45 @@ function Review({ assets = [] }) {
             );
             setLocalAssets(updatedAssets);
             setEditingId(null);
-            setApprovedIds(prev => new Set([...prev, uniqueId]));
 
-            await axios.post(`http://127.0.0.1:8000/assets/${uniqueId}/update`, updateData);
+            // Update backend first
+            await axios.post(`${API_BASE}/assets/${uniqueId}/update`, updateData);
+
+            // Then approve the asset (editing = implicit review/approval)
+            await axios.post(`${API_BASE}/assets/${uniqueId}/approve`);
+            setApprovedIds(prev => new Set([...prev, uniqueId]));
         } catch (error) {
             console.error("Failed to save update:", error);
         }
     };
 
-    const handleApprove = (uniqueId) => {
-        // Use unique_id for approval tracking (unique across sheets)
-        setApprovedIds(prev => new Set([...prev, uniqueId]));
+    const handleApprove = async (uniqueId) => {
+        try {
+            // Call backend to record approval
+            await axios.post(`${API_BASE}/assets/${uniqueId}/approve`);
+            setApprovedIds(prev => new Set([...prev, uniqueId]));
+        } catch (error) {
+            console.error("Failed to approve asset:", error);
+            alert(`Failed to approve: ${error.response?.data?.detail || error.message}`);
+        }
     };
 
-    const handleApproveAllHighConfidence = () => {
-        // Use unique_id for approval tracking (unique across sheets)
-        const highConfIds = localAssets
-            .filter(a => !a.validation_errors?.length && a.confidence_score > 0.8)
-            .map(a => a.unique_id);
-        setApprovedIds(prev => new Set([...prev, ...highConfIds]));
+    const handleApproveAllHighConfidence = async () => {
+        try {
+            // Get all high confidence asset IDs
+            const highConfIds = localAssets
+                .filter(a => !a.validation_errors?.length && a.confidence_score > 0.8)
+                .map(a => a.unique_id);
+
+            if (highConfIds.length === 0) return;
+
+            // Batch approve on backend
+            await axios.post(`${API_BASE}/assets/approve-batch`, highConfIds);
+            setApprovedIds(prev => new Set([...prev, ...highConfIds]));
+        } catch (error) {
+            console.error("Failed to approve batch:", error);
+            alert(`Failed to approve: ${error.response?.data?.detail || error.message}`);
+        }
     };
 
     // Helper function to download file without opening new window (works in Electron)
@@ -234,8 +280,21 @@ function Review({ assets = [] }) {
         try {
             const response = await fetch(url);
             if (!response.ok) {
-                const errorText = await response.text();
-                alert(`Download failed: ${errorText}`);
+                // Try to parse error response
+                let errorMessage = 'Export failed';
+                try {
+                    const errorData = await response.json();
+                    if (errorData.detail) {
+                        if (typeof errorData.detail === 'object') {
+                            errorMessage = errorData.detail.message || errorData.detail.error || JSON.stringify(errorData.detail);
+                        } else {
+                            errorMessage = errorData.detail;
+                        }
+                    }
+                } catch {
+                    errorMessage = await response.text();
+                }
+                alert(`Export blocked: ${errorMessage}`);
                 return;
             }
 
@@ -265,11 +324,16 @@ function Review({ assets = [] }) {
     };
 
     const handleExport = () => {
-        downloadFile('http://127.0.0.1:8000/export', 'FA_CS_Import.xlsx');
+        // Double-check export readiness before attempting
+        if (!exportStatus.ready) {
+            alert(`Cannot export: ${exportStatus.reason || 'Not all assets are approved'}`);
+            return;
+        }
+        downloadFile(`${API_BASE}/export`, 'FA_CS_Import.xlsx');
     };
 
     const handleAuditReport = () => {
-        downloadFile('http://127.0.0.1:8000/export/audit', 'Audit_Report.xlsx');
+        downloadFile(`${API_BASE}/export/audit`, 'Audit_Report.xlsx');
     };
 
     if (!localAssets || localAssets.length === 0) {
@@ -331,10 +395,11 @@ function Review({ assets = [] }) {
                     </Button>
                     <Button
                         onClick={handleExport}
-                        disabled={hasBlockingErrors}
+                        disabled={!exportStatus.ready}
+                        title={exportStatus.ready ? "Export approved assets to FA CS" : exportStatus.reason || "Not ready to export"}
                         className={cn(
                             "text-white",
-                            hasBlockingErrors
+                            !exportStatus.ready
                                 ? "bg-gray-400 cursor-not-allowed"
                                 : "bg-green-600 hover:bg-green-700"
                         )}

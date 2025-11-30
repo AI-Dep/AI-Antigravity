@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Body
+from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import uvicorn
@@ -10,6 +10,10 @@ from typing import List, Dict
 from datetime import datetime
 import traceback
 import io
+from threading import Lock
+
+# Thread lock for concurrent access to global state
+_state_lock = Lock()
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -624,17 +628,18 @@ def approve_asset(asset_id: int):
     CPA approves a single asset for export.
     Note: asset_id here is the unique_id, not the original row_index.
     """
-    if asset_id not in ASSET_STORE:
-        raise HTTPException(status_code=404, detail="Asset not found")
+    with _state_lock:
+        if asset_id not in ASSET_STORE:
+            raise HTTPException(status_code=404, detail="Asset not found")
 
-    asset = ASSET_STORE[asset_id]
+        asset = ASSET_STORE[asset_id]
 
-    # Can't approve assets with validation errors
-    if getattr(asset, 'validation_errors', None):
-        raise HTTPException(status_code=400, detail="Cannot approve asset with validation errors")
+        # Can't approve assets with validation errors
+        if getattr(asset, 'validation_errors', None):
+            raise HTTPException(status_code=400, detail="Cannot approve asset with validation errors")
 
-    APPROVED_ASSETS.add(asset_id)
-    return {"approved": True, "unique_id": asset_id}
+        APPROVED_ASSETS.add(asset_id)
+        return {"approved": True, "unique_id": asset_id}
 
 @app.post("/assets/approve-batch")
 def approve_batch(asset_ids: List[int] = Body(...)):
@@ -642,23 +647,24 @@ def approve_batch(asset_ids: List[int] = Body(...)):
     CPA approves multiple assets at once (e.g., all high-confidence items).
     Note: asset_ids are unique_ids, not row_indexes.
     """
-    approved = []
-    errors = []
+    with _state_lock:
+        approved = []
+        errors = []
 
-    for asset_id in asset_ids:
-        if asset_id not in ASSET_STORE:
-            errors.append({"unique_id": asset_id, "error": "Not found"})
-            continue
+        for asset_id in asset_ids:
+            if asset_id not in ASSET_STORE:
+                errors.append({"unique_id": asset_id, "error": "Not found"})
+                continue
 
-        asset = ASSET_STORE[asset_id]
-        if getattr(asset, 'validation_errors', None):
-            errors.append({"unique_id": asset_id, "error": "Has validation errors"})
-            continue
+            asset = ASSET_STORE[asset_id]
+            if getattr(asset, 'validation_errors', None):
+                errors.append({"unique_id": asset_id, "error": "Has validation errors"})
+                continue
 
-        APPROVED_ASSETS.add(asset_id)
-        approved.append(asset_id)
+            APPROVED_ASSETS.add(asset_id)
+            approved.append(asset_id)
 
-    return {"approved": approved, "errors": errors, "total_approved": len(approved)}
+        return {"approved": approved, "errors": errors, "total_approved": len(approved)}
 
 @app.delete("/assets/{asset_id}/approve")
 def unapprove_asset(asset_id: int):
@@ -666,32 +672,159 @@ def unapprove_asset(asset_id: int):
     Remove approval from an asset.
     Note: asset_id here is the unique_id, not the original row_index.
     """
-    if asset_id in APPROVED_ASSETS:
-        APPROVED_ASSETS.discard(asset_id)
-        return {"approved": False, "unique_id": asset_id}
-    return {"approved": False, "unique_id": asset_id, "message": "Was not approved"}
+    with _state_lock:
+        was_approved = asset_id in APPROVED_ASSETS
+        if was_approved:
+            APPROVED_ASSETS.discard(asset_id)
+            return {"approved": False, "unique_id": asset_id}
+        return {"approved": False, "unique_id": asset_id, "message": "Was not approved"}
+
+
+@app.get("/export/status")
+def get_export_status():
+    """
+    Check if export is ready and get detailed approval status.
+    Frontend should call this to enable/disable export button.
+    """
+    with _state_lock:
+        if not ASSET_STORE:
+            return {
+                "ready": False,
+                "reason": "No assets loaded",
+                "total_assets": 0,
+                "approved_assets": 0,
+                "approved_ids": []
+            }
+
+        assets = list(ASSET_STORE.values())
+
+        # Count by category
+        total = len(assets)
+        errors = sum(1 for a in assets if getattr(a, 'validation_errors', None))
+
+        # Actionable = additions, disposals, transfers (not existing)
+        actionable = [a for a in assets if a.transaction_type not in ["Existing Asset", None]]
+        actionable_count = len(actionable)
+
+        # Approved actionable
+        approved_actionable = [a for a in actionable if a.unique_id in APPROVED_ASSETS]
+        approved_count = len(approved_actionable)
+
+        # Low confidence needing review
+        low_conf_unreviewed = [
+            a for a in actionable
+            if a.confidence_score <= 0.8 and a.unique_id not in APPROVED_ASSETS
+        ]
+
+        # Determine readiness
+        has_errors = errors > 0
+        all_approved = approved_count == actionable_count
+        low_conf_reviewed = len(low_conf_unreviewed) == 0
+
+        ready = not has_errors and all_approved and low_conf_reviewed
+
+        reason = None
+        if has_errors:
+            reason = f"{errors} asset(s) have validation errors"
+        elif not all_approved:
+            reason = f"{actionable_count - approved_count} of {actionable_count} actionable assets not approved"
+        elif not low_conf_reviewed:
+            reason = f"{len(low_conf_unreviewed)} low-confidence assets need review"
+
+        return {
+            "ready": ready,
+            "reason": reason,
+            "total_assets": total,
+            "actionable_assets": actionable_count,
+            "approved_assets": approved_count,
+            "unapproved_assets": actionable_count - approved_count,
+            "errors": errors,
+            "low_confidence_unreviewed": len(low_conf_unreviewed),
+            "approved_ids": list(APPROVED_ASSETS)
+        }
+
 
 @app.get("/export")
-def export_assets():
+def export_assets(skip_approval_check: bool = Query(False, description="Skip approval validation (for audit exports only)")):
     """
     Generates an Excel file for Fixed Assets CS import.
     Saves a copy to 'bot_handoff' folder for UiPath to pick up.
+
+    IMPORTANT: All actionable assets (additions, disposals, transfers) must be approved
+    before export. Existing assets are excluded from approval requirement.
     """
     if not ASSET_STORE:
         raise HTTPException(status_code=400, detail="No assets to export")
 
-    # Get all assets from store
-    assets = list(ASSET_STORE.values())
+    with _state_lock:
+        # Get all assets from store
+        assets = list(ASSET_STORE.values())
 
-    # Validate: Block export if any asset has validation errors
-    assets_with_errors = [a for a in assets if getattr(a, 'validation_errors', None)]
-    if assets_with_errors:
-        error_count = len(assets_with_errors)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting."
-        )
-    
+        # Validate: Block export if any asset has validation errors
+        assets_with_errors = [a for a in assets if getattr(a, 'validation_errors', None)]
+        if assets_with_errors:
+            error_count = len(assets_with_errors)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting."
+            )
+
+        # NEW: Validate all actionable assets are approved
+        # Existing assets don't need approval - they're just for reference
+        if not skip_approval_check:
+            actionable_assets = [
+                a for a in assets
+                if a.transaction_type not in ["Existing Asset", None]
+            ]
+
+            unapproved = [
+                a for a in actionable_assets
+                if a.unique_id not in APPROVED_ASSETS
+            ]
+
+            if unapproved:
+                unapproved_count = len(unapproved)
+                total_actionable = len(actionable_assets)
+                approved_count = total_actionable - unapproved_count
+
+                # Build helpful error message
+                unapproved_by_type = {}
+                for a in unapproved:
+                    tt = a.transaction_type or "Unknown"
+                    unapproved_by_type[tt] = unapproved_by_type.get(tt, 0) + 1
+
+                type_breakdown = ", ".join([f"{count} {tt}" for tt, count in unapproved_by_type.items()])
+
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "Not all assets approved",
+                        "message": f"Cannot export: {unapproved_count} of {total_actionable} actionable assets not approved.",
+                        "approved": approved_count,
+                        "unapproved": unapproved_count,
+                        "unapproved_by_type": unapproved_by_type,
+                        "breakdown": type_breakdown,
+                        "hint": "Approve all additions, disposals, and transfers before exporting."
+                    }
+                )
+
+            # Also check that low-confidence assets were explicitly reviewed
+            low_confidence_unreviewed = [
+                a for a in actionable_assets
+                if a.confidence_score <= 0.8 and a.unique_id not in APPROVED_ASSETS
+            ]
+
+            if low_confidence_unreviewed:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "Low confidence assets not reviewed",
+                        "message": f"{len(low_confidence_unreviewed)} low-confidence asset(s) require manual review and approval.",
+                        "count": len(low_confidence_unreviewed),
+                        "hint": "Review and approve all assets with confidence <= 80%."
+                    }
+                )
+
     # Generate Excel
     excel_file = exporter.generate_fa_cs_export(assets)
 
