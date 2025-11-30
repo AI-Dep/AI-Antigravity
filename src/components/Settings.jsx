@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, Info, CheckCircle, Calendar, DollarSign, FileText } from 'lucide-react';
+import { AlertTriangle, Info, Calendar, DollarSign } from 'lucide-react';
 import axios from 'axios';
 
 function Settings() {
@@ -222,30 +222,6 @@ function Settings() {
                     </div>
                 </CardContent>
             </Card>
-
-            {/* Transaction Type Summary */}
-            {warnings.info?.find(i => i.type === 'TRANSACTION_SUMMARY') && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <FileText className="w-5 h-5 text-purple-600" />
-                            Transaction Classification Summary
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            {Object.entries(
-                                warnings.info.find(i => i.type === 'TRANSACTION_SUMMARY')?.breakdown || {}
-                            ).map(([type, count]) => (
-                                <div key={type} className="p-3 bg-slate-50 rounded-lg text-center">
-                                    <div className="text-2xl font-bold text-slate-900">{count}</div>
-                                    <div className="text-xs text-slate-500">{type}</div>
-                                </div>
-                            ))}
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
 
             {/* Regular Warnings */}
             {warnings.warnings?.length > 0 && (
