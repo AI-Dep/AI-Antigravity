@@ -14,6 +14,7 @@ function Review({ assets = [] }) {
     const [approvedIds, setApprovedIds] = useState(new Set());
     const [warnings, setWarnings] = useState({ critical: [], warnings: [], info: [], summary: {} });
     const [taxYear, setTaxYear] = useState(new Date().getFullYear());
+    const [tableCompact, setTableCompact] = useState(false); // Table density: false = comfortable, true = compact
 
     // Fetch warnings when assets change
     useEffect(() => {
@@ -206,7 +207,7 @@ function Review({ assets = [] }) {
     }
 
     return (
-        <div className="p-8 max-w-[1600px] mx-auto">
+        <div className="p-6 max-w-[1900px] mx-auto">
             {/* Header */}
             <div className="flex justify-between items-start mb-6">
                 <div>
@@ -408,32 +409,66 @@ function Review({ assets = [] }) {
                         )}
                     </div>
                 </div>
-                {!showExistingAssets && stats.existing > 0 && (
-                    <div className="text-xs text-slate-500 flex items-center gap-1">
-                        <EyeOff className="w-3 h-3" />
-                        {stats.existing} existing assets hidden (no action required)
+                <div className="flex items-center gap-4">
+                    {/* Table Density Toggle */}
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500">Density:</span>
+                        <button
+                            onClick={() => setTableCompact(false)}
+                            className={cn(
+                                "px-2 py-1 rounded text-xs font-medium transition-all",
+                                !tableCompact
+                                    ? "bg-slate-700 text-white"
+                                    : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-100"
+                            )}
+                        >
+                            Comfortable
+                        </button>
+                        <button
+                            onClick={() => setTableCompact(true)}
+                            className={cn(
+                                "px-2 py-1 rounded text-xs font-medium transition-all",
+                                tableCompact
+                                    ? "bg-slate-700 text-white"
+                                    : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-100"
+                            )}
+                        >
+                            Compact
+                        </button>
                     </div>
-                )}
+                    {!showExistingAssets && stats.existing > 0 && (
+                        <div className="text-xs text-slate-500 flex items-center gap-1">
+                            <EyeOff className="w-3 h-3" />
+                            {stats.existing} existing assets hidden (no action required)
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Table */}
             <Card>
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b">
+                        <table className={cn(
+                            "w-full text-left min-w-[1400px]",
+                            tableCompact ? "text-xs" : "text-sm"
+                        )}>
+                            <thead className={cn(
+                                "text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b",
+                                tableCompact ? "text-[10px]" : "text-xs"
+                            )}>
                                 <tr>
-                                    <th className="px-4 py-3 w-32">Status</th>
-                                    <th className="px-4 py-3 w-16">Conf.</th>
-                                    <th className="px-4 py-3">Asset ID</th>
-                                    <th className="px-4 py-3">Description</th>
-                                    <th className="px-4 py-3">Cost</th>
-                                    <th className="px-4 py-3">Date in Service</th>
-                                    <th className="px-4 py-3">Trans. Type</th>
-                                    <th className="px-4 py-3">Class</th>
-                                    <th className="px-4 py-3">Life</th>
-                                    <th className="px-4 py-3">FA CS Category</th>
-                                    <th className="px-4 py-3 w-32">Actions</th>
+                                    <th className={cn("w-24", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Status</th>
+                                    <th className={cn("w-14", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Conf.</th>
+                                    <th className={cn("w-20", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Asset ID</th>
+                                    <th className={cn("min-w-[200px]", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Description</th>
+                                    <th className={cn("w-24", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Cost</th>
+                                    <th className={cn("w-28", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Date in Service</th>
+                                    <th className={cn("w-24", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Trans. Type</th>
+                                    <th className={cn("w-28", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Class</th>
+                                    <th className={cn("w-14", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Life</th>
+                                    <th className={cn("min-w-[280px]", tableCompact ? "px-2 py-2" : "px-3 py-3")}>FA CS Category</th>
+                                    <th className={cn("w-20", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -452,11 +487,14 @@ function Review({ assets = [] }) {
                                                 isApproved && "bg-green-50/30"
                                             )}
                                         >
-                                            <td className="px-4 py-3">
+                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                 {hasErrors ? (
                                                     <div className="group relative flex items-center">
-                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 cursor-help">
-                                                            <AlertTriangle className="w-3 h-3 mr-1" />
+                                                        <span className={cn(
+                                                            "inline-flex items-center rounded-full font-medium bg-red-100 text-red-800 cursor-help",
+                                                            tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                        )}>
+                                                            <AlertTriangle className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
                                                             Error
                                                         </span>
                                                         <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-48 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-10">
@@ -466,45 +504,70 @@ function Review({ assets = [] }) {
                                                         </div>
                                                     </div>
                                                 ) : isApproved ? (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                                        <Check className="w-3 h-3 mr-1" />
+                                                    <span className={cn(
+                                                        "inline-flex items-center rounded-full font-medium bg-green-100 text-green-800",
+                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                    )}>
+                                                        <Check className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
                                                         Approved
                                                     </span>
                                                 ) : asset.confidence_score > 0.8 ? (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                    <span className={cn(
+                                                        "inline-flex items-center rounded-full font-medium bg-green-100 text-green-800",
+                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                    )}>
                                                         High Conf.
                                                     </span>
                                                 ) : (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                                        <AlertTriangle className="w-3 h-3 mr-1" />
+                                                    <span className={cn(
+                                                        "inline-flex items-center rounded-full font-medium bg-yellow-100 text-yellow-800",
+                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                    )}>
+                                                        <AlertTriangle className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
                                                         Review
                                                     </span>
                                                 )}
                                             </td>
-                                            <td className="px-4 py-3">
+                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                 <span className={cn(
-                                                    "text-xs font-mono",
+                                                    "font-mono",
+                                                    tableCompact ? "text-[10px]" : "text-xs",
                                                     asset.confidence_score > 0.8 ? "text-green-600" :
                                                         asset.confidence_score > 0.5 ? "text-yellow-600" : "text-red-600"
                                                 )}>
                                                     {Math.round((asset.confidence_score || 0) * 100)}%
                                                 </span>
                                             </td>
-                                            <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">
+                                            <td className={cn(
+                                                "font-medium text-slate-900 dark:text-white",
+                                                tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
+                                            )}>
                                                 {asset.asset_id || "-"}
                                             </td>
-                                            <td className="px-4 py-3 text-slate-600 dark:text-slate-300 max-w-xs truncate">
-                                                {asset.description}
+                                            <td className={cn(
+                                                "text-slate-600 dark:text-slate-300 truncate",
+                                                tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
+                                            )}>
+                                                <span className="block truncate" title={asset.description}>
+                                                    {asset.description}
+                                                </span>
                                             </td>
-                                            <td className="px-4 py-3 font-mono text-slate-600">
+                                            <td className={cn(
+                                                "font-mono text-slate-600",
+                                                tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
+                                            )}>
                                                 ${(asset.cost || 0).toLocaleString()}
                                             </td>
-                                            <td className="px-4 py-3 text-slate-600">
+                                            <td className={cn(
+                                                "text-slate-600",
+                                                tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
+                                            )}>
                                                 {asset.date_in_service || asset.acquisition_date || "-"}
                                             </td>
-                                            <td className="px-4 py-3">
+                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                 <span className={cn(
-                                                    "px-2 py-1 rounded text-xs font-medium",
+                                                    "rounded font-medium whitespace-nowrap",
+                                                    tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs",
                                                     asset.transaction_type === "Current Year Addition" && "bg-green-100 text-green-700",
                                                     asset.transaction_type === "Existing Asset" && "bg-slate-100 text-slate-700",
                                                     asset.transaction_type === "Disposal" && "bg-red-100 text-red-700",
@@ -519,24 +582,33 @@ function Review({ assets = [] }) {
 
                                             {editingId === asset.row_index ? (
                                                 <>
-                                                    <td className="px-4 py-3">
+                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                         <input
-                                                            className="border rounded px-2 py-1 w-full text-sm"
+                                                            className={cn(
+                                                                "border rounded w-full",
+                                                                tableCompact ? "px-1.5 py-0.5 text-xs" : "px-2 py-1 text-sm"
+                                                            )}
                                                             value={editForm.macrs_class}
                                                             onChange={(e) => setEditForm({ ...editForm, macrs_class: e.target.value })}
                                                         />
                                                     </td>
-                                                    <td className="px-4 py-3">
+                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                         <input
                                                             type="number"
-                                                            className="border rounded px-2 py-1 w-16 text-sm"
+                                                            className={cn(
+                                                                "border rounded w-14",
+                                                                tableCompact ? "px-1.5 py-0.5 text-xs" : "px-2 py-1 text-sm"
+                                                            )}
                                                             value={editForm.macrs_life}
                                                             onChange={(e) => setEditForm({ ...editForm, macrs_life: e.target.value })}
                                                         />
                                                     </td>
-                                                    <td className="px-4 py-3">
+                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                         <select
-                                                            className="border rounded px-2 py-1 text-sm max-w-xs"
+                                                            className={cn(
+                                                                "border rounded w-full",
+                                                                tableCompact ? "px-1.5 py-0.5 text-xs" : "px-2 py-1 text-sm"
+                                                            )}
                                                             value={editForm.fa_cs_wizard_category || ""}
                                                             onChange={(e) => setEditForm({ ...editForm, fa_cs_wizard_category: e.target.value })}
                                                         >
@@ -548,24 +620,41 @@ function Review({ assets = [] }) {
                                                             )}
                                                         </select>
                                                     </td>
-                                                    <td className="px-4 py-3">
-                                                        <button onClick={() => handleSave(asset.row_index)} className="p-1.5 hover:bg-green-100 text-green-600 rounded mr-1">
-                                                            <Save className="w-4 h-4" />
-                                                        </button>
-                                                        <button onClick={() => setEditingId(null)} className="p-1.5 hover:bg-red-100 text-red-600 rounded">
-                                                            <X className="w-4 h-4" />
-                                                        </button>
+                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                        <div className="flex gap-0.5">
+                                                            <button onClick={() => handleSave(asset.row_index)} className={cn(
+                                                                "hover:bg-green-100 text-green-600 rounded",
+                                                                tableCompact ? "p-1" : "p-1.5"
+                                                            )}>
+                                                                <Save className={tableCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
+                                                            </button>
+                                                            <button onClick={() => setEditingId(null)} className={cn(
+                                                                "hover:bg-red-100 text-red-600 rounded",
+                                                                tableCompact ? "p-1" : "p-1.5"
+                                                            )}>
+                                                                <X className={tableCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </>
                                             ) : (
                                                 <>
-                                                    <td className="px-4 py-3">
-                                                        <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs font-semibold border border-blue-100">
+                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                        <span className={cn(
+                                                            "bg-blue-50 text-blue-700 rounded font-semibold border border-blue-100",
+                                                            tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs"
+                                                        )}>
                                                             {asset.macrs_class}
                                                         </span>
                                                     </td>
-                                                    <td className="px-4 py-3 text-slate-600">{asset.macrs_life} yr</td>
-                                                    <td className="px-4 py-3 text-slate-600 max-w-xs">
+                                                    <td className={cn(
+                                                        "text-slate-600",
+                                                        tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
+                                                    )}>{asset.macrs_life} yr</td>
+                                                    <td className={cn(
+                                                        "text-slate-600",
+                                                        tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
+                                                    )}>
                                                         <span
                                                             className="block truncate cursor-help"
                                                             title={asset.fa_cs_wizard_category || asset.macrs_method}
@@ -573,23 +662,29 @@ function Review({ assets = [] }) {
                                                             {asset.fa_cs_wizard_category || asset.macrs_method}
                                                         </span>
                                                     </td>
-                                                    <td className="px-4 py-3">
-                                                        <div className="flex gap-1">
+                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                        <div className="flex gap-0.5">
                                                             {!isApproved && !hasErrors && (
                                                                 <button
                                                                     onClick={() => handleApprove(asset.row_index)}
-                                                                    className="p-1.5 hover:bg-green-100 text-green-600 rounded"
+                                                                    className={cn(
+                                                                        "hover:bg-green-100 text-green-600 rounded",
+                                                                        tableCompact ? "p-1" : "p-1.5"
+                                                                    )}
                                                                     title="Approve"
                                                                 >
-                                                                    <Check className="w-4 h-4" />
+                                                                    <Check className={tableCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
                                                                 </button>
                                                             )}
                                                             <button
                                                                 onClick={() => handleEditClick(asset)}
-                                                                className="p-1.5 hover:bg-slate-100 text-slate-600 rounded"
+                                                                className={cn(
+                                                                    "hover:bg-slate-100 text-slate-600 rounded",
+                                                                    tableCompact ? "p-1" : "p-1.5"
+                                                                )}
                                                                 title="Edit"
                                                             >
-                                                                <Edit2 className="w-4 h-4" />
+                                                                <Edit2 className={tableCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
                                                             </button>
                                                         </div>
                                                     </td>
