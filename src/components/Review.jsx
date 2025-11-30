@@ -526,24 +526,24 @@ function Review({ assets = [] }) {
                         <table className={cn(
                             "w-full text-left min-w-[1500px]",
                             tableCompact ? "text-xs" : "text-sm"
-                        )}>
+                        )} style={{ tableLayout: 'fixed' }}>
                             <thead className={cn(
                                 "text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b",
                                 tableCompact ? "text-[10px]" : "text-xs"
                             )}>
                                 <tr>
-                                    <th className={cn("w-20", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Asset ID</th>
-                                    <th className={cn("min-w-[200px]", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Description</th>
-                                    <th className={cn("w-24", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Cost</th>
-                                    <th className={cn("w-28", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Date in Service</th>
-                                    <th className={cn("w-24", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Trans. Type</th>
-                                    <th className={cn("w-28", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Class</th>
-                                    <th className={cn("w-14", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Life</th>
-                                    <th className={cn("w-16", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Method</th>
-                                    <th className={cn("min-w-[180px] max-w-[280px]", tableCompact ? "px-2 py-2" : "px-3 py-3")}>FA CS Category</th>
-                                    <th className={cn("w-24", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Status</th>
-                                    <th className={cn("w-14", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Conf.</th>
-                                    <th className={cn("w-20", tableCompact ? "px-2 py-2" : "px-3 py-3")}>Actions</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Asset ID</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '220px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}>Description</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Cost</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '110px', minWidth: '90px', resize: 'horizontal', overflow: 'hidden' }}>Date in Service</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Trans. Type</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Class</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '60px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Life</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '70px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>Method</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '280px', minWidth: '150px', resize: 'horizontal', overflow: 'hidden' }}>FA CS Category</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '90px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Status</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '55px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Conf.</th>
+                                    <th className={cn(tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '60px' }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
