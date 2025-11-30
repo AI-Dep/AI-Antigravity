@@ -81,7 +81,8 @@ FUZZY_MATCH_REVERSE_SUBSTRING_MIN_LENGTH = 6
 
 # Header detection constants
 # Increased from 20 to 50 to handle files with titles/blanks above headers
-HEADER_SCAN_MAX_ROWS = 50
+# Can be overridden per-client via client_mapping_manager
+HEADER_SCAN_MAX_ROWS = 100  # Increased from 50 to handle extreme cases
 HEADER_NUMERIC_PENALTY_THRESHOLD = 0.4
 HEADER_REPETITION_MAX_LENGTH = 30
 
@@ -1210,8 +1211,9 @@ def _is_totals_row(desc: str, asset_id: str = "") -> bool:
     for keyword in TOTALS_ROW_KEYWORDS:
         # Check if description starts with or contains the totals keyword
         if desc_lower.startswith(keyword) or f" {keyword}" in f" {desc_lower}":
-            # Additional check: totals rows are usually short
-            if len(desc) < 50:
+            # Additional check: totals rows are usually short-to-medium length
+            # Increased from 50 to 80 to catch "Total for Manufacturing Equipment Department"
+            if len(desc) < 80:
                 logger.debug(f"Skipping totals row: {desc}")
                 return True
 
@@ -1946,7 +1948,30 @@ def build_unified_dataframe(
 
             # Extract data starting from header
             df = df_raw.iloc[header_idx:].copy()
+
+            # SAFETY: Check for empty DataFrame after header extraction
+            if df.empty or len(df) < 1:
+                logger.warning(f"[{sheet_name}] No data rows after header detection at row {header_idx}")
+                skipped_sheets += 1
+                skipped_sheet_reasons.append(f"'{sheet_name}': No data rows after header")
+                continue
+
+            # Set column names from header row
             df.columns = [_normalize_header(x) for x in df.iloc[0]]
+
+            # Handle duplicate column names from merged cells (NaN → "" → duplicates)
+            # Pandas will auto-rename duplicates to "col", "col.1", "col.2" etc.
+            seen_cols = {}
+            new_cols = []
+            for col in df.columns:
+                if col in seen_cols:
+                    seen_cols[col] += 1
+                    new_cols.append(f"{col}_{seen_cols[col]}" if col else f"unnamed_{seen_cols[col]}")
+                else:
+                    seen_cols[col] = 0
+                    new_cols.append(col if col else "unnamed_0")
+            df.columns = new_cols
+
             df = df.iloc[1:].reset_index(drop=True)
 
             logger.info(f"[{sheet_name}] Header detected at row {header_idx}, {len(df)} data rows")

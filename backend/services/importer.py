@@ -14,6 +14,20 @@ class ImporterService:
     - Assets with or without dates (no assets should be excluded due to missing dates)
     """
 
+    def __init__(self):
+        # Track parsing issues for error reporting
+        self.last_parse_warnings: List[str] = []
+        self.last_parse_errors: List[str] = []
+        self.last_parse_stats: Dict = {}
+
+    def get_last_parse_report(self) -> Dict:
+        """Get detailed report from last parse operation."""
+        return {
+            "warnings": self.last_parse_warnings,
+            "errors": self.last_parse_errors,
+            "stats": self.last_parse_stats
+        }
+
     def parse_excel(self, file_path: str, filter_by_date: bool = False) -> List[Asset]:
         """
         Reads an Excel file and returns a list of validated Asset objects.
@@ -31,6 +45,12 @@ class ImporterService:
         Returns:
             List of Asset objects from all valid sheets
         """
+        # Reset tracking for this parse operation
+        self.last_parse_warnings = []
+        self.last_parse_errors = []
+        self.last_parse_stats = {}
+        skipped_rows = []
+
         # 1. Load ALL sheets from the Excel file (header=None for raw data)
         xl = pd.ExcelFile(file_path)
         sheets = {}
@@ -39,11 +59,15 @@ class ImporterService:
                 df = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
                 sheets[sheet_name] = df
             except Exception as e:
-                print(f"Warning: Could not read sheet '{sheet_name}': {e}")
+                warning = f"Could not read sheet '{sheet_name}': {e}"
+                self.last_parse_warnings.append(warning)
+                print(f"Warning: {warning}")
         xl.close()
 
         if not sheets:
-            print("Error: No readable sheets found in file")
+            error = "No readable sheets found in file"
+            self.last_parse_errors.append(error)
+            print(f"Error: {error}")
             return []
 
         print(f"Found {len(sheets)} sheets: {list(sheets.keys())}")
@@ -67,22 +91,35 @@ class ImporterService:
             return self._parse_excel_basic(file_path)
 
         # Log stats from smart processing
-        stats = {
+        self.last_parse_stats = {
             'total_rows': len(df_unified),
             'sheets_processed': df_unified.attrs.get('sheets_processed', 'unknown'),
             'sheets_skipped': df_unified.attrs.get('sheets_skipped', 'unknown'),
+            'skipped_reasons': df_unified.attrs.get('skipped_reasons', []),
         }
-        print(f"Processed {stats['total_rows']} assets from {stats['sheets_processed']} sheets")
+        print(f"Processed {self.last_parse_stats['total_rows']} assets from {self.last_parse_stats['sheets_processed']} sheets")
 
         # 3. Convert DataFrame rows to Asset objects
         assets = []
+        row_errors = []
         for idx, row in df_unified.iterrows():
             try:
                 asset = self._row_to_asset(row, idx)
                 if asset:
                     assets.append(asset)
             except Exception as e:
+                error_msg = f"Row {idx}: {e}"
+                row_errors.append(error_msg)
                 print(f"Warning: Could not process row {idx}: {e}")
+
+        # Track row-level errors
+        if row_errors:
+            self.last_parse_warnings.extend(row_errors[:10])  # Limit to first 10
+            if len(row_errors) > 10:
+                self.last_parse_warnings.append(f"... and {len(row_errors) - 10} more row errors")
+
+        self.last_parse_stats['assets_created'] = len(assets)
+        self.last_parse_stats['row_errors'] = len(row_errors)
 
         print(f"Successfully created {len(assets)} Asset objects")
         return assets
