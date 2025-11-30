@@ -214,9 +214,12 @@ def get_tax_config():
 
     # Calculate bonus rate based on tax year
     if TAX_YEAR_CONFIG_AVAILABLE:
-        bonus_info = tax_year_config.get_bonus_depreciation_rate(tax_year)
-        config["bonus_rate"] = bonus_info.get("rate", 0) if isinstance(bonus_info, dict) else bonus_info
-        config["section_179_limit"] = tax_year_config.get_section_179_limit(tax_year)
+        # get_bonus_percentage returns a float (e.g., 1.0 for 100%, 0.6 for 60%)
+        bonus_rate = tax_year_config.get_bonus_percentage(tax_year)
+        config["bonus_rate"] = int(bonus_rate * 100)  # Convert to percentage (e.g., 100, 60)
+        # get_section_179_limits returns a dict with 'max_deduction' and 'phaseout_threshold'
+        section_179_info = tax_year_config.get_section_179_limits(tax_year)
+        config["section_179_limit"] = section_179_info.get("max_deduction", 0)
         config["obbba_effective"] = tax_year >= 2025  # OBBBA passed in 2025
         config["obbba_info"] = {
             "name": "One Big Beautiful Bill Act (OBBBA) 2025",
@@ -692,8 +695,12 @@ def export_assets():
             detail=f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting."
         )
     
-    # Generate Excel
-    excel_file = exporter.generate_fa_cs_export(assets)
+    # Generate Excel with tax configuration
+    excel_file = exporter.generate_fa_cs_export(
+        assets,
+        tax_year=TAX_CONFIG["tax_year"],
+        de_minimis_limit=TAX_CONFIG["de_minimis_threshold"]
+    )
 
     # Save to Bot Handoff Folder (use custom path if set)
     if FACS_CONFIG["export_path"]:

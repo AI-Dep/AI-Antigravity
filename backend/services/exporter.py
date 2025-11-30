@@ -54,7 +54,7 @@ class ExporterService:
             # No numeric part found - use row index
             return row_index
 
-    def generate_fa_cs_export(self, assets: List[Asset]) -> BytesIO:
+    def generate_fa_cs_export(self, assets: List[Asset], tax_year: int = None, de_minimis_limit: float = 0.0) -> BytesIO:
         """
         Generates Fixed Assets CS import file with three sheets:
         1. "FA CS Entry" - Full data for manual FA CS entry with proper wizard categories,
@@ -141,14 +141,16 @@ class ExporterService:
 
         # Call the advanced export builder for full processing
         # This applies: FA_CS_Wizard_Category mapping, disposal recapture calculations,
-        # transfer handling, Section 179/Bonus depreciation, etc.
+        # transfer handling, Section 179/Bonus depreciation, de minimis safe harbor, etc.
+        effective_tax_year = tax_year if tax_year else date.today().year
         try:
             export_df = build_fa(
                 df=df,
-                tax_year=date.today().year,
+                tax_year=effective_tax_year,
                 strategy="Balanced",
                 taxable_income=10000000.0,  # High default to avoid limits
-                use_acq_if_missing=True
+                use_acq_if_missing=True,
+                de_minimis_limit=de_minimis_limit  # Pass de minimis threshold for safe harbor expensing
             )
         except Exception as e:
             # If build_fa fails, use the raw data with basic formatting
@@ -237,7 +239,7 @@ class ExporterService:
                 "Confidence Score": asset.confidence_score,
                 "Transaction Type": self._detect_transaction_type(asset),
                 "Business Use %": 1.0,
-                "Tax Year": date.today().year,
+                "Tax Year": effective_tax_year,
                 "Export Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
             audit_data.append(row)
