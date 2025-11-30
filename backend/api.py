@@ -184,6 +184,15 @@ def get_stats():
     }
 
 
+@app.get("/assets")
+def get_assets():
+    """
+    Returns all currently loaded assets.
+    Useful for refreshing the frontend after tax year changes.
+    """
+    return list(ASSET_STORE.values())
+
+
 # ==============================================================================
 # TAX CONFIGURATION ENDPOINTS
 # ==============================================================================
@@ -248,15 +257,19 @@ def set_tax_config(
     classifier.set_tax_year(tax_year)
 
     # Reclassify loaded assets with new tax year
+    trans_types = {}
     if ASSET_STORE:
         assets = list(ASSET_STORE.values())
+        print(f"[Tax Year Change] Reclassifying {len(assets)} assets for tax year {tax_year}")
         classifier._classify_transaction_types(assets, tax_year)
 
         # Count reclassified assets
-        trans_types = {}
         for a in assets:
             tt = a.transaction_type or 'unknown'
             trans_types[tt] = trans_types.get(tt, 0) + 1
+        print(f"[Tax Year Change] Reclassification complete: {trans_types}")
+    else:
+        print(f"[Tax Year Change] No assets in ASSET_STORE to reclassify")
 
     return {
         "status": "updated",
@@ -264,7 +277,7 @@ def set_tax_config(
         "de_minimis_threshold": de_minimis_threshold,
         "has_afs": has_afs,
         "assets_reclassified": len(ASSET_STORE),
-        "transaction_type_breakdown": trans_types if ASSET_STORE else {},
+        "transaction_type_breakdown": trans_types,
         "assets": list(ASSET_STORE.values()) if ASSET_STORE else []
     }
 
@@ -1118,7 +1131,7 @@ def get_system_status():
     # Count classification rules
     rules_count = 0
     try:
-        rules_path = Path(__file__).resolve().parent / "config" / "rules.json"
+        rules_path = Path(__file__).resolve().parent / "logic" / "config" / "rules.json"
         if rules_path.exists():
             import json
             with open(rules_path, "r") as f:
