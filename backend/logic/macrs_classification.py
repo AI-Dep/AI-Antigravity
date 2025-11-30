@@ -240,7 +240,10 @@ def _rule_score(rule: Dict, desc: str, tokens: List[str], client_category: str =
         cat_norm = _normalize(client_category)
         rule_class = _normalize(rule.get("class", ""))
 
-        if cat_norm and rule_class and cat_norm in rule_class or rule_class in cat_norm:
+        # Fixed: Added parentheses to fix operator precedence bug
+        # Without parens: (cat_norm and rule_class and cat_norm in rule_class) or (rule_class in cat_norm)
+        # Which incorrectly runs second condition even if cat_norm/rule_class is empty
+        if cat_norm and rule_class and (cat_norm in rule_class or rule_class in cat_norm):
             score += 2.0  # Bonus for matching client category
 
     return score

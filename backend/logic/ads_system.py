@@ -272,7 +272,7 @@ def should_use_ads(asset: Dict) -> Tuple[bool, Optional[str]]:
     # Import here to avoid circular dependency
     from .listed_property import requires_ads
 
-    # Check listed property with <50% business use
+    # Check listed property with ≤50% business use (IRC §280F requires >50%)
     needs_ads, reason = requires_ads(asset)
     if needs_ads:
         return True, reason
