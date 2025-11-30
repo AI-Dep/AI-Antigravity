@@ -986,8 +986,13 @@ def build_fa(
     # ----------------------------------------------------------------------
     # Basic cleanup
     # ----------------------------------------------------------------------
+    # ISSUE FIX 3.3: Asset ID Collisions - Add batch prefix to prevent collisions
+    # When Asset ID is missing, generate unique IDs with batch timestamp prefix
+    # This prevents multiple import batches from having colliding IDs (0, 1, 2...)
     if "Asset ID" not in df.columns:
-        df["Asset ID"] = df.index.astype(str)
+        from datetime import datetime
+        batch_prefix = datetime.now().strftime("%y%m%d%H%M")  # YYMMDDHHMM format
+        df["Asset ID"] = df.index.astype(str).apply(lambda x: f"{batch_prefix}-{x}")
 
     # Parse cost
     if "Cost" in df.columns:

@@ -285,3 +285,150 @@ def get_mid_quarter_first_year_factor(method: str, quarter: int) -> float:
         quarter = 1  # Default
 
     return MQ_FIRST_YEAR_FACTORS[method][quarter]
+
+
+# ==============================================================================
+# CONVENTION CONSISTENCY ENFORCEMENT (Issue 7.3 from IRS Audit Report)
+# ==============================================================================
+# IRS Rule: All personal property placed in service in a year must use
+# the SAME convention (either all HY or all MQ).
+# Real property always uses MM regardless.
+
+
+def validate_convention_consistency(
+    df: pd.DataFrame,
+    tax_year: int
+) -> Tuple[bool, List[str]]:
+    """
+    Validate that all personal property in a year uses consistent conventions.
+
+    Per IRC §168(d): All personal property placed in service in a year must use
+    either ALL half-year (HY) or ALL mid-quarter (MQ) convention. Mixing
+    conventions within a year is a RED FLAG for IRS audits.
+
+    Real property (buildings, land improvements) always uses mid-month (MM)
+    regardless of personal property convention.
+
+    Args:
+        df: Asset dataframe with conventions assigned
+        tax_year: Tax year to check
+
+    Returns:
+        Tuple of (is_consistent, list_of_warnings)
+    """
+    from .parse_utils import parse_date
+
+    warnings = []
+
+    # Filter to current year personal property only
+    current_year_assets = []
+    real_property_types = ["Residential", "Nonresidential", "Real Property", "Building", "Land"]
+
+    for _, row in df.iterrows():
+        # Skip disposals and transfers
+        trans_type = str(row.get("Transaction Type", "")).lower()
+        if "disposal" in trans_type or "transfer" in trans_type:
+            continue
+
+        # Check if placed in service in current tax year
+        in_service = parse_date(row.get("In Service Date"))
+        if not in_service or in_service.year != tax_year:
+            continue
+
+        # Check if real property (always uses MM - excluded from consistency check)
+        category = str(row.get("Final Category", row.get("Final Category Used", "")))
+        is_real_property = any(x in category for x in real_property_types)
+
+        if is_real_property:
+            # Real property should use MM - warn if not
+            convention = str(row.get("Convention", "")).upper()
+            if convention and convention != "MM":
+                asset_id = row.get("Asset ID", f"Row {row.name}")
+                warnings.append(
+                    f"Asset {asset_id}: Real property '{category}' should use MM convention, "
+                    f"not {convention}"
+                )
+            continue
+
+        # Personal property - track convention
+        convention = str(row.get("Convention", "")).upper()
+        cost = float(row.get("Cost") or 0.0)
+        asset_id = row.get("Asset ID", f"Row {row.name}")
+
+        current_year_assets.append({
+            "asset_id": asset_id,
+            "convention": convention,
+            "cost": cost,
+            "category": category
+        })
+
+    # Check consistency of personal property conventions
+    if not current_year_assets:
+        return True, warnings  # No personal property to check
+
+    conventions_used = set(a["convention"] for a in current_year_assets if a["convention"])
+    # Remove MM (real property convention that might have leaked in)
+    conventions_used.discard("MM")
+
+    # Check for mixed HY/MQ (invalid)
+    has_hy = "HY" in conventions_used
+    has_mq = "MQ" in conventions_used
+
+    if has_hy and has_mq:
+        # CRITICAL: Mixed conventions detected
+        hy_count = sum(1 for a in current_year_assets if a["convention"] == "HY")
+        mq_count = sum(1 for a in current_year_assets if a["convention"] == "MQ")
+        hy_cost = sum(a["cost"] for a in current_year_assets if a["convention"] == "HY")
+        mq_cost = sum(a["cost"] for a in current_year_assets if a["convention"] == "MQ")
+
+        warnings.append(
+            f"CRITICAL: Mixed conventions in tax year {tax_year}! "
+            f"Found {hy_count} assets (${hy_cost:,.0f}) using HY and "
+            f"{mq_count} assets (${mq_cost:,.0f}) using MQ. "
+            f"All personal property must use the SAME convention. "
+            f"Run mid-quarter test to determine correct convention for all assets."
+        )
+        return False, warnings
+
+    # Check for empty conventions
+    missing_convention = [a for a in current_year_assets if not a["convention"]]
+    if missing_convention:
+        warnings.append(
+            f"WARNING: {len(missing_convention)} current-year assets missing convention. "
+            f"Asset IDs: {[a['asset_id'] for a in missing_convention[:5]]}..."
+        )
+
+    return len(warnings) == 0 or not (has_hy and has_mq), warnings
+
+
+def enforce_convention_consistency(
+    df: pd.DataFrame,
+    tax_year: int
+) -> pd.DataFrame:
+    """
+    Enforce convention consistency by running mid-quarter test and applying
+    the correct convention to ALL personal property.
+
+    Args:
+        df: Asset dataframe
+        tax_year: Tax year
+
+    Returns:
+        DataFrame with consistent conventions applied
+    """
+    # First validate current state
+    is_consistent, warnings = validate_convention_consistency(df, tax_year)
+
+    if warnings:
+        print("\n" + "=" * 70)
+        print("CONVENTION CONSISTENCY CHECK")
+        print("=" * 70)
+        for w in warnings:
+            print(f"  {w}")
+        print("=" * 70 + "\n")
+
+    if not is_consistent:
+        print("Applying mid-quarter convention test to fix inconsistency...")
+        df = apply_mid_quarter_convention(df, tax_year)
+
+    return df
