@@ -1,14 +1,14 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download, Info, AlertOctagon, Car, Eye, EyeOff, FileText } from 'lucide-react';
+import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 // Import API types for consistent contract
-import { TRANSACTION_TYPES, API_ENDPOINTS, API_PREFIX } from '../lib/api.types';
+import { TRANSACTION_TYPES } from '../lib/api.types';
 
 // Import centralized API client
-import { apiGet, apiPost, apiDownload, API_BASE } from '../lib/api.client';
+import { apiGet, apiPost, apiDownload } from '../lib/api.client';
 
 function Review({ assets = [] }) {
     const [editingId, setEditingId] = useState(null);
@@ -19,6 +19,7 @@ function Review({ assets = [] }) {
     const [approvedIds, setApprovedIds] = useState(new Set());
     const [warnings, setWarnings] = useState({ critical: [], warnings: [], info: [], summary: {} });
     const [taxYear, setTaxYear] = useState(new Date().getFullYear());
+    const [taxYearLoading, setTaxYearLoading] = useState(false); // Loading state for tax year change
     const [tableCompact, setTableCompact] = useState(false); // Table density: false = comfortable, true = compact
     const [exportStatus, setExportStatus] = useState({ ready: false, reason: null }); // Track export readiness
 
@@ -84,6 +85,7 @@ function Review({ assets = [] }) {
 
     const handleTaxYearChange = async (e) => {
         const newYear = parseInt(e.target.value, 10);
+        setTaxYearLoading(true);
         try {
             const data = await apiPost('/config/tax', {
                 tax_year: newYear
@@ -111,11 +113,13 @@ function Review({ assets = [] }) {
             fetchExportStatus();
         } catch (error) {
             console.error('Failed to update tax year:', error);
+        } finally {
+            setTaxYearLoading(false);
         }
     };
 
     // Sync local assets when props change
-    React.useEffect(() => {
+    useEffect(() => {
         setLocalAssets(assets);
         setApprovedIds(new Set());
     }, [assets]);
@@ -344,16 +348,24 @@ function Review({ assets = [] }) {
                             <select
                                 value={taxYear}
                                 onChange={handleTaxYearChange}
-                                className="px-3 py-1 text-sm font-semibold bg-blue-100 text-blue-800 rounded-full border border-blue-200 cursor-pointer hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none pr-8"
+                                disabled={taxYearLoading}
+                                className={cn(
+                                    "px-3 py-1 text-sm font-semibold bg-blue-100 text-blue-800 rounded-full border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none pr-8",
+                                    taxYearLoading ? "opacity-50 cursor-wait" : "cursor-pointer hover:bg-blue-200"
+                                )}
                             >
                                 {[2020, 2021, 2022, 2023, 2024, 2025, 2026].map(year => (
                                     <option key={year} value={year}>Tax Year {year}</option>
                                 ))}
                             </select>
                             <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2 text-blue-800">
-                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                </svg>
+                                {taxYearLoading ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -597,7 +609,7 @@ function Review({ assets = [] }) {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredAssets.map((asset, index) => {
+                                {filteredAssets.map((asset) => {
                                     // Use unique_id for approval tracking (unique across sheets)
                                     const isApproved = approvedIds.has(asset.unique_id);
                                     const hasErrors = asset.validation_errors?.length > 0;
@@ -605,7 +617,7 @@ function Review({ assets = [] }) {
 
                                     return (
                                         <tr
-                                            key={index}
+                                            key={asset.unique_id}
                                             className={cn(
                                                 "border-b hover:bg-slate-50 dark:border-slate-800",
                                                 hasErrors && "bg-red-50/50",

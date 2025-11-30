@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, ChevronDown, ChevronUp, Info, X } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Upload, AlertCircle, CheckCircle, ChevronDown, ChevronUp, Info, X } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '../lib/utils';
@@ -12,6 +12,7 @@ function Import({ onUploadSuccess }) {
     const [tabAnalysis, setTabAnalysis] = useState(null);
     const [showTabDetails, setShowTabDetails] = useState(false);
     const fileInputRef = useRef(null);
+    const dragCounterRef = useRef(0); // Track drag enter/leave to handle child elements
 
     // Fetch tab analysis after successful upload
     const fetchTabAnalysis = async () => {
@@ -25,18 +26,34 @@ function Import({ onUploadSuccess }) {
         }
     };
 
-    const handleDragOver = (e) => {
+    const handleDragEnter = (e) => {
         e.preventDefault();
-        setIsDragging(true);
+        e.stopPropagation();
+        dragCounterRef.current++;
+        if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+            setIsDragging(true);
+        }
     };
 
-    const handleDragLeave = () => {
-        setIsDragging(false);
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const handleDragLeave = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounterRef.current--;
+        if (dragCounterRef.current === 0) {
+            setIsDragging(false);
+        }
     };
 
     const handleDrop = (e) => {
         e.preventDefault();
+        e.stopPropagation();
         setIsDragging(false);
+        dragCounterRef.current = 0;
         const files = e.dataTransfer.files;
         if (files.length > 0) {
             handleFiles(files[0]);
@@ -76,6 +93,10 @@ function Import({ onUploadSuccess }) {
             }
         } finally {
             setIsUploading(false);
+            // Reset file input so same file can be re-uploaded
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
         }
     };
 
@@ -109,6 +130,7 @@ function Import({ onUploadSuccess }) {
                             isDragging ? "bg-blue-50 border-blue-500" : "bg-slate-50 border-slate-200 hover:bg-slate-100",
                             isUploading && "opacity-50 pointer-events-none"
                         )}
+                        onDragEnter={handleDragEnter}
                         onDragOver={handleDragOver}
                         onDragLeave={handleDragLeave}
                         onDrop={handleDrop}

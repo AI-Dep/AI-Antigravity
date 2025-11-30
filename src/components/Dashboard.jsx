@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import {
     Activity, FileText, CheckCircle, AlertCircle, RefreshCw, Monitor, MonitorOff,
-    TrendingUp, Scale, Brain, ChevronDown, ChevronUp, Cpu, Database
+    TrendingUp, Scale, Brain, ChevronDown, ChevronUp, Cpu, Database, Loader2
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
@@ -11,6 +11,8 @@ import { apiGet, apiPost } from '../lib/api.client';
 function Dashboard({ setActiveTab }) {
     const [systemStatus, setSystemStatus] = useState("Checking...");
     const [isOnline, setIsOnline] = useState(false);
+    const [initialLoading, setInitialLoading] = useState(true); // Show loading on first render
+    const mountedRef = useRef(true); // Track component mount state
     const [facsConnected, setFacsConnected] = useState(false);
     const [isRemoteMode, setIsRemoteMode] = useState(true);
     const [stats, setStats] = useState({
@@ -33,10 +35,12 @@ function Dashboard({ setActiveTab }) {
     const [showRollforwardDetails, setShowRollforwardDetails] = useState(false);
     const [showProjectionDetails, setShowProjectionDetails] = useState(false);
 
-    const checkStatus = async () => {
+    const checkStatus = useCallback(async () => {
+        if (!mountedRef.current) return;
         setSystemStatus("Connecting...");
         try {
             const data = await apiGet('/check-facs');
+            if (!mountedRef.current) return;
             setIsRemoteMode(data.remote_mode || false);
             setFacsConnected(data.running || false);
 
@@ -48,14 +52,16 @@ function Dashboard({ setActiveTab }) {
                 setIsOnline(true);
             }
         } catch (error) {
+            if (!mountedRef.current) return;
             setSystemStatus("Backend Offline");
             setIsOnline(false);
         }
-    };
+    }, []);
 
     const confirmFacsConnection = async () => {
         try {
             await apiPost('/facs/confirm-connected');
+            if (!mountedRef.current) return;
             setFacsConnected(true);
             setSystemStatus("Remote FA CS Connected");
         } catch (error) {
@@ -66,6 +72,7 @@ function Dashboard({ setActiveTab }) {
     const disconnectFacs = async () => {
         try {
             await apiPost('/facs/disconnect');
+            if (!mountedRef.current) return;
             setFacsConnected(false);
             setSystemStatus("Backend Online (Confirm FA CS)");
         } catch (error) {
@@ -73,72 +80,89 @@ function Dashboard({ setActiveTab }) {
         }
     };
 
-    const fetchStats = async () => {
+    const fetchStats = useCallback(async () => {
         try {
             const data = await apiGet('/stats');
-            setStats(data);
+            if (mountedRef.current) setStats(data);
         } catch (error) {
             // Stats fetch failed, keep defaults
         }
-    };
+    }, []);
 
-    const fetchQuality = async () => {
+    const fetchQuality = useCallback(async () => {
         try {
             const data = await apiGet('/quality');
-            setQuality(data);
+            if (mountedRef.current) setQuality(data);
         } catch (error) {
             // Quality fetch failed
         }
-    };
+    }, []);
 
-    const fetchRollforward = async () => {
+    const fetchRollforward = useCallback(async () => {
         try {
             const data = await apiGet('/rollforward');
-            setRollforward(data);
+            if (mountedRef.current) setRollforward(data);
         } catch (error) {
             // Rollforward fetch failed
         }
-    };
+    }, []);
 
-    const fetchProjection = async () => {
+    const fetchProjection = useCallback(async () => {
         try {
             const data = await apiGet('/projection');
-            setProjection(data);
+            if (mountedRef.current) setProjection(data);
         } catch (error) {
             // Projection fetch failed
         }
-    };
+    }, []);
 
-    const fetchSystemInfo = async () => {
+    const fetchSystemInfo = useCallback(async () => {
         try {
             const data = await apiGet('/system-status');
-            setSystemInfo(data);
+            if (mountedRef.current) setSystemInfo(data);
         } catch (error) {
             // System info fetch failed
         }
-    };
+    }, []);
 
     useEffect(() => {
-        checkStatus();
-        fetchStats();
-        fetchQuality();
-        fetchRollforward();
-        fetchProjection();
-        fetchSystemInfo();
+        mountedRef.current = true;
 
+        // Initial data load
+        const loadInitialData = async () => {
+            await checkStatus();
+            await Promise.all([
+                fetchStats(),
+                fetchQuality(),
+                fetchRollforward(),
+                fetchProjection(),
+                fetchSystemInfo()
+            ]);
+            if (mountedRef.current) {
+                setInitialLoading(false);
+            }
+        };
+
+        loadInitialData();
+
+        // Polling intervals
         const statusInterval = setInterval(checkStatus, 10000);
         const statsInterval = setInterval(() => {
-            fetchStats();
-            fetchQuality();
-            fetchRollforward();
-            fetchProjection();
+            // Only poll data endpoints if backend is online
+            if (mountedRef.current) {
+                fetchStats();
+                fetchQuality();
+                fetchRollforward();
+                fetchProjection();
+            }
         }, 5000);
 
         return () => {
+            mountedRef.current = false;
             clearInterval(statusInterval);
             clearInterval(statsInterval);
         };
-    }, []);
+    }, [checkStatus, fetchStats, fetchQuality, fetchRollforward, fetchProjection, fetchSystemInfo]);
 
     // Get grade color
     const getGradeColor = (grade) => {
@@ -152,6 +176,18 @@ function Dashboard({ setActiveTab }) {
         };
         return colors[grade] || colors['-'];
     };
+
+    // Show loading spinner during initial load
+    if (initialLoading) {
+        return (
+            <div className="flex items-center justify-center h-64">
+                <div className="text-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">Loading dashboard...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">
