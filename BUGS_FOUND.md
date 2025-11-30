@@ -23,6 +23,7 @@
 | #11 Single-threaded classification | HIGH | INFRASTRUCTURE READY (job_processor.py) |
 | #12 No OpenAI pooling | MEDIUM | NOT FIXED |
 | #13 No request queue | HIGH | INFRASTRUCTURE READY (job_processor.py) |
+| #14 Infinite loop in useEffect | CRITICAL | **FIXED** |
 
 **Additional Scalability Features Integrated:**
 - Rate limiting middleware (token bucket algorithm)
@@ -260,20 +261,54 @@ No queuing = server overwhelmed with concurrent requests.
 
 ---
 
+### BUG #14: Infinite Loop in useEffect (FIXED)
+**Severity:** CRITICAL
+**Location:** `src/components/Review.jsx:32-37`
+
+**Description:**
+The `useEffect` that watches `approvedIds` calls `fetchExportStatus()`, which sets `approvedIds`
+to a new Set object. Since React compares objects by reference (not value), this triggers
+the useEffect again, creating an infinite loop of API calls.
+
+**Original Code:**
+```javascript
+useEffect(() => {
+    if (localAssets.length > 0) {
+        fetchExportStatus();  // This sets approvedIds → triggers loop
+    }
+}, [approvedIds]);
+```
+
+**Impact:**
+- Browser hangs/freezes
+- Backend overwhelmed with requests
+- Memory exhaustion
+- Application becomes unusable
+
+**Fix Applied:**
+Split `fetchExportStatus` into two functions:
+- `fetchExportStatusOnly()` - Only updates exportStatus, doesn't sync approvedIds
+- `fetchExportStatus()` - Full sync, used only on initial load
+
+The `approvedIds` useEffect now calls `fetchExportStatusOnly()` to prevent the loop.
+
+---
+
 ## SUMMARY
 
 | Bug ID | Severity | Type | Status |
 |--------|----------|------|--------|
-| #1 | CRITICAL | UI Logic | Needs Fix |
-| #2 | CRITICAL | API Logic | Needs Fix |
-| #3 | CRITICAL | Race Condition | Needs Fix |
-| #4 | CRITICAL | No User Isolation | Needs Fix |
-| #5 | HIGH | File Corruption | Needs Fix |
-| #6 | HIGH | State Desync | Needs Fix |
-| #7 | MEDIUM | Security | Needs Fix |
-| #8 | MEDIUM | Config | Needs Fix |
-| #9 | MEDIUM | Performance | Needs Fix |
-| #10 | LOW | Logging | Nice to Have |
-| #11 | HIGH | Scalability | Use Background Jobs |
-| #12 | MEDIUM | API Limits | Add Pooling |
-| #13 | HIGH | Scalability | Use Job Queue |
+| #1 | CRITICAL | UI Logic | **FIXED** |
+| #2 | CRITICAL | API Logic | **FIXED** |
+| #3 | CRITICAL | Race Condition | **FIXED** |
+| #4 | CRITICAL | No User Isolation | PARTIAL |
+| #5 | HIGH | File Corruption | PARTIAL |
+| #6 | HIGH | State Desync | **FIXED** |
+| #7 | MEDIUM | Security | **FIXED** |
+| #8 | MEDIUM | Config | **FIXED** |
+| #9 | MEDIUM | Performance | Not Fixed |
+| #10 | LOW | Logging | Not Fixed |
+| #11 | HIGH | Scalability | Infrastructure Ready |
+| #12 | MEDIUM | API Limits | Not Fixed |
+| #13 | HIGH | Scalability | Infrastructure Ready |
+| #14 | CRITICAL | Infinite Loop | **FIXED** |

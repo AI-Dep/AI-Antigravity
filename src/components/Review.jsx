@@ -30,9 +30,10 @@ function Review({ assets = [] }) {
     }, [assets]);
 
     // Fetch export status whenever approvals change
+    // NOTE: Only fetch status, don't sync approvedIds here to avoid infinite loop
     useEffect(() => {
         if (localAssets.length > 0) {
-            fetchExportStatus();
+            fetchExportStatusOnly();
         }
     }, [approvedIds]);
 
@@ -54,11 +55,23 @@ function Review({ assets = [] }) {
         }
     };
 
+    // Fetch export status only (without syncing approvedIds) - used by approvedIds useEffect
+    const fetchExportStatusOnly = async () => {
+        try {
+            const response = await axios.get(`${API_BASE}/export/status`);
+            setExportStatus(response.data);
+            // Don't sync approvedIds here - it would cause infinite loop
+        } catch (error) {
+            console.error('Failed to fetch export status:', error);
+        }
+    };
+
+    // Fetch export status AND sync approvedIds from backend - used on initial load
     const fetchExportStatus = async () => {
         try {
             const response = await axios.get(`${API_BASE}/export/status`);
             setExportStatus(response.data);
-            // Sync approved IDs from backend
+            // Sync approved IDs from backend on initial load
             if (response.data.approved_ids) {
                 setApprovedIds(new Set(response.data.approved_ids));
             }
