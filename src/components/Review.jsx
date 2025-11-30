@@ -134,7 +134,11 @@ function Review({ assets = [] }) {
             .every(a => approvedIds.has(a.row_index));
 
     // FA CS Wizard dropdown options by recovery period
+    // Must match exact text from FA CS Add Asset Wizard for RPA compatibility
     const FA_CS_WIZARD_OPTIONS = {
+        0: [
+            "Land (non-depreciable)",
+        ],
         5: [
             "Computer, monitor, laptop, PDA, other computer related, property used in research",
             "Automobile - passenger (used over 50% for business)",
@@ -149,6 +153,7 @@ function Review({ assets = [] }) {
         15: [
             "Land improvement (sidewalk, road, bridge, fence, landscaping)",
             "Qualified improvement property (QIP) - 15 year",
+            "Intangible asset - Section 197 (15 year amortization)",
         ],
         27.5: [
             "Residential rental property (27.5 year)",

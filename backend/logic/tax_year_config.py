@@ -136,6 +136,45 @@ def get_config_info() -> Dict[str, Any]:
 # - https://www.kbkg.com/feature/obbb-tax-bill-makes-100-bonus-depreciation-permanent-what-you-need-to-know
 # - https://rsmus.com/insights/services/business-tax/obba-tax-bonus-depreciation.html
 
+# ==============================================================================
+# OBBBA CONFIGURATION FLAG (Issue 1.6 from IRS Audit Report)
+# ==============================================================================
+# This flag controls whether OBBBA provisions are applied.
+# Set to False to use pre-OBBBA TCJA phase-down schedule.
+# This is useful for:
+#   1. Tax planning scenarios before OBBBA passed
+#   2. Testing/comparison purposes
+#   3. If OBBBA provisions are later modified or repealed
+
+import os
+
+# Enable OBBBA provisions by default (law enacted July 4, 2025)
+# Set OBBBA_ENABLED=false in environment to disable
+_OBBBA_ENABLED = os.environ.get("OBBBA_ENABLED", "true").lower() in ("true", "1", "yes")
+
+
+def set_obbba_enabled(enabled: bool) -> None:
+    """
+    Programmatically enable/disable OBBBA provisions.
+
+    Args:
+        enabled: True to apply OBBBA 100% bonus and increased 179 limits,
+                False to use pre-OBBBA TCJA phase-down schedule.
+    """
+    global _OBBBA_ENABLED
+    _OBBBA_ENABLED = enabled
+
+
+def is_obbba_enabled() -> bool:
+    """
+    Check if OBBBA provisions are currently enabled.
+
+    Returns:
+        True if OBBBA provisions should be applied.
+    """
+    return _OBBBA_ENABLED
+
+
 # OBBB Act effective date - property must be BOTH acquired AND placed in service
 # after this date to qualify for 100% bonus depreciation
 OBBB_BONUS_EFFECTIVE_DATE = date(2025, 1, 19)
@@ -181,6 +220,9 @@ def get_bonus_percentage(
     """
     # For 2025 and later, check OBBBA eligibility based on dates
     if tax_year >= 2025:
+        # Check if OBBBA provisions are enabled (can be disabled via config flag)
+        obbba_enabled = is_obbba_enabled()
+
         # If we have both dates, check OBBBA eligibility
         if pd.notna(acquisition_date) and pd.notna(in_service_date):
             # Convert pandas Timestamps to dates if necessary
@@ -188,12 +230,14 @@ def get_bonus_percentage(
             pis_date = in_service_date.date() if hasattr(in_service_date, 'date') else in_service_date
 
             # OBBBA: 100% if BOTH acquired AND placed in service after Jan 19, 2025
-            if (acq_date > OBBB_BONUS_EFFECTIVE_DATE and
+            # Only applies if OBBBA provisions are enabled
+            if obbba_enabled and (acq_date > OBBB_BONUS_EFFECTIVE_DATE and
                 pis_date > OBBB_BONUS_EFFECTIVE_DATE):
                 return 1.00  # 100% bonus under OBBBA (permanent)
 
             # Property acquired before Jan 20, 2025 - use TCJA phase-down
-            if acq_date <= OBBB_BONUS_EFFECTIVE_DATE:
+            # OR if OBBBA is disabled, use TCJA phase-down for all property
+            if acq_date <= OBBB_BONUS_EFFECTIVE_DATE or not obbba_enabled:
                 if tax_year == 2025:
                     return 0.40  # 40% for pre-OBBBA 2025 acquisitions
                 elif tax_year == 2026:
@@ -201,9 +245,17 @@ def get_bonus_percentage(
                 else:
                     return 0.00  # 0% for 2027+
 
-        # No dates provided for 2025+ - assume OBBBA applies (conservative for taxpayer)
-        # In production, should require dates for accurate calculation
-        return 1.00  # Default to 100% for 2025+ under OBBBA
+        # No dates provided for 2025+
+        if obbba_enabled:
+            return 1.00  # Default to 100% for 2025+ under OBBBA
+        else:
+            # OBBBA disabled - use TCJA phase-down
+            if tax_year == 2025:
+                return 0.40
+            elif tax_year == 2026:
+                return 0.20
+            else:
+                return 0.00
 
     # Historical TCJA phase-down (for tax years before 2025)
     if tax_year <= 2022:

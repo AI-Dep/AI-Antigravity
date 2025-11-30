@@ -33,11 +33,33 @@ import pandas as pd
 
 app = FastAPI()
 
-# Enable CORS
-# TODO: Before production, restrict to specific production domains
+# ==============================================================================
+# CORS CONFIGURATION (Issue 6.2 from IRS Audit Report - Security)
+# ==============================================================================
+# Configure allowed origins via CORS_ALLOWED_ORIGINS environment variable.
+# For production, set to specific domains (comma-separated):
+#   CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
+#
+# For development, leave unset to use localhost defaults.
+
+def get_cors_origins():
+    """Get CORS allowed origins from environment or use development defaults."""
+    env_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "")
+    if env_origins:
+        # Production: use configured origins
+        return [origin.strip() for origin in env_origins.split(",") if origin.strip()]
+    else:
+        # Development: allow localhost
+        return [
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:5173"
+        ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"],
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
