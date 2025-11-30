@@ -2,7 +2,60 @@
 
 **Date:** 2025-11-30
 **Auditor:** Claude (AI Code Auditor)
-**Version:** 1.0.0
+**Version:** 1.1.0 (Updated with Improvements)
+
+---
+
+## Improvements Implemented
+
+The following scalability improvements have been implemented:
+
+| Component | File | Status |
+|-----------|------|--------|
+| Rate Limiting | `backend/middleware/rate_limiter.py` | IMPLEMENTED |
+| JWT Authentication | `backend/middleware/auth.py` | IMPLEMENTED |
+| Request Timeouts | `backend/middleware/timeout.py` | IMPLEMENTED |
+| Session Management | `backend/logic/session_manager.py` | IMPLEMENTED |
+| Background Jobs | `backend/logic/job_processor.py` | IMPLEMENTED |
+| File Cleanup | `backend/logic/file_cleanup.py` | IMPLEMENTED |
+
+### How to Use New Components
+
+**1. Rate Limiting:**
+```python
+from backend.middleware.rate_limiter import rate_limit_middleware
+app.middleware("http")(rate_limit_middleware)
+```
+
+**2. Authentication:**
+```python
+from backend.middleware.auth import require_auth, get_current_user
+@app.get("/protected")
+async def protected(user = Depends(require_auth)):
+    return {"user": user.email}
+```
+
+**3. Session Management:**
+```python
+from backend.logic.session_manager import get_session_from_request
+@app.get("/assets")
+async def get_assets(session = Depends(get_session_from_request)):
+    return list(session.assets.values())
+```
+
+**4. Background Jobs:**
+```python
+from backend.logic.job_processor import get_job_processor, JobType
+processor = get_job_processor()
+job = processor.submit(JobType.UPLOAD, params={"file_path": path})
+```
+
+**5. File Cleanup:**
+```python
+from backend.logic.file_cleanup import get_cleanup_manager
+manager = get_cleanup_manager()
+await manager.start_scheduled_cleanup()
+```
 
 ---
 
