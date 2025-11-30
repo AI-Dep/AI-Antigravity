@@ -10,6 +10,7 @@ class Asset(BaseModel):
     The validation rules are advisory - they flag issues but don't prevent processing.
     """
     row_index: int = Field(..., description="Original row number in Excel")
+    unique_id: Optional[int] = Field(None, description="Unique ID for storage (set by API)")
 
     # Critical Fields
     asset_id: Optional[str] = Field(None, description="Unique Asset Identifier")
