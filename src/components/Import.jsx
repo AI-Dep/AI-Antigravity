@@ -3,7 +3,7 @@ import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, ChevronDown, Chevron
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '../lib/utils';
-import axios from 'axios';
+import { apiGet, apiUpload } from '../lib/api.client';
 
 function Import({ onUploadSuccess }) {
     const [isDragging, setIsDragging] = useState(false);
@@ -16,9 +16,9 @@ function Import({ onUploadSuccess }) {
     // Fetch tab analysis after successful upload
     const fetchTabAnalysis = async () => {
         try {
-            const response = await axios.get('http://127.0.0.1:8000/tabs');
-            if (response.data.tabs?.length > 0) {
-                setTabAnalysis(response.data);
+            const data = await apiGet('/tabs');
+            if (data.tabs?.length > 0) {
+                setTabAnalysis(data);
             }
         } catch (err) {
             // Non-fatal - tab analysis is optional
@@ -57,26 +57,20 @@ function Import({ onUploadSuccess }) {
         formData.append('file', file);
 
         try {
-            // Send to Python Backend
-            const response = await axios.post('http://127.0.0.1:8000/upload', formData, {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            });
+            // Send to Python Backend using centralized API client
+            const data = await apiUpload('/upload', formData);
 
             // Fetch tab analysis
             await fetchTabAnalysis();
 
             // Success! Pass data up to App
-            onUploadSuccess(response.data);
+            onUploadSuccess(data);
 
         } catch (err) {
             console.error("Upload failed:", err);
-            // Show detailed error message from backend if available
-            if (err.response && err.response.data && err.response.data.detail) {
-                setError(`Error: ${err.response.data.detail}`);
-            } else if (err.message) {
-                setError(`Failed to process file: ${err.message}`);
+            // Show detailed error message from API client
+            if (err.message) {
+                setError(`Error: ${err.message}`);
             } else {
                 setError("Failed to process file. Is the backend running?");
             }

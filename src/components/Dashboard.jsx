@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
+import { apiGet, apiPost } from '../lib/api.client';
 
 function Dashboard({ setActiveTab }) {
     const [systemStatus, setSystemStatus] = useState("Checking...");
@@ -35,8 +36,7 @@ function Dashboard({ setActiveTab }) {
     const checkStatus = async () => {
         setSystemStatus("Connecting...");
         try {
-            const response = await fetch('http://127.0.0.1:8000/check-facs');
-            const data = await response.json();
+            const data = await apiGet('/check-facs');
             setIsRemoteMode(data.remote_mode || false);
             setFacsConnected(data.running || false);
 
@@ -55,7 +55,7 @@ function Dashboard({ setActiveTab }) {
 
     const confirmFacsConnection = async () => {
         try {
-            await fetch('http://127.0.0.1:8000/facs/confirm-connected', { method: 'POST' });
+            await apiPost('/facs/confirm-connected');
             setFacsConnected(true);
             setSystemStatus("Remote FA CS Connected");
         } catch (error) {
@@ -65,7 +65,7 @@ function Dashboard({ setActiveTab }) {
 
     const disconnectFacs = async () => {
         try {
-            await fetch('http://127.0.0.1:8000/facs/disconnect', { method: 'POST' });
+            await apiPost('/facs/disconnect');
             setFacsConnected(false);
             setSystemStatus("Backend Online (Confirm FA CS)");
         } catch (error) {
@@ -75,11 +75,8 @@ function Dashboard({ setActiveTab }) {
 
     const fetchStats = async () => {
         try {
-            const response = await fetch('http://127.0.0.1:8000/stats');
-            if (response.ok) {
-                const data = await response.json();
-                setStats(data);
-            }
+            const data = await apiGet('/stats');
+            setStats(data);
         } catch (error) {
             // Stats fetch failed, keep defaults
         }
@@ -87,11 +84,8 @@ function Dashboard({ setActiveTab }) {
 
     const fetchQuality = async () => {
         try {
-            const response = await fetch('http://127.0.0.1:8000/quality');
-            if (response.ok) {
-                const data = await response.json();
-                setQuality(data);
-            }
+            const data = await apiGet('/quality');
+            setQuality(data);
         } catch (error) {
             // Quality fetch failed
         }
@@ -99,11 +93,8 @@ function Dashboard({ setActiveTab }) {
 
     const fetchRollforward = async () => {
         try {
-            const response = await fetch('http://127.0.0.1:8000/rollforward');
-            if (response.ok) {
-                const data = await response.json();
-                setRollforward(data);
-            }
+            const data = await apiGet('/rollforward');
+            setRollforward(data);
         } catch (error) {
             // Rollforward fetch failed
         }
@@ -111,11 +102,8 @@ function Dashboard({ setActiveTab }) {
 
     const fetchProjection = async () => {
         try {
-            const response = await fetch('http://127.0.0.1:8000/projection');
-            if (response.ok) {
-                const data = await response.json();
-                setProjection(data);
-            }
+            const data = await apiGet('/projection');
+            setProjection(data);
         } catch (error) {
             // Projection fetch failed
         }
@@ -123,11 +111,8 @@ function Dashboard({ setActiveTab }) {
 
     const fetchSystemInfo = async () => {
         try {
-            const response = await fetch('http://127.0.0.1:8000/system-status');
-            if (response.ok) {
-                const data = await response.json();
-                setSystemInfo(data);
-            }
+            const data = await apiGet('/system-status');
+            setSystemInfo(data);
         } catch (error) {
             // System info fetch failed
         }

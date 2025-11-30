@@ -3,13 +3,12 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Button } from '@/components/ui/button';
 import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download, Info, AlertOctagon, Car, Eye, EyeOff, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
-import axios from 'axios';
 
 // Import API types for consistent contract
 import { TRANSACTION_TYPES, API_ENDPOINTS, API_PREFIX } from '../lib/api.types';
 
-// API base URL - use environment variable in production
-const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+// Import centralized API client
+import { apiGet, apiPost, apiDownload, API_BASE } from '../lib/api.client';
 
 function Review({ assets = [] }) {
     const [editingId, setEditingId] = useState(null);
@@ -42,8 +41,8 @@ function Review({ assets = [] }) {
 
     const fetchWarnings = async () => {
         try {
-            const response = await axios.get(`${API_BASE}/warnings`);
-            setWarnings(response.data);
+            const data = await apiGet('/warnings');
+            setWarnings(data);
         } catch (error) {
             console.error('Failed to fetch warnings:', error);
         }
@@ -51,8 +50,8 @@ function Review({ assets = [] }) {
 
     const fetchTaxConfig = async () => {
         try {
-            const response = await axios.get(`${API_BASE}/config/tax`);
-            setTaxYear(response.data.tax_year);
+            const data = await apiGet('/config/tax');
+            setTaxYear(data.tax_year);
         } catch (error) {
             console.error('Failed to fetch tax config:', error);
         }
@@ -61,8 +60,8 @@ function Review({ assets = [] }) {
     // Fetch export status only (without syncing approvedIds) - used by approvedIds useEffect
     const fetchExportStatusOnly = async () => {
         try {
-            const response = await axios.get(`${API_BASE}/export/status`);
-            setExportStatus(response.data);
+            const data = await apiGet('/export/status');
+            setExportStatus(data);
             // Don't sync approvedIds here - it would cause infinite loop
         } catch (error) {
             console.error('Failed to fetch export status:', error);
@@ -72,11 +71,11 @@ function Review({ assets = [] }) {
     // Fetch export status AND sync approvedIds from backend - used on initial load
     const fetchExportStatus = async () => {
         try {
-            const response = await axios.get(`${API_BASE}/export/status`);
-            setExportStatus(response.data);
+            const data = await apiGet('/export/status');
+            setExportStatus(data);
             // Sync approved IDs from backend on initial load
-            if (response.data.approved_ids) {
-                setApprovedIds(new Set(response.data.approved_ids));
+            if (data.approved_ids) {
+                setApprovedIds(new Set(data.approved_ids));
             }
         } catch (error) {
             console.error('Failed to fetch export status:', error);
@@ -86,23 +85,23 @@ function Review({ assets = [] }) {
     const handleTaxYearChange = async (e) => {
         const newYear = parseInt(e.target.value, 10);
         try {
-            const response = await axios.post(`${API_BASE}/config/tax`, {
+            const data = await apiPost('/config/tax', {
                 tax_year: newYear
             });
             setTaxYear(newYear);
 
             // Update local assets with reclassified data from the backend
-            if (response.data.assets && Array.isArray(response.data.assets)) {
-                if (response.data.assets.length > 0) {
+            if (data.assets && Array.isArray(data.assets)) {
+                if (data.assets.length > 0) {
                     // Backend returned reclassified assets - use them
-                    setLocalAssets(response.data.assets);
+                    setLocalAssets(data.assets);
                     setApprovedIds(new Set()); // Clear approvals on reclassification
                 } else {
                     // Backend returned empty array - fetch fresh assets
                     console.warn('Tax year change returned no assets, fetching from server...');
-                    const assetsResponse = await axios.get(`${API_BASE}/assets`);
-                    if (assetsResponse.data && assetsResponse.data.length > 0) {
-                        setLocalAssets(assetsResponse.data);
+                    const assetsData = await apiGet('/assets');
+                    if (assetsData && assetsData.length > 0) {
+                        setLocalAssets(assetsData);
                         setApprovedIds(new Set());
                     }
                 }
@@ -252,10 +251,10 @@ function Review({ assets = [] }) {
             setEditingId(null);
 
             // Update backend first
-            await axios.post(`${API_BASE}/assets/${uniqueId}/update`, updateData);
+            await apiPost(`/assets/${uniqueId}/update`, updateData);
 
             // Then approve the asset (editing = implicit review/approval)
-            await axios.post(`${API_BASE}/assets/${uniqueId}/approve`);
+            await apiPost(`/assets/${uniqueId}/approve`);
             setApprovedIds(prev => new Set([...prev, uniqueId]));
         } catch (error) {
             console.error("Failed to save update:", error);
@@ -265,11 +264,11 @@ function Review({ assets = [] }) {
     const handleApprove = async (uniqueId) => {
         try {
             // Call backend to record approval
-            await axios.post(`${API_BASE}/assets/${uniqueId}/approve`);
+            await apiPost(`/assets/${uniqueId}/approve`);
             setApprovedIds(prev => new Set([...prev, uniqueId]));
         } catch (error) {
             console.error("Failed to approve asset:", error);
-            alert(`Failed to approve: ${error.response?.data?.detail || error.message}`);
+            alert(`Failed to approve: ${error.message || 'Unknown error'}`);
         }
     };
 
@@ -283,59 +282,30 @@ function Review({ assets = [] }) {
             if (highConfIds.length === 0) return;
 
             // Batch approve on backend
-            await axios.post(`${API_BASE}/assets/approve-batch`, highConfIds);
+            await apiPost('/assets/approve-batch', highConfIds);
             setApprovedIds(prev => new Set([...prev, ...highConfIds]));
         } catch (error) {
             console.error("Failed to approve batch:", error);
-            alert(`Failed to approve: ${error.response?.data?.detail || error.message}`);
+            alert(`Failed to approve: ${error.message || 'Unknown error'}`);
         }
     };
 
     // Helper function to download file without opening new window (works in Electron)
-    const downloadFile = async (url, defaultFilename) => {
+    const downloadFile = async (endpoint, defaultFilename) => {
         try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                // Try to parse error response
-                let errorMessage = 'Export failed';
-                try {
-                    const errorData = await response.json();
-                    if (errorData.detail) {
-                        if (typeof errorData.detail === 'object') {
-                            errorMessage = errorData.detail.message || errorData.detail.error || JSON.stringify(errorData.detail);
-                        } else {
-                            errorMessage = errorData.detail;
-                        }
-                    }
-                } catch {
-                    errorMessage = await response.text();
-                }
-                alert(`Export blocked: ${errorMessage}`);
-                return;
-            }
+            const blob = await apiDownload(endpoint);
 
-            // Get filename from Content-Disposition header or use default
-            const disposition = response.headers.get('Content-Disposition');
-            let filename = defaultFilename;
-            if (disposition) {
-                const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-                if (match && match[1]) {
-                    filename = match[1].replace(/['"]/g, '');
-                }
-            }
-
-            // Download as blob and trigger save
-            const blob = await response.blob();
+            // Trigger browser download
             const blobUrl = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = blobUrl;
-            link.download = filename;
+            link.download = defaultFilename;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
             window.URL.revokeObjectURL(blobUrl);
         } catch (error) {
-            alert(`Download error: ${error.message}`);
+            alert(`Export blocked: ${error.message || 'Unknown error'}`);
         }
     };
 
@@ -345,11 +315,11 @@ function Review({ assets = [] }) {
             alert(`Cannot export: ${exportStatus.reason || 'Not all assets are approved'}`);
             return;
         }
-        downloadFile(`${API_BASE}/export`, 'FA_CS_Import.xlsx');
+        downloadFile('/export', 'FA_CS_Import.xlsx');
     };
 
     const handleAuditReport = () => {
-        downloadFile(`${API_BASE}/export/audit`, 'Audit_Report.xlsx');
+        downloadFile('/export/audit', 'Audit_Report.xlsx');
     };
 
     if (!localAssets || localAssets.length === 0) {
