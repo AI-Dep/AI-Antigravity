@@ -264,7 +264,8 @@ def set_tax_config(
         "de_minimis_threshold": de_minimis_threshold,
         "has_afs": has_afs,
         "assets_reclassified": len(ASSET_STORE),
-        "transaction_type_breakdown": trans_types if ASSET_STORE else {}
+        "transaction_type_breakdown": trans_types if ASSET_STORE else {},
+        "assets": list(ASSET_STORE.values()) if ASSET_STORE else []
     }
 
 
