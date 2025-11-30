@@ -11,6 +11,7 @@ Features:
 """
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -475,6 +476,9 @@ def _validate_gpt_category(gpt_result: Dict) -> Dict:
     If GPT returns a hallucinated category, map it to closest valid category
     and lower confidence to flag for review.
 
+    SAFETY: Uses case-insensitive matching and word-boundary checks to prevent
+    false corrections (e.g., "Computer Equipment" won't match "equipment" rule).
+
     Args:
         gpt_result: Raw GPT classification result
 
@@ -486,66 +490,100 @@ def _validate_gpt_category(gpt_result: Dict) -> Dict:
     if not category:
         return gpt_result
 
-    # Check if category is valid
-    if category in VALID_MACRS_CATEGORIES:
-        return gpt_result  # Valid, return as-is
+    # SAFETY FIX: Case-insensitive check against valid categories
+    # Build lowercase lookup set for case-insensitive matching
+    valid_categories_lower = {cat.lower(): cat for cat in VALID_MACRS_CATEGORIES}
+
+    # Check if category is valid (case-insensitive)
+    category_lower = category.lower().strip()
+    if category_lower in valid_categories_lower:
+        # Normalize to canonical case and return
+        result = gpt_result.copy()
+        canonical = valid_categories_lower[category_lower]
+        result["class"] = canonical
+        result["final_class"] = canonical
+        return result
 
     # Category not in approved list - try to map to closest valid category
-    category_lower = category.lower()
+    # SAFETY: Use EXACT phrase matching first, then word-boundary matching
+    # Order matters: more specific phrases MUST come before generic terms
 
-    # Common mappings for GPT variations
-    category_corrections = {
-        "computer": "Computer Equipment",
-        "computers": "Computer Equipment",
+    # Exact phrase corrections (highest priority)
+    exact_corrections = {
+        "computer equipment": "Computer Equipment",
         "it equipment": "Computer Equipment",
-        "furniture": "Office Furniture",
+        "office equipment": "Office Equipment",
+        "office furniture": "Office Furniture",
         "office furniture and fixtures": "Office Furniture",
-        "machinery": "Machinery & Equipment",
-        "equipment": "Machinery & Equipment",
-        "vehicle": "Passenger Automobile",
-        "automobile": "Passenger Automobile",
-        "auto": "Passenger Automobile",
+        "machinery & equipment": "Machinery & Equipment",
+        "machinery and equipment": "Machinery & Equipment",
+        "passenger automobile": "Passenger Automobile",
         "land improvement": "Land Improvement",
+        "land improvements": "Land Improvements",
         "site improvement": "Land Improvement",
-        "qip": "QIP - Qualified Improvement Property",
-        "qualified improvement": "QIP - Qualified Improvement Property",
+        "qualified improvement property": "QIP - Qualified Improvement Property",
         "leasehold improvement": "QIP - Qualified Improvement Property",
-        "building": "Nonresidential Real Property",
-        "real property": "Nonresidential Real Property",
-        "land": "Nondepreciable Land",
-        "residential": "Residential Rental Property",
-        "truck": "Trucks & Trailers",
+        "tenant improvement": "QIP - Qualified Improvement Property",
+        "nonresidential real property": "Nonresidential Real Property",
+        "residential rental property": "Residential Rental Property",
+        "building improvement": "Building Improvement",
+        "building equipment": "Building Equipment",
+        "nondepreciable land": "Nondepreciable Land",
+        "trucks & trailers": "Trucks & Trailers",
+        "trucks and trailers": "Trucks & Trailers",
     }
 
-    # Try to find a correction
-    corrected_category = None
-    for key, valid_cat in category_corrections.items():
-        if key in category_lower:
-            corrected_category = valid_cat
-            break
+    # Check exact phrase match first
+    if category_lower in exact_corrections:
+        result = gpt_result.copy()
+        result["class"] = exact_corrections[category_lower]
+        result["final_class"] = exact_corrections[category_lower]
+        # Exact phrase match = minor correction, keep confidence
+        result["notes"] = f"Normalized '{category}' to '{result['class']}'. {result.get('notes', '')}"
+        return result
 
-    if corrected_category:
-        # Found a correction - update result and lower confidence
-        result = gpt_result.copy()
-        result["class"] = corrected_category
-        result["final_class"] = corrected_category
-        original_conf = result.get("confidence", 0.7)
-        result["confidence"] = min(original_conf, 0.70)  # Cap at 70% for corrected categories
-        result["low_confidence"] = True
-        result["notes"] = f"GPT returned '{category}' (not in approved list), corrected to '{corrected_category}'. {result.get('notes', '')}"
-        return result
-    else:
-        # No correction found - default to 7-year equipment with low confidence
-        result = gpt_result.copy()
-        result["class"] = "Machinery & Equipment"
-        result["final_class"] = "Machinery & Equipment"
-        result["final_life"] = 7
-        result["final_method"] = "200DB"
-        result["final_convention"] = "HY"
-        result["confidence"] = 0.50
-        result["low_confidence"] = True
-        result["notes"] = f"GPT returned unknown category '{category}' - defaulted to 7-year equipment. Manual review required."
-        return result
+    # Word-boundary fallback corrections (lower priority)
+    # SAFETY: Only match if the KEY is a complete word/phrase in the category
+    # Uses word boundaries to prevent "Medical Equipment" matching "equipment"
+    word_corrections = [
+        # Order: most specific to least specific
+        (r"\bcomputer\b", "Computer Equipment"),
+        (r"\bfurniture\b", "Office Furniture"),
+        (r"\bvehicle\b", "Passenger Automobile"),
+        (r"\bautomobile\b", "Passenger Automobile"),
+        (r"\btruck\b", "Trucks & Trailers"),
+        (r"\bqip\b", "QIP - Qualified Improvement Property"),
+        (r"\bsoftware\b", "Software"),
+        # Generic terms LAST (catches "Medical Equipment", "Restaurant Equipment", etc.)
+        (r"\bequipment\b", "Machinery & Equipment"),
+        (r"\bmachinery\b", "Machinery & Equipment"),
+        (r"\bbuilding\b", "Nonresidential Real Property"),
+        (r"\bland\b", "Nondepreciable Land"),
+        (r"\bresidential\b", "Residential Rental Property"),
+    ]
+
+    for pattern, valid_cat in word_corrections:
+        if re.search(pattern, category_lower):
+            result = gpt_result.copy()
+            result["class"] = valid_cat
+            result["final_class"] = valid_cat
+            original_conf = result.get("confidence", 0.7)
+            result["confidence"] = min(original_conf, 0.70)  # Cap at 70% for word-boundary corrections
+            result["low_confidence"] = True
+            result["notes"] = f"GPT returned '{category}' (not in approved list), corrected to '{valid_cat}'. {result.get('notes', '')}"
+            return result
+
+    # No correction found - default to 7-year equipment with low confidence
+    result = gpt_result.copy()
+    result["class"] = "Machinery & Equipment"
+    result["final_class"] = "Machinery & Equipment"
+    result["final_life"] = 7
+    result["final_method"] = "200DB"
+    result["final_convention"] = "HY"
+    result["confidence"] = 0.50
+    result["low_confidence"] = True
+    result["notes"] = f"GPT returned unknown category '{category}' - defaulted to 7-year equipment. Manual review required."
+    return result
 
 
 # ===================================================================================

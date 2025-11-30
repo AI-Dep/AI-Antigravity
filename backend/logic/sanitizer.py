@@ -65,11 +65,32 @@ def _basic_clean(text: str) -> str:
 
 
 def _strip_transaction_prefix(text: str) -> str:
-    """Remove leading disposal/scrap indicators."""
+    """
+    Remove leading disposal/scrap indicators.
+
+    SAFETY: Only strips transaction words when NOT followed by equipment type words.
+    Preserves "Disposal Equipment", "Scrap Container" etc. as these describe
+    the asset TYPE, not a transaction status.
+    """
     lower = text.lower()
+
+    # Words that indicate the transaction word describes the asset TYPE, not a transaction
+    # e.g., "Disposal Equipment" = equipment for disposing waste, NOT a disposed item
+    equipment_type_words = {"equipment", "machinery", "system", "unit", "container",
+                           "bin", "truck", "compactor", "crusher", "shredder"}
+
     for w in _TRANSACTION_WORDS:
         if lower.startswith(w + " "):
-            return text[len(w):].strip()
+            remainder = text[len(w):].strip()
+            remainder_lower = remainder.lower()
+
+            # SAFETY: Don't strip if remainder starts with equipment type word
+            # This preserves "Disposal Equipment", "Scrap Machinery", etc.
+            if any(remainder_lower.startswith(eq_word) for eq_word in equipment_type_words):
+                continue
+
+            return remainder
+
     return text
 
 
