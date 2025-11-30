@@ -5,6 +5,9 @@ import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download, In
 import { cn } from '../lib/utils';
 import axios from 'axios';
 
+// Import API types for consistent contract
+import { TRANSACTION_TYPES, API_ENDPOINTS, API_PREFIX } from '../lib/api.types';
+
 // API base URL - use environment variable in production
 const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
@@ -132,16 +135,16 @@ function Review({ assets = [] }) {
 
         // Count by transaction type
         const additions = localAssets.filter(a =>
-            a.transaction_type === "Current Year Addition"
+            a.transaction_type === TRANSACTION_TYPES.ADDITION
         ).length;
         const disposals = localAssets.filter(a =>
-            a.transaction_type === "Disposal"
+            a.transaction_type === TRANSACTION_TYPES.DISPOSAL
         ).length;
         const transfers = localAssets.filter(a =>
-            a.transaction_type === "Transfer"
+            a.transaction_type === TRANSACTION_TYPES.TRANSFER
         ).length;
         const existing = localAssets.filter(a =>
-            a.transaction_type === "Existing Asset"
+            a.transaction_type === TRANSACTION_TYPES.EXISTING
         ).length;
         const actionable = additions + disposals + transfers;
 
@@ -167,7 +170,7 @@ function Review({ assets = [] }) {
         if (!showExistingAssets) {
             // Hide existing assets - only show actionable items (additions, disposals, transfers)
             baseAssets = localAssets.filter(a =>
-                a.transaction_type !== "Existing Asset"
+                a.transaction_type !== TRANSACTION_TYPES.EXISTING
             );
         }
 
@@ -672,20 +675,20 @@ function Review({ assets = [] }) {
                                                     asset.in_service_date
                                                 ) : asset.acquisition_date ? (
                                                     <span className="flex items-center gap-1" title="Using acquisition date (no in-service date provided)">
-                                                        <span className={asset.transaction_type === "Transfer" ? "text-amber-600" : ""}>
+                                                        <span className={asset.transaction_type === TRANSACTION_TYPES.TRANSFER ? "text-amber-600" : ""}>
                                                             {asset.acquisition_date}
                                                         </span>
-                                                        {asset.transaction_type === "Transfer" && (
+                                                        {asset.transaction_type === TRANSACTION_TYPES.TRANSFER && (
                                                             <Info className="w-3.5 h-3.5 text-amber-500" />
                                                         )}
                                                     </span>
                                                 ) : (
                                                     <span className={cn(
                                                         "flex items-center gap-1",
-                                                        asset.transaction_type === "Transfer" ? "text-slate-400" : "text-amber-600"
-                                                    )} title={asset.transaction_type === "Transfer" ? "No date - transfer of existing asset" : "Missing date - manual review required"}>
+                                                        asset.transaction_type === TRANSACTION_TYPES.TRANSFER ? "text-slate-400" : "text-amber-600"
+                                                    )} title={asset.transaction_type === TRANSACTION_TYPES.TRANSFER ? "No date - transfer of existing asset" : "Missing date - manual review required"}>
                                                         -
-                                                        {asset.transaction_type !== "Transfer" && (
+                                                        {asset.transaction_type !== TRANSACTION_TYPES.TRANSFER && (
                                                             <AlertTriangle className="w-3.5 h-3.5" />
                                                         )}
                                                     </span>
@@ -696,14 +699,14 @@ function Review({ assets = [] }) {
                                                 <span className={cn(
                                                     "rounded font-medium whitespace-nowrap",
                                                     tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs",
-                                                    asset.transaction_type === "Current Year Addition" && "bg-green-100 text-green-700",
-                                                    asset.transaction_type === "Existing Asset" && "bg-slate-100 text-slate-700",
-                                                    asset.transaction_type === "Disposal" && "bg-red-100 text-red-700",
-                                                    asset.transaction_type === "Transfer" && "bg-purple-100 text-purple-700",
+                                                    asset.transaction_type === TRANSACTION_TYPES.ADDITION && "bg-green-100 text-green-700",
+                                                    asset.transaction_type === TRANSACTION_TYPES.EXISTING && "bg-slate-100 text-slate-700",
+                                                    asset.transaction_type === TRANSACTION_TYPES.DISPOSAL && "bg-red-100 text-red-700",
+                                                    asset.transaction_type === TRANSACTION_TYPES.TRANSFER && "bg-purple-100 text-purple-700",
                                                     !asset.transaction_type && "bg-yellow-100 text-yellow-700"
                                                 )}>
-                                                    {asset.transaction_type === "Current Year Addition" ? "Addition" :
-                                                     asset.transaction_type === "Existing Asset" ? "Existing" :
+                                                    {asset.transaction_type === TRANSACTION_TYPES.ADDITION ? "Addition" :
+                                                     asset.transaction_type === TRANSACTION_TYPES.EXISTING ? "Existing" :
                                                      asset.transaction_type || "Unknown"}
                                                 </span>
                                             </td>

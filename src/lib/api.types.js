@@ -163,45 +163,61 @@ export const API_ERROR_CODES = {
 // =============================================================================
 
 /**
- * API endpoint paths
+ * API version prefix - use this for all API calls
+ * @readonly
+ */
+export const API_PREFIX = "/api/v1";
+
+/**
+ * API endpoint paths (versioned)
+ * All paths use /api/v1/ prefix for future compatibility.
  * @readonly
  */
 export const API_ENDPOINTS = {
+  // Version info
+  VERSION: "/api/v1",
+
   // System
-  ROOT: "/",
-  CHECK_FACS: "/check-facs",
-  SYSTEM_STATUS: "/system-status",
+  ROOT: "/api/v1/",
+  CHECK_FACS: "/api/v1/check-facs",
+  SYSTEM_STATUS: "/api/v1/system-status",
 
   // File Operations
-  UPLOAD: "/upload",
-  TABS: "/tabs",
+  UPLOAD: "/api/v1/upload",
+  TABS: "/api/v1/tabs",
 
   // Assets
-  ASSETS: "/assets",
-  UPDATE_ASSET: (id) => `/assets/${id}/update`,
-  APPROVE_ASSET: (id) => `/assets/${id}/approve`,
-  APPROVE_BATCH: "/assets/approve-batch",
+  ASSETS: "/api/v1/assets",
+  UPDATE_ASSET: (id) => `/api/v1/assets/${id}/update`,
+  APPROVE_ASSET: (id) => `/api/v1/assets/${id}/approve`,
+  APPROVE_BATCH: "/api/v1/assets/approve-batch",
 
   // Export
-  EXPORT: "/export",
-  EXPORT_STATUS: "/export/status",
-  EXPORT_AUDIT: "/export/audit",
+  EXPORT: "/api/v1/export",
+  EXPORT_STATUS: "/api/v1/export/status",
+  EXPORT_AUDIT: "/api/v1/export/audit",
 
   // Config
-  TAX_CONFIG: "/config/tax",
+  TAX_CONFIG: "/api/v1/config/tax",
+
+  // FA CS
+  FACS_CONFIRM: "/api/v1/facs/confirm-connected",
+  FACS_DISCONNECT: "/api/v1/facs/disconnect",
+  FACS_CONFIG: "/api/v1/facs/config",
 
   // Analysis
-  STATS: "/stats",
-  QUALITY: "/quality",
-  WARNINGS: "/warnings",
-  ROLLFORWARD: "/rollforward",
-  PROJECTION: "/projection",
-  CONFIDENCE: "/confidence"
+  STATS: "/api/v1/stats",
+  QUALITY: "/api/v1/quality",
+  WARNINGS: "/api/v1/warnings",
+  ROLLFORWARD: "/api/v1/rollforward",
+  PROJECTION: "/api/v1/projection",
+  CONFIDENCE: "/api/v1/confidence"
 };
 
 // Default export for convenience
 export default {
   TRANSACTION_TYPES,
   API_ERROR_CODES,
-  API_ENDPOINTS
+  API_ENDPOINTS,
+  API_PREFIX
 };

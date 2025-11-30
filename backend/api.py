@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query, Request, Depends, Response
+from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query, Request, Depends, Response, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 import uvicorn
@@ -84,9 +84,22 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="FA CS Automator API",
     description="Fixed Asset Classification and Export API",
-    version="2.0.0",
+    version="2.1.0",
     lifespan=lifespan
 )
+
+# ==============================================================================
+# API VERSIONING
+# ==============================================================================
+# All endpoints are available at both:
+#   - /api/v1/... (recommended, versioned)
+#   - /... (deprecated, for backward compatibility)
+#
+# Frontend should migrate to /api/v1/ prefix for future compatibility.
+# The root endpoints will be removed in version 3.0.0.
+
+API_VERSION = "v1"
+api_v1 = APIRouter(prefix=f"/api/{API_VERSION}", tags=["v1"])
 
 # ==============================================================================
 # CORS CONFIGURATION (Issue 6.2 from IRS Audit Report - Security)
@@ -349,16 +362,22 @@ async def get_assets(request: Request, response: Response):
 # ==============================================================================
 
 @app.get("/config/tax")
-def get_tax_config():
+async def get_tax_config(request: Request, response: Response):
     """
     Get current tax configuration including:
     - Tax year
     - De minimis threshold
     - Bonus depreciation rate
     - Section 179 limits
+
+    Uses session-based storage for per-user isolation.
     """
-    config = dict(TAX_CONFIG)
-    tax_year = config["tax_year"]
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    # Use session tax config (isolated per user)
+    config = dict(session.tax_config)
+    tax_year = config.get("tax_year", datetime.now().year)
 
     # Calculate bonus rate based on tax year
     if TAX_YEAR_CONFIG_AVAILABLE:
@@ -381,13 +400,17 @@ def get_tax_config():
 
 
 @app.post("/config/tax")
-def set_tax_config(
+async def set_tax_config(
+    request: Request,
+    response: Response,
     tax_year: int = Body(..., embed=True, ge=2020, le=2030),
     de_minimis_threshold: int = Body(2500, ge=0, le=5000),
     has_afs: bool = Body(False)
 ):
     """
     Set tax configuration for the session.
+
+    Uses session-based storage for per-user isolation.
 
     Args:
         tax_year: Tax year for depreciation calculations (2020-2030)
@@ -398,11 +421,13 @@ def set_tax_config(
 
     IMPORTANT: Setting tax year will RECLASSIFY all loaded assets!
     """
-    global TAX_CONFIG
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
 
-    TAX_CONFIG["tax_year"] = tax_year
-    TAX_CONFIG["de_minimis_threshold"] = de_minimis_threshold
-    TAX_CONFIG["has_afs"] = has_afs
+    # Update session tax config (isolated per user)
+    session.tax_config["tax_year"] = tax_year
+    session.tax_config["de_minimis_threshold"] = de_minimis_threshold
+    session.tax_config["has_afs"] = has_afs
 
     # Update classifier's tax year
     classifier.set_tax_year(tax_year)
@@ -413,12 +438,13 @@ def set_tax_config(
     errors_count = 0
     reclassified_assets = []
 
-    if ASSET_STORE:
-        # Get all assets from store
-        asset_count_before = len(ASSET_STORE)
-        assets = list(ASSET_STORE.values())
-        print(f"[Tax Year Change] Starting with {asset_count_before} assets in ASSET_STORE")
-        print(f"[Tax Year Change] Reclassifying {len(assets)} assets for tax year {tax_year}")
+    # Use session assets instead of global ASSET_STORE
+    if session.assets:
+        # Get all assets from session
+        asset_count_before = len(session.assets)
+        assets = list(session.assets.values())
+        logger.info(f"[Tax Year Change] Starting with {asset_count_before} assets in session")
+        logger.info(f"[Tax Year Change] Reclassifying {len(assets)} assets for tax year {tax_year}")
 
         # Reclassify transaction types
         classifier._classify_transaction_types(assets, tax_year)
@@ -435,24 +461,28 @@ def set_tax_config(
             reclassified_assets.append(a)
 
         asset_count_after = len(reclassified_assets)
-        print(f"[Tax Year Change] Reclassification complete: {trans_types}")
-        print(f"[Tax Year Change] Asset count after reclassification: {asset_count_after}")
+        logger.info(f"[Tax Year Change] Reclassification complete: {trans_types}")
+        logger.info(f"[Tax Year Change] Asset count after reclassification: {asset_count_after}")
         if asset_count_before != asset_count_after:
-            print(f"[Tax Year Change] WARNING: Asset count changed from {asset_count_before} to {asset_count_after}!")
+            logger.warning(f"[Tax Year Change] Asset count changed from {asset_count_before} to {asset_count_after}!")
         if errors_count > 0:
-            print(f"[Tax Year Change] {errors_count} assets have validation errors (may include future dates)")
+            logger.info(f"[Tax Year Change] {errors_count} assets have validation errors (may include future dates)")
     else:
-        print(f"[Tax Year Change] No assets in ASSET_STORE to reclassify")
+        logger.info(f"[Tax Year Change] No assets in session to reclassify")
         reclassified_assets = []
+
+    # Save session
+    manager = get_session_manager()
+    manager._save_session(session)
 
     return {
         "status": "updated",
         "tax_year": tax_year,
         "de_minimis_threshold": de_minimis_threshold,
         "has_afs": has_afs,
-        "assets_reclassified": len(ASSET_STORE),
+        "assets_reclassified": len(session.assets),
         "transaction_type_breakdown": trans_types,
-        "assets": list(ASSET_STORE.values()) if ASSET_STORE else []
+        "assets": list(session.assets.values()) if session.assets else []
     }
 
 
@@ -1537,6 +1567,62 @@ def get_system_status():
             "version": "1.0.0"
         }
     }
+
+
+# ==============================================================================
+# API VERSION INFO & DEPRECATION
+# ==============================================================================
+
+@app.get("/api/v1")
+@app.get("/api/v1/")
+async def api_version_info():
+    """
+    Returns API version information and available endpoints.
+    Use /api/v1/ prefix for all API calls for future compatibility.
+    """
+    return {
+        "version": API_VERSION,
+        "api_version": "2.1.0",
+        "status": "stable",
+        "deprecation_notice": "Root-level endpoints (e.g., /upload) are deprecated. Use /api/v1/ prefix.",
+        "endpoints": {
+            "upload": "/api/v1/upload",
+            "assets": "/api/v1/assets",
+            "export": "/api/v1/export",
+            "config": "/api/v1/config/tax",
+            "stats": "/api/v1/stats"
+        }
+    }
+
+# Mount versioned routes (aliasing root endpoints to /api/v1/)
+# This allows frontend to use either /upload or /api/v1/upload
+from starlette.routing import Mount, Route
+
+# Create versioned aliases for all endpoints
+@app.middleware("http")
+async def version_redirect_middleware(request: Request, call_next):
+    """
+    Middleware to handle /api/v1/ prefix by stripping it before routing.
+    This allows all endpoints to work with both:
+      - /endpoint (deprecated)
+      - /api/v1/endpoint (recommended)
+    """
+    path = request.scope.get("path", "")
+
+    # If request is to /api/v1/..., strip the prefix for routing
+    if path.startswith("/api/v1/") and path != "/api/v1/" and path != "/api/v1":
+        # Rewrite path to root equivalent
+        new_path = path[7:]  # Remove "/api/v1"
+        request.scope["path"] = new_path
+
+    response = await call_next(request)
+
+    # Add deprecation header for non-versioned endpoints
+    if not path.startswith("/api/"):
+        response.headers["X-API-Deprecation"] = "Use /api/v1/ prefix for future compatibility"
+        response.headers["X-API-Version"] = API_VERSION
+
+    return response
 
 
 if __name__ == "__main__":
