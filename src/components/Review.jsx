@@ -49,10 +49,22 @@ function Review({ assets = [] }) {
                 tax_year: newYear
             });
             setTaxYear(newYear);
+
             // Update local assets with reclassified data from the backend
-            if (response.data.assets && response.data.assets.length > 0) {
-                setLocalAssets(response.data.assets);
-                setApprovedIds(new Set()); // Clear approvals on reclassification
+            if (response.data.assets && Array.isArray(response.data.assets)) {
+                if (response.data.assets.length > 0) {
+                    // Backend returned reclassified assets - use them
+                    setLocalAssets(response.data.assets);
+                    setApprovedIds(new Set()); // Clear approvals on reclassification
+                } else {
+                    // Backend returned empty array - fetch fresh assets
+                    console.warn('Tax year change returned no assets, fetching from server...');
+                    const assetsResponse = await axios.get('http://127.0.0.1:8000/assets');
+                    if (assetsResponse.data && assetsResponse.data.length > 0) {
+                        setLocalAssets(assetsResponse.data);
+                        setApprovedIds(new Set());
+                    }
+                }
             }
             // Refresh warnings for new tax year
             fetchWarnings();
