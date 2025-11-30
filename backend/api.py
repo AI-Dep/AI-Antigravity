@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query, Request
+from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query, Request, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 import uvicorn
@@ -47,7 +47,12 @@ import pandas as pd
 from backend.middleware.rate_limiter import RateLimiter, get_rate_limiter
 from backend.middleware.timeout import TimeoutMiddleware
 from backend.logic.file_cleanup import get_cleanup_manager
-from backend.logic.session_manager import get_session_manager, SessionData
+from backend.logic.session_manager import (
+    get_session_manager,
+    SessionData,
+    get_session_from_request,
+    add_session_to_response
+)
 
 # ==============================================================================
 # APPLICATION LIFECYCLE
@@ -165,30 +170,41 @@ classifier = ClassifierService()
 auditor = AuditorService()
 exporter = ExporterService()
 
-# In-Memory Store (Replace with DB later)
-# IMPORTANT: Use unique_id (not row_index) as key to prevent overwrites
-# when assets from different sheets have the same row numbers
-ASSET_STORE: Dict[int, Asset] = {}
-ASSET_ID_COUNTER = 0  # Global counter for unique asset IDs
-APPROVED_ASSETS: set = set()  # Track CPA-approved unique_ids
-TAB_ANALYSIS_RESULT = None  # Store latest tab analysis for UI
-LAST_UPLOAD_FILENAME = None  # Track filename for display
+# ==============================================================================
+# SESSION-BASED STATE MANAGEMENT
+# ==============================================================================
+# All state is now stored per-session for user isolation.
+# Legacy global variables are kept as fallback for backward compatibility.
+# Frontend should pass X-Session-ID header or session_id query param.
 
-# Remote FA CS Configuration
+# Legacy global state (DEPRECATED - use session-based state instead)
+# These will be removed in a future version
+ASSET_STORE: Dict[int, Asset] = {}
+ASSET_ID_COUNTER = 0
+APPROVED_ASSETS: set = set()
+TAB_ANALYSIS_RESULT = None
+LAST_UPLOAD_FILENAME = None
+
+# Helper function to get session from request (with fallback to creating new session)
+async def get_current_session(request: Request) -> SessionData:
+    """Get session from request, creating one if needed."""
+    return await get_session_from_request(request)
+
+# Remote FA CS Configuration (session-independent for now)
 FACS_CONFIG = {
-    "remote_mode": True,  # FA CS runs on remote server
-    "user_confirmed_connected": False,  # User manually confirms connection
-    "export_path": None  # Custom export path (e.g., shared network folder)
+    "remote_mode": True,
+    "user_confirmed_connected": False,
+    "export_path": None
 }
 
 # Tax Configuration - CRITICAL for proper classification
 from datetime import date
 TAX_CONFIG = {
-    "tax_year": date.today().year,  # Default to current year
-    "de_minimis_threshold": 2500,   # Default to non-AFS threshold ($2,500)
-    "has_afs": False,               # Audited Financial Statement status
-    "bonus_rate": None,             # Will be calculated based on tax year
-    "section_179_limit": None,      # Will be set based on tax year
+    "tax_year": date.today().year,
+    "de_minimis_threshold": 2500,
+    "has_afs": False,
+    "bonus_rate": None,
+    "section_179_limit": None,
 }
 
 # Import tax year config for bonus rates
@@ -248,11 +264,15 @@ def get_facs_config():
     return FACS_CONFIG
 
 @app.get("/stats")
-def get_stats():
+async def get_stats(request: Request, response: Response):
     """
     Returns statistics for the Dashboard.
+    Uses session-based state for user isolation.
     """
-    assets = list(ASSET_STORE.values())
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    assets = list(session.assets.values())
     total = len(assets)
 
     errors = sum(1 for a in assets if getattr(a, 'validation_errors', None))
@@ -260,7 +280,7 @@ def get_stats():
                        and getattr(a, 'confidence_score', 1.0) <= 0.8)
     high_confidence = sum(1 for a in assets if not getattr(a, 'validation_errors', None)
                           and getattr(a, 'confidence_score', 1.0) > 0.8)
-    approved = len(APPROVED_ASSETS)
+    approved = len(session.approved_assets)
 
     # Transaction type breakdown
     trans_types = {}
@@ -276,17 +296,20 @@ def get_stats():
         "approved": approved,
         "ready_for_export": errors == 0 and total > 0,
         "transaction_types": trans_types,
-        "tax_year": TAX_CONFIG["tax_year"]
+        "tax_year": session.tax_config.get("tax_year", TAX_CONFIG["tax_year"]),
+        "session_id": session.session_id
     }
 
 
 @app.get("/assets")
-def get_assets():
+async def get_assets(request: Request, response: Response):
     """
-    Returns all currently loaded assets.
+    Returns all currently loaded assets for this session.
     Useful for refreshing the frontend after tax year changes.
     """
-    return list(ASSET_STORE.values())
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+    return list(session.assets.values())
 
 
 # ==============================================================================
@@ -406,22 +429,26 @@ def set_tax_config(
 # ==============================================================================
 
 @app.get("/warnings")
-def get_warnings():
+async def get_warnings(request: Request, response: Response):
     """
     Get comprehensive warnings about the loaded data including:
     - Missing asset detection warnings
     - Transaction type classification issues
     - De minimis candidates
     - Tax compliance warnings
+    Uses session-based storage for user isolation.
     """
-    assets = list(ASSET_STORE.values())
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    assets = list(session.assets.values())
     if not assets:
         return {"warnings": [], "critical": [], "info": []}
 
     critical_warnings = []
     warnings = []
     info_messages = []
-    tax_year = TAX_CONFIG["tax_year"]
+    tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
 
     # ===== CRITICAL WARNINGS =====
 
@@ -508,7 +535,7 @@ def get_warnings():
         })
 
     # 6. De minimis candidates
-    de_minimis_threshold = TAX_CONFIG["de_minimis_threshold"]
+    de_minimis_threshold = session.tax_config.get("de_minimis_threshold", TAX_CONFIG["de_minimis_threshold"])
     de_minimis_candidates = [
         a for a in assets
         if 0 < a.cost <= de_minimis_threshold and "Current Year Addition" in (a.transaction_type or "")
@@ -592,9 +619,10 @@ def get_warnings():
     }
 
 @app.post("/upload", response_model=List[Asset])
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(request: Request, response: Response, file: UploadFile = File(...)):
     """
     Uploads an Excel file, parses it, and returns classified assets.
+    Uses session-based storage for user isolation.
 
     Uses the configured tax year for proper transaction classification:
     - Current Year Additions (eligible for Section 179/Bonus)
@@ -602,7 +630,9 @@ async def upload_file(file: UploadFile = File(...)):
     - Disposals
     - Transfers
     """
-    global TAB_ANALYSIS_RESULT, LAST_UPLOAD_FILENAME, ASSET_ID_COUNTER
+    # Get or create session for this user
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
 
     # Generate unique temp filename to avoid conflicts
     import uuid
@@ -626,41 +656,37 @@ async def upload_file(file: UploadFile = File(...)):
                 sheets[sheet_name] = pd.DataFrame(data)
             wb.close()
 
-            # Run tab analysis (thread-safe read of TAX_CONFIG)
-            with _state_lock:
-                current_tax_year = TAX_CONFIG["tax_year"]
-
-            TAB_ANALYSIS_RESULT = analyze_tabs(sheets, current_tax_year)
-            logger.info(f"Tab analysis: {len(TAB_ANALYSIS_RESULT.tabs)} tabs detected")
+            # Run tab analysis using session's tax year
+            current_tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
+            session.tab_analysis_result = analyze_tabs(sheets, current_tax_year)
+            logger.info(f"Tab analysis: {len(session.tab_analysis_result.tabs)} tabs detected")
         except Exception as tab_err:
             logger.warning(f"Tab analysis error (non-fatal): {tab_err}")
-            TAB_ANALYSIS_RESULT = None
+            session.tab_analysis_result = None
 
         # 1. Parse Excel
         assets = importer.parse_excel(temp_file)
 
         # 2. Classify Assets (MACRS + Transaction Types)
-        # Uses the configured tax year for proper classification
-        with _state_lock:
-            tax_year = TAX_CONFIG["tax_year"]
-
+        tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
         classified_assets = classifier.classify_batch(assets, tax_year=tax_year)
 
-        # 3. Store in Memory using unique IDs to prevent overwrites
-        # CRITICAL: Use lock to prevent race condition on global state
-        with _state_lock:
-            ASSET_STORE.clear()  # Clear previous upload for now
-            APPROVED_ASSETS.clear()  # Clear approvals too
-            ASSET_ID_COUNTER = 0  # Reset counter for new upload
-            LAST_UPLOAD_FILENAME = file.filename
+        # 3. Store in session using unique IDs to prevent overwrites
+        session.assets.clear()
+        session.approved_assets.clear()
+        session.asset_id_counter = 0
+        session.last_upload_filename = file.filename
 
-            for asset in classified_assets:
-                # Store asset's original row_index for reference, use unique_id as key
-                asset.unique_id = ASSET_ID_COUNTER
-                ASSET_STORE[ASSET_ID_COUNTER] = asset
-                ASSET_ID_COUNTER += 1
+        for asset in classified_assets:
+            asset.unique_id = session.asset_id_counter
+            session.assets[session.asset_id_counter] = asset
+            session.asset_id_counter += 1
 
-            logger.info(f"[Upload] Stored {len(ASSET_STORE)} assets in ASSET_STORE (counter={ASSET_ID_COUNTER})")
+        # Save session
+        manager = get_session_manager()
+        manager._save_session(session)
+
+        logger.info(f"[Upload] Session {session.session_id}: Stored {len(session.assets)} assets")
 
         # Log transaction type summary
         trans_types = {}
@@ -695,11 +721,15 @@ async def upload_file(file: UploadFile = File(...)):
                 print(f"Warning: Failed to delete temp file {temp_file}: {cleanup_error}")
 
 @app.post("/assets/{asset_id}/update", response_model=Asset)
-def update_asset(asset_id: int, update_data: Dict = Body(...)):
+async def update_asset(request: Request, response: Response, asset_id: int, update_data: Dict = Body(...)):
     """
     Updates a specific asset and logs the change in the audit trail.
+    Uses session-based storage for user isolation.
     Note: asset_id here is the unique_id, not the original row_index.
     """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
     # Whitelist of allowed fields to update (security measure)
     ALLOWED_UPDATE_FIELDS = {
         "macrs_class", "macrs_life", "macrs_method", "macrs_convention",
@@ -717,11 +747,10 @@ def update_asset(asset_id: int, update_data: Dict = Body(...)):
             detail=f"No valid fields to update. Allowed fields: {', '.join(ALLOWED_UPDATE_FIELDS)}"
         )
 
-    with _state_lock:
-        if asset_id not in ASSET_STORE:
-            raise HTTPException(status_code=404, detail="Asset not found")
+    if asset_id not in session.assets:
+        raise HTTPException(status_code=404, detail="Asset not found")
 
-        asset = ASSET_STORE[asset_id]
+    asset = session.assets[asset_id]
 
     # Check for changes and log them (use safe_update_data)
     for field, new_value in safe_update_data.items():
@@ -733,210 +762,240 @@ def update_asset(asset_id: int, update_data: Dict = Body(...)):
                 # Log the change
                 auditor.log_override(asset, field, str(old_value), str(new_value))
 
+    # Save session
+    manager = get_session_manager()
+    manager._save_session(session)
+
     return asset
 
 @app.post("/assets/{asset_id}/approve")
-def approve_asset(asset_id: int):
+async def approve_asset(request: Request, response: Response, asset_id: int):
     """
     CPA approves a single asset for export.
+    Uses session-based storage for user isolation.
     Note: asset_id here is the unique_id, not the original row_index.
     """
-    with _state_lock:
-        if asset_id not in ASSET_STORE:
-            raise HTTPException(status_code=404, detail="Asset not found")
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
 
-        asset = ASSET_STORE[asset_id]
+    if asset_id not in session.assets:
+        raise HTTPException(status_code=404, detail="Asset not found")
 
-        # Can't approve assets with validation errors
-        if getattr(asset, 'validation_errors', None):
-            raise HTTPException(status_code=400, detail="Cannot approve asset with validation errors")
+    asset = session.assets[asset_id]
 
-        APPROVED_ASSETS.add(asset_id)
-        return {"approved": True, "unique_id": asset_id}
+    # Can't approve assets with validation errors
+    if getattr(asset, 'validation_errors', None):
+        raise HTTPException(status_code=400, detail="Cannot approve asset with validation errors")
+
+    session.approved_assets.add(asset_id)
+
+    # Save session
+    manager = get_session_manager()
+    manager._save_session(session)
+
+    return {"approved": True, "unique_id": asset_id}
 
 @app.post("/assets/approve-batch")
-def approve_batch(asset_ids: List[int] = Body(...)):
+async def approve_batch(request: Request, response: Response, asset_ids: List[int] = Body(...)):
     """
     CPA approves multiple assets at once (e.g., all high-confidence items).
+    Uses session-based storage for user isolation.
     Note: asset_ids are unique_ids, not row_indexes.
     """
-    with _state_lock:
-        approved = []
-        errors = []
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
 
-        for asset_id in asset_ids:
-            if asset_id not in ASSET_STORE:
-                errors.append({"unique_id": asset_id, "error": "Not found"})
-                continue
+    approved = []
+    errors = []
 
-            asset = ASSET_STORE[asset_id]
-            if getattr(asset, 'validation_errors', None):
-                errors.append({"unique_id": asset_id, "error": "Has validation errors"})
-                continue
+    for asset_id in asset_ids:
+        if asset_id not in session.assets:
+            errors.append({"unique_id": asset_id, "error": "Not found"})
+            continue
 
-            APPROVED_ASSETS.add(asset_id)
-            approved.append(asset_id)
+        asset = session.assets[asset_id]
+        if getattr(asset, 'validation_errors', None):
+            errors.append({"unique_id": asset_id, "error": "Has validation errors"})
+            continue
 
-        return {"approved": approved, "errors": errors, "total_approved": len(approved)}
+        session.approved_assets.add(asset_id)
+        approved.append(asset_id)
+
+    # Save session
+    manager = get_session_manager()
+    manager._save_session(session)
+
+    return {"approved": approved, "errors": errors, "total_approved": len(approved)}
 
 @app.delete("/assets/{asset_id}/approve")
-def unapprove_asset(asset_id: int):
+async def unapprove_asset(request: Request, response: Response, asset_id: int):
     """
     Remove approval from an asset.
+    Uses session-based storage for user isolation.
     Note: asset_id here is the unique_id, not the original row_index.
     """
-    with _state_lock:
-        was_approved = asset_id in APPROVED_ASSETS
-        if was_approved:
-            APPROVED_ASSETS.discard(asset_id)
-            return {"approved": False, "unique_id": asset_id}
-        return {"approved": False, "unique_id": asset_id, "message": "Was not approved"}
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    was_approved = asset_id in session.approved_assets
+    if was_approved:
+        session.approved_assets.discard(asset_id)
+        # Save session
+        manager = get_session_manager()
+        manager._save_session(session)
+        return {"approved": False, "unique_id": asset_id}
+    return {"approved": False, "unique_id": asset_id, "message": "Was not approved"}
 
 
 @app.get("/export/status")
-def get_export_status():
+async def get_export_status(request: Request, response: Response):
     """
     Check if export is ready and get detailed approval status.
+    Uses session-based storage for user isolation.
     Frontend should call this to enable/disable export button.
     """
-    with _state_lock:
-        if not ASSET_STORE:
-            return {
-                "ready": False,
-                "reason": "No assets loaded",
-                "total_assets": 0,
-                "approved_assets": 0,
-                "approved_ids": []
-            }
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
 
-        assets = list(ASSET_STORE.values())
-
-        # Count by category
-        total = len(assets)
-        errors = sum(1 for a in assets if getattr(a, 'validation_errors', None))
-
-        # Actionable = additions, disposals, transfers (not existing)
-        actionable = [a for a in assets if a.transaction_type not in ["Existing Asset", None]]
-        actionable_count = len(actionable)
-
-        # Approved actionable
-        approved_actionable = [a for a in actionable if a.unique_id in APPROVED_ASSETS]
-        approved_count = len(approved_actionable)
-
-        # Low confidence needing review
-        low_conf_unreviewed = [
-            a for a in actionable
-            if a.confidence_score <= 0.8 and a.unique_id not in APPROVED_ASSETS
-        ]
-
-        # Determine readiness
-        has_errors = errors > 0
-        all_approved = approved_count == actionable_count
-        low_conf_reviewed = len(low_conf_unreviewed) == 0
-
-        ready = not has_errors and all_approved and low_conf_reviewed
-
-        reason = None
-        if has_errors:
-            reason = f"{errors} asset(s) have validation errors"
-        elif not all_approved:
-            reason = f"{actionable_count - approved_count} of {actionable_count} actionable assets not approved"
-        elif not low_conf_reviewed:
-            reason = f"{len(low_conf_unreviewed)} low-confidence assets need review"
-
+    if not session.assets:
         return {
-            "ready": ready,
-            "reason": reason,
-            "total_assets": total,
-            "actionable_assets": actionable_count,
-            "approved_assets": approved_count,
-            "unapproved_assets": actionable_count - approved_count,
-            "errors": errors,
-            "low_confidence_unreviewed": len(low_conf_unreviewed),
-            "approved_ids": list(APPROVED_ASSETS)
+            "ready": False,
+            "reason": "No assets loaded",
+            "total_assets": 0,
+            "approved_assets": 0,
+            "approved_ids": []
         }
+
+    assets = list(session.assets.values())
+
+    # Count by category
+    total = len(assets)
+    errors = sum(1 for a in assets if getattr(a, 'validation_errors', None))
+
+    # Actionable = additions, disposals, transfers (not existing)
+    actionable = [a for a in assets if a.transaction_type not in ["Existing Asset", None]]
+    actionable_count = len(actionable)
+
+    # Approved actionable
+    approved_actionable = [a for a in actionable if a.unique_id in session.approved_assets]
+    approved_count = len(approved_actionable)
+
+    # Low confidence needing review
+    low_conf_unreviewed = [
+        a for a in actionable
+        if a.confidence_score <= 0.8 and a.unique_id not in session.approved_assets
+    ]
+
+    # Determine readiness
+    has_errors = errors > 0
+    all_approved = approved_count == actionable_count
+    low_conf_reviewed = len(low_conf_unreviewed) == 0
+
+    ready = not has_errors and all_approved and low_conf_reviewed
+
+    reason = None
+    if has_errors:
+        reason = f"{errors} asset(s) have validation errors"
+    elif not all_approved:
+        reason = f"{actionable_count - approved_count} of {actionable_count} actionable assets not approved"
+    elif not low_conf_reviewed:
+        reason = f"{len(low_conf_unreviewed)} low-confidence assets need review"
+
+    return {
+        "ready": ready,
+        "reason": reason,
+        "total_assets": total,
+        "actionable_assets": actionable_count,
+        "approved_assets": approved_count,
+        "unapproved_assets": actionable_count - approved_count,
+        "errors": errors,
+        "low_confidence_unreviewed": len(low_conf_unreviewed),
+        "approved_ids": list(session.approved_assets)
+    }
 
 
 @app.get("/export")
-def export_assets(skip_approval_check: bool = Query(False, description="Skip approval validation (for audit exports only)")):
+async def export_assets(request: Request, skip_approval_check: bool = Query(False, description="Skip approval validation (for audit exports only)")):
     """
     Generates an Excel file for Fixed Assets CS import.
+    Uses session-based storage for user isolation.
     Saves a copy to 'bot_handoff' folder for UiPath to pick up.
 
     IMPORTANT: All actionable assets (additions, disposals, transfers) must be approved
     before export. Existing assets are excluded from approval requirement.
     """
-    if not ASSET_STORE:
+    session = await get_current_session(request)
+
+    if not session.assets:
         raise HTTPException(status_code=400, detail="No assets to export")
 
-    with _state_lock:
-        # Get all assets from store
-        assets = list(ASSET_STORE.values())
+    # Get all assets from session
+    assets = list(session.assets.values())
 
-        # Validate: Block export if any asset has validation errors
-        assets_with_errors = [a for a in assets if getattr(a, 'validation_errors', None)]
-        if assets_with_errors:
-            error_count = len(assets_with_errors)
+    # Validate: Block export if any asset has validation errors
+    assets_with_errors = [a for a in assets if getattr(a, 'validation_errors', None)]
+    if assets_with_errors:
+        error_count = len(assets_with_errors)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting."
+        )
+
+    # Validate all actionable assets are approved
+    # Existing assets don't need approval - they're just for reference
+    if not skip_approval_check:
+        actionable_assets = [
+            a for a in assets
+            if a.transaction_type not in ["Existing Asset", None]
+        ]
+
+        unapproved = [
+            a for a in actionable_assets
+            if a.unique_id not in session.approved_assets
+        ]
+
+        if unapproved:
+            unapproved_count = len(unapproved)
+            total_actionable = len(actionable_assets)
+            approved_count = total_actionable - unapproved_count
+
+            # Build helpful error message
+            unapproved_by_type = {}
+            for a in unapproved:
+                tt = a.transaction_type or "Unknown"
+                unapproved_by_type[tt] = unapproved_by_type.get(tt, 0) + 1
+
+            type_breakdown = ", ".join([f"{count} {tt}" for tt, count in unapproved_by_type.items()])
+
             raise HTTPException(
                 status_code=400,
-                detail=f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting."
+                detail={
+                    "error": "Not all assets approved",
+                    "message": f"Cannot export: {unapproved_count} of {total_actionable} actionable assets not approved.",
+                    "approved": approved_count,
+                    "unapproved": unapproved_count,
+                    "unapproved_by_type": unapproved_by_type,
+                    "breakdown": type_breakdown,
+                    "hint": "Approve all additions, disposals, and transfers before exporting."
+                }
             )
 
-        # NEW: Validate all actionable assets are approved
-        # Existing assets don't need approval - they're just for reference
-        if not skip_approval_check:
-            actionable_assets = [
-                a for a in assets
-                if a.transaction_type not in ["Existing Asset", None]
-            ]
+        # Also check that low-confidence assets were explicitly reviewed
+        low_confidence_unreviewed = [
+            a for a in actionable_assets
+            if a.confidence_score <= 0.8 and a.unique_id not in session.approved_assets
+        ]
 
-            unapproved = [
-                a for a in actionable_assets
-                if a.unique_id not in APPROVED_ASSETS
-            ]
-
-            if unapproved:
-                unapproved_count = len(unapproved)
-                total_actionable = len(actionable_assets)
-                approved_count = total_actionable - unapproved_count
-
-                # Build helpful error message
-                unapproved_by_type = {}
-                for a in unapproved:
-                    tt = a.transaction_type or "Unknown"
-                    unapproved_by_type[tt] = unapproved_by_type.get(tt, 0) + 1
-
-                type_breakdown = ", ".join([f"{count} {tt}" for tt, count in unapproved_by_type.items()])
-
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": "Not all assets approved",
-                        "message": f"Cannot export: {unapproved_count} of {total_actionable} actionable assets not approved.",
-                        "approved": approved_count,
-                        "unapproved": unapproved_count,
-                        "unapproved_by_type": unapproved_by_type,
-                        "breakdown": type_breakdown,
-                        "hint": "Approve all additions, disposals, and transfers before exporting."
-                    }
-                )
-
-            # Also check that low-confidence assets were explicitly reviewed
-            low_confidence_unreviewed = [
-                a for a in actionable_assets
-                if a.confidence_score <= 0.8 and a.unique_id not in APPROVED_ASSETS
-            ]
-
-            if low_confidence_unreviewed:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": "Low confidence assets not reviewed",
-                        "message": f"{len(low_confidence_unreviewed)} low-confidence asset(s) require manual review and approval.",
-                        "count": len(low_confidence_unreviewed),
-                        "hint": "Review and approve all assets with confidence <= 80%."
-                    }
-                )
+        if low_confidence_unreviewed:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Low confidence assets not reviewed",
+                    "message": f"{len(low_confidence_unreviewed)} low-confidence asset(s) require manual review and approval.",
+                    "count": len(low_confidence_unreviewed),
+                    "hint": "Review and approve all assets with confidence <= 80%."
+                }
+            )
 
     # Generate Excel
     excel_file = exporter.generate_fa_cs_export(assets)
@@ -948,15 +1007,15 @@ def export_assets(skip_approval_check: bool = Query(False, description="Skip app
         handoff_dir = os.path.join(os.getcwd(), "bot_handoff")
 
     os.makedirs(handoff_dir, exist_ok=True)
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"FA_Import_{timestamp}.xlsx"
+    filename = f"FA_Import_{session.session_id[:8]}_{timestamp}.xlsx"
     filepath = os.path.join(handoff_dir, filename)
-    
+
     with open(filepath, "wb") as f:
         f.write(excel_file.getvalue())
 
-    print(f"Saved export to: {filepath}")
+    logger.info(f"Session {session.session_id}: Saved export to {filepath}")
 
     # Reset stream position for StreamingResponse
     excel_file.seek(0)
@@ -964,7 +1023,10 @@ def export_assets(skip_approval_check: bool = Query(False, description="Skip app
     return StreamingResponse(
         excel_file,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=FA_CS_Import.xlsx"}
+        headers={
+            "Content-Disposition": "attachment; filename=FA_CS_Import.xlsx",
+            "X-Session-ID": session.session_id
+        }
     )
 
 
