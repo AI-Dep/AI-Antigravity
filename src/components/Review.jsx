@@ -250,9 +250,14 @@ function Review({ assets = [] }) {
             {/* Header */}
             <div className="flex justify-between items-start mb-6">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-                        Review & Approve
-                    </h1>
+                    <div className="flex items-center gap-3">
+                        <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+                            Review & Approve
+                        </h1>
+                        <span className="px-3 py-1 text-sm font-semibold bg-blue-100 text-blue-800 rounded-full border border-blue-200">
+                            Tax Year {taxYear}
+                        </span>
+                    </div>
                     <p className="text-slate-500 dark:text-slate-400 mt-2">
                         Review AI classifications before export. Low confidence items need your attention.
                     </p>
