@@ -655,9 +655,12 @@ def export_assets():
     
     with open(filepath, "wb") as f:
         f.write(excel_file.getvalue())
-    
+
     print(f"Saved export to: {filepath}")
-    
+
+    # Reset stream position for StreamingResponse
+    excel_file.seek(0)
+
     return StreamingResponse(
         excel_file,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
