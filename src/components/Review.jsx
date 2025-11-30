@@ -193,22 +193,47 @@ function Review({ assets = [] }) {
         setApprovedIds(prev => new Set([...prev, ...highConfIds]));
     };
 
-    // Helper function to download file without opening new window
-    const downloadFile = (url) => {
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = '';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+    // Helper function to download file without opening new window (works in Electron)
+    const downloadFile = async (url, defaultFilename) => {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                const errorText = await response.text();
+                alert(`Download failed: ${errorText}`);
+                return;
+            }
+
+            // Get filename from Content-Disposition header or use default
+            const disposition = response.headers.get('Content-Disposition');
+            let filename = defaultFilename;
+            if (disposition) {
+                const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                if (match && match[1]) {
+                    filename = match[1].replace(/['"]/g, '');
+                }
+            }
+
+            // Download as blob and trigger save
+            const blob = await response.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+        } catch (error) {
+            alert(`Download error: ${error.message}`);
+        }
     };
 
     const handleExport = () => {
-        downloadFile('http://127.0.0.1:8000/export');
+        downloadFile('http://127.0.0.1:8000/export', 'FA_CS_Import.xlsx');
     };
 
     const handleAuditReport = () => {
-        downloadFile('http://127.0.0.1:8000/export/audit');
+        downloadFile('http://127.0.0.1:8000/export/audit', 'Audit_Report.xlsx');
     };
 
     if (!localAssets || localAssets.length === 0) {
