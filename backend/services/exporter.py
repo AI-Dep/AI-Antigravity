@@ -57,10 +57,10 @@ class ExporterService:
     def generate_fa_cs_export(self, assets: List[Asset]) -> BytesIO:
         """
         Generates Fixed Assets CS import file with three sheets:
-        1. "FA CS Import" - Full data for FA CS import with proper wizard categories,
+        1. "FA CS Entry" - Full data for manual FA CS entry with proper wizard categories,
            disposal fields, and transfer handling
         2. "Audit Trail" - Full data including Book/State for audit purposes
-        3. "Engine Output" - Advanced calculations from build_fa engine
+        3. "Change Log" - Shows what changed from original data with before/after values and reasons
 
         FA CS Input Requirements:
         - Asset #: Numeric only (001 → 1, 0001 → 1)
@@ -247,15 +247,19 @@ class ExporterService:
         # Generate multi-sheet Excel export
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # Sheet 1: FA CS Import - Comprehensive data from build_fa engine
-            fa_cs_import_df.to_excel(writer, sheet_name='FA CS Import', index=False)
+            # Sheet 1: FA CS Entry - Data formatted for manual FA CS entry via RPA
+            fa_cs_import_df.to_excel(writer, sheet_name='FA CS Entry', index=False)
 
             # Sheet 2: Audit Trail (full data with Book/State)
             audit_df.to_excel(writer, sheet_name='Audit Trail', index=False)
 
-            # Sheet 3: Engine Output (all calculations from build_fa)
-            if export_df is not None and not export_df.empty:
-                export_df.to_excel(writer, sheet_name='Engine Output', index=False)
+            # Sheet 3: Change Log - Shows what changed from original data
+            change_log_df = self._build_change_log(df, export_df, assets)
+            if change_log_df is not None and not change_log_df.empty:
+                change_log_df.to_excel(writer, sheet_name='Change Log', index=False)
+                # Apply formatting to Change Log sheet
+                ws_changelog = writer.sheets['Change Log']
+                _apply_professional_formatting(ws_changelog, change_log_df)
 
         output.seek(0)
         return output
@@ -285,3 +289,202 @@ class ExporterService:
 
         # Default to Addition
         return "Addition"
+
+    def _build_change_log(self, original_df: pd.DataFrame, processed_df: pd.DataFrame, assets: List[Asset]) -> pd.DataFrame:
+        """
+        Build a change log showing what the engine modified from original data.
+
+        Shows:
+        - Asset identifier
+        - Field that changed
+        - Original value
+        - New value
+        - Reason for the change
+
+        This helps CPAs verify and approve/deny engine decisions.
+        """
+        changes = []
+
+        # Fields to track for changes (original column -> processed column mapping)
+        tracked_fields = {
+            # Classification changes
+            "Final Category": {
+                "original_col": "Final Category",
+                "processed_col": "Final Category",
+                "reason_fn": lambda orig, new, row: self._get_classification_reason(orig, new, row)
+            },
+            "Tax Life": {
+                "original_col": "MACRS Life",
+                "processed_col": "Tax Life",
+                "reason_fn": lambda orig, new, row: f"MACRS life determined from '{row.get('Final Category', 'category')}' classification"
+            },
+            "Tax Method": {
+                "original_col": "Method",
+                "processed_col": "Tax Method",
+                "reason_fn": lambda orig, new, row: "Standard MACRS method applied for FA CS compatibility"
+            },
+            "Convention": {
+                "original_col": "Convention",
+                "processed_col": "Convention",
+                "reason_fn": lambda orig, new, row: self._get_convention_reason(orig, new, row)
+            },
+            # Wizard category (always computed, show if different from Final Category)
+            "FA_CS_Wizard_Category": {
+                "original_col": None,  # Computed field
+                "processed_col": "FA_CS_Wizard_Category",
+                "reason_fn": lambda orig, new, row: f"Mapped from '{row.get('Final Category', '')}' to FA CS wizard dropdown selection"
+            },
+        }
+
+        # Also check for typo corrections from build_fa
+        typo_fields = ["Desc_TypoFlag", "Desc_TypoNote", "Cat_TypoFlag", "Cat_TypoNote"]
+
+        # Iterate through each asset
+        for idx in range(len(original_df)):
+            if idx >= len(processed_df):
+                break
+
+            orig_row = original_df.iloc[idx]
+            proc_row = processed_df.iloc[idx]
+
+            asset_num = proc_row.get("Asset #", orig_row.get("Asset #", idx + 1))
+            description = proc_row.get("Description", orig_row.get("Description", ""))[:50]
+
+            # Check each tracked field for changes
+            for field_name, field_config in tracked_fields.items():
+                orig_col = field_config["original_col"]
+                proc_col = field_config["processed_col"]
+
+                # Get original value
+                if orig_col and orig_col in orig_row:
+                    orig_val = orig_row[orig_col]
+                else:
+                    orig_val = None
+
+                # Get processed value
+                if proc_col in proc_row:
+                    proc_val = proc_row[proc_col]
+                else:
+                    continue
+
+                # Normalize values for comparison
+                orig_str = self._normalize_value(orig_val)
+                proc_str = self._normalize_value(proc_val)
+
+                # Check if values are different
+                if orig_str != proc_str and proc_str:  # Only log if there's a new value
+                    # For computed fields (orig_col is None), always show
+                    if orig_col is None or orig_str:
+                        reason = field_config["reason_fn"](orig_val, proc_val, proc_row)
+                        changes.append({
+                            "Asset #": asset_num,
+                            "Description": description,
+                            "Field Changed": field_name,
+                            "Original Value": orig_str if orig_str else "(not set)",
+                            "New Value": proc_str,
+                            "Reason": reason
+                        })
+
+            # Check for typo corrections
+            if "Desc_TypoFlag" in proc_row.index and proc_row.get("Desc_TypoFlag"):
+                changes.append({
+                    "Asset #": asset_num,
+                    "Description": description,
+                    "Field Changed": "Description (Typo)",
+                    "Original Value": proc_row.get("Desc_TypoNote", "").split(" → ")[0] if " → " in str(proc_row.get("Desc_TypoNote", "")) else "",
+                    "New Value": proc_row.get("Desc_TypoNote", "").split(" → ")[1] if " → " in str(proc_row.get("Desc_TypoNote", "")) else proc_row.get("Desc_TypoNote", ""),
+                    "Reason": "Automatic typo correction applied"
+                })
+
+            if "Cat_TypoFlag" in proc_row.index and proc_row.get("Cat_TypoFlag"):
+                changes.append({
+                    "Asset #": asset_num,
+                    "Description": description,
+                    "Field Changed": "Category (Typo)",
+                    "Original Value": proc_row.get("Cat_TypoNote", "").split(" → ")[0] if " → " in str(proc_row.get("Cat_TypoNote", "")) else "",
+                    "New Value": proc_row.get("Cat_TypoNote", "").split(" → ")[1] if " → " in str(proc_row.get("Cat_TypoNote", "")) else proc_row.get("Cat_TypoNote", ""),
+                    "Reason": "Automatic category name correction applied"
+                })
+
+            # Check for Section 179/Bonus elections (computed values)
+            sec179 = pd.to_numeric(proc_row.get("Tax Sec 179 Expensed", 0), errors='coerce') or 0
+            bonus = pd.to_numeric(proc_row.get("Bonus Amount", 0), errors='coerce') or 0
+
+            if sec179 > 0:
+                changes.append({
+                    "Asset #": asset_num,
+                    "Description": description,
+                    "Field Changed": "Section 179 Expensing",
+                    "Original Value": "$0",
+                    "New Value": f"${sec179:,.2f}",
+                    "Reason": f"Section 179 election applied per depreciation strategy"
+                })
+
+            if bonus > 0:
+                changes.append({
+                    "Asset #": asset_num,
+                    "Description": description,
+                    "Field Changed": "Bonus Depreciation",
+                    "Original Value": "$0",
+                    "New Value": f"${bonus:,.2f}",
+                    "Reason": f"Bonus depreciation calculated for eligible asset"
+                })
+
+            # Check for NBV reconciliation issues
+            nbv_reco = proc_row.get("NBV_Reco", "")
+            if nbv_reco == "CHECK":
+                nbv_diff = proc_row.get("NBV_Diff", 0)
+                changes.append({
+                    "Asset #": asset_num,
+                    "Description": description,
+                    "Field Changed": "NBV Reconciliation",
+                    "Original Value": "Client NBV",
+                    "New Value": f"Difference: ${nbv_diff:,.2f}" if isinstance(nbv_diff, (int, float)) else str(nbv_diff),
+                    "Reason": "NBV does not reconcile - CPA review required"
+                })
+
+        # If no changes, return a single-row dataframe explaining this
+        if not changes:
+            return pd.DataFrame([{
+                "Asset #": "-",
+                "Description": "No changes detected",
+                "Field Changed": "-",
+                "Original Value": "-",
+                "New Value": "-",
+                "Reason": "All values match between input and processed output"
+            }])
+
+        return pd.DataFrame(changes)
+
+    def _normalize_value(self, val) -> str:
+        """Normalize a value for comparison."""
+        if val is None or pd.isna(val):
+            return ""
+        if isinstance(val, (int, float)):
+            if val == 0:
+                return ""
+            return str(val)
+        return str(val).strip()
+
+    def _get_classification_reason(self, orig, new, row) -> str:
+        """Get reason for classification change."""
+        confidence = row.get("ConfidenceGrade", row.get("Confidence", ""))
+        source = row.get("Source", "")
+        explanation = row.get("ClassificationExplanation", "")
+
+        if explanation:
+            return explanation[:100]  # Truncate long explanations
+        elif source:
+            return f"Classification determined by {source} (confidence: {confidence})"
+        else:
+            return f"MACRS class assigned based on asset description analysis"
+
+    def _get_convention_reason(self, orig, new, row) -> str:
+        """Get reason for convention change."""
+        category = str(row.get("Final Category", "")).lower()
+        if "real" in category or "building" in category or "improvement" in category:
+            return "Mid-month convention required for real property"
+        elif "auto" in category or "vehicle" in category:
+            return "Mid-quarter convention may apply (check 40% test)"
+        else:
+            return "Half-year convention applied (standard for personal property)"
