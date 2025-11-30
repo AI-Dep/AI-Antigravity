@@ -141,7 +141,8 @@ function Review({ assets = [] }) {
                     !a.validation_errors?.length && a.confidence_score <= 0.8
                 );
             case 'approved':
-                return baseAssets.filter(a => approvedIds.has(a.row_index));
+                // Use unique_id for approval tracking (unique across sheets)
+                return baseAssets.filter(a => approvedIds.has(a.unique_id));
             default:
                 return baseAssets;
         }
@@ -151,7 +152,7 @@ function Review({ assets = [] }) {
     const hasBlockingErrors = stats.errors > 0;
     const allReviewed = stats.needsReview === 0 ||
         localAssets.filter(a => !a.validation_errors?.length && a.confidence_score <= 0.8)
-            .every(a => approvedIds.has(a.row_index));
+            .every(a => approvedIds.has(a.unique_id));
 
     // FA CS Wizard dropdown options by recovery period
     // Must match exact text from FA CS Add Asset Wizard for RPA compatibility
@@ -184,7 +185,8 @@ function Review({ assets = [] }) {
     };
 
     const handleEditClick = (asset) => {
-        setEditingId(asset.row_index);
+        // Use unique_id for tracking edit state (unique across sheets)
+        setEditingId(asset.unique_id);
         setEditForm({
             macrs_class: asset.macrs_class,
             macrs_life: asset.macrs_life,
@@ -193,34 +195,37 @@ function Review({ assets = [] }) {
         });
     };
 
-    const handleSave = async (rowIndex) => {
+    const handleSave = async (uniqueId) => {
         try {
             // Include fa_cs_wizard_category in the update
             const updateData = {
                 ...editForm,
                 fa_cs_wizard_category: editForm.fa_cs_wizard_category
             };
+            // Use unique_id for matching assets (unique across sheets)
             const updatedAssets = localAssets.map(a =>
-                a.row_index === rowIndex ? { ...a, ...updateData, confidence_score: 1.0 } : a
+                a.unique_id === uniqueId ? { ...a, ...updateData, confidence_score: 1.0 } : a
             );
             setLocalAssets(updatedAssets);
             setEditingId(null);
-            setApprovedIds(prev => new Set([...prev, rowIndex]));
+            setApprovedIds(prev => new Set([...prev, uniqueId]));
 
-            await axios.post(`http://127.0.0.1:8000/assets/${rowIndex}/update`, updateData);
+            await axios.post(`http://127.0.0.1:8000/assets/${uniqueId}/update`, updateData);
         } catch (error) {
             console.error("Failed to save update:", error);
         }
     };
 
-    const handleApprove = (rowIndex) => {
-        setApprovedIds(prev => new Set([...prev, rowIndex]));
+    const handleApprove = (uniqueId) => {
+        // Use unique_id for approval tracking (unique across sheets)
+        setApprovedIds(prev => new Set([...prev, uniqueId]));
     };
 
     const handleApproveAllHighConfidence = () => {
+        // Use unique_id for approval tracking (unique across sheets)
         const highConfIds = localAssets
             .filter(a => !a.validation_errors?.length && a.confidence_score > 0.8)
-            .map(a => a.row_index);
+            .map(a => a.unique_id);
         setApprovedIds(prev => new Set([...prev, ...highConfIds]));
     };
 
@@ -542,7 +547,8 @@ function Review({ assets = [] }) {
                             </thead>
                             <tbody>
                                 {filteredAssets.map((asset, index) => {
-                                    const isApproved = approvedIds.has(asset.row_index);
+                                    // Use unique_id for approval tracking (unique across sheets)
+                                    const isApproved = approvedIds.has(asset.unique_id);
                                     const hasErrors = asset.validation_errors?.length > 0;
                                     const needsReview = !hasErrors && asset.confidence_score <= 0.8;
 
@@ -625,7 +631,7 @@ function Review({ assets = [] }) {
                                             </td>
 
                                             {/* Class, Life, FA CS Category - Edit or Display mode */}
-                                            {editingId === asset.row_index ? (
+                                            {editingId === asset.unique_id ? (
                                                 <>
                                                     <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                         <input
@@ -750,9 +756,9 @@ function Review({ assets = [] }) {
                                             {/* Actions */}
                                             <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                 <div className="flex gap-0.5">
-                                                    {editingId === asset.row_index ? (
+                                                    {editingId === asset.unique_id ? (
                                                         <>
-                                                            <button onClick={() => handleSave(asset.row_index)} className={cn(
+                                                            <button onClick={() => handleSave(asset.unique_id)} className={cn(
                                                                 "hover:bg-green-100 text-green-600 rounded",
                                                                 tableCompact ? "p-1" : "p-1.5"
                                                             )}>
@@ -769,7 +775,7 @@ function Review({ assets = [] }) {
                                                         <>
                                                             {!isApproved && !hasErrors && (
                                                                 <button
-                                                                    onClick={() => handleApprove(asset.row_index)}
+                                                                    onClick={() => handleApprove(asset.unique_id)}
                                                                     className={cn(
                                                                         "hover:bg-green-100 text-green-600 rounded",
                                                                         tableCompact ? "p-1" : "p-1.5"

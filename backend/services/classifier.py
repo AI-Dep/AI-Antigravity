@@ -84,7 +84,7 @@ class ClassifierService:
 
         # Apply MACRS results back to Asset objects
         for asset, result in zip(assets, results):
-            self._apply_classification(asset, result)
+            self._apply_classification(asset, result, tax_year=effective_tax_year)
 
         # Run transaction type classification
         self._classify_transaction_types(assets, effective_tax_year)
@@ -139,7 +139,7 @@ class ClassifierService:
 
         return assets
 
-    def _apply_classification(self, asset: Asset, result: Dict):
+    def _apply_classification(self, asset: Asset, result: Dict, tax_year: int = None):
         """Applies classification result to Asset object and runs validation."""
         asset.macrs_class = result.get("final_class", "Unclassified")
         asset.macrs_life = result.get("final_life")
@@ -159,7 +159,8 @@ class ClassifierService:
 
         # Run validation AFTER classification is applied
         # This ensures we can check if the asset was successfully classified
-        asset.check_validity()
+        # Pass tax_year for date validation against tax year
+        asset.check_validity(tax_year=tax_year or self.tax_year)
 
     def _get_wizard_category(self, description: str, macrs_class: str, life: float) -> str:
         """

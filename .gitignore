@@ -92,3 +92,4 @@ xref-*.html
 # Reference files (development only)
 DEP-reference/
 DEP-main*.zip
+test_export_output.xlsx

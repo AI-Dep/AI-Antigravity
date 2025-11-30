@@ -95,15 +95,15 @@ class ExporterService:
                 "Tax Convention": asset.macrs_convention,
 
                 # Book Depreciation (GAAP)
-                "Book Life": asset.book_life or asset.macrs_life,
-                "Book Method": asset.book_method or "SL",
-                "Book Convention": asset.book_convention or asset.macrs_convention,
+                "Book Life": getattr(asset, 'book_life', None) or asset.macrs_life,
+                "Book Method": getattr(asset, 'book_method', None) or "SL",
+                "Book Convention": getattr(asset, 'book_convention', None) or asset.macrs_convention,
 
                 # State Depreciation
-                "State Life": asset.state_life or asset.macrs_life,
-                "State Method": asset.state_method or asset.macrs_method,
-                "State Convention": asset.state_convention or asset.macrs_convention,
-                "State Bonus Allowed": asset.state_bonus_allowed,
+                "State Life": getattr(asset, 'state_life', None) or asset.macrs_life,
+                "State Method": getattr(asset, 'state_method', None) or asset.macrs_method,
+                "State Convention": getattr(asset, 'state_convention', None) or asset.macrs_convention,
+                "State Bonus Allowed": getattr(asset, 'state_bonus_allowed', True),
 
                 # Metadata
                 "Confidence Score": asset.confidence_score,

@@ -73,8 +73,11 @@ auditor = AuditorService()
 exporter = ExporterService()
 
 # In-Memory Store (Replace with DB later)
+# IMPORTANT: Use unique_id (not row_index) as key to prevent overwrites
+# when assets from different sheets have the same row numbers
 ASSET_STORE: Dict[int, Asset] = {}
-APPROVED_ASSETS: set = set()  # Track CPA-approved row_indexes
+ASSET_ID_COUNTER = 0  # Global counter for unique asset IDs
+APPROVED_ASSETS: set = set()  # Track CPA-approved unique_ids
 TAB_ANALYSIS_RESULT = None  # Store latest tab analysis for UI
 LAST_UPLOAD_FILENAME = None  # Track filename for display
 
@@ -257,19 +260,42 @@ def set_tax_config(
     classifier.set_tax_year(tax_year)
 
     # Reclassify loaded assets with new tax year
+    # CRITICAL: We must preserve ALL assets - never filter or remove any
     trans_types = {}
+    errors_count = 0
+    reclassified_assets = []
+
     if ASSET_STORE:
+        # Get all assets from store
+        asset_count_before = len(ASSET_STORE)
         assets = list(ASSET_STORE.values())
+        print(f"[Tax Year Change] Starting with {asset_count_before} assets in ASSET_STORE")
         print(f"[Tax Year Change] Reclassifying {len(assets)} assets for tax year {tax_year}")
+
+        # Reclassify transaction types
         classifier._classify_transaction_types(assets, tax_year)
 
-        # Count reclassified assets
+        # Re-run validation for each asset with new tax year
+        # This will flag assets with dates after the tax year as errors
+        # BUT it should NEVER remove assets from the list
         for a in assets:
+            a.check_validity(tax_year=tax_year)
             tt = a.transaction_type or 'unknown'
             trans_types[tt] = trans_types.get(tt, 0) + 1
+            if a.validation_errors:
+                errors_count += 1
+            reclassified_assets.append(a)
+
+        asset_count_after = len(reclassified_assets)
         print(f"[Tax Year Change] Reclassification complete: {trans_types}")
+        print(f"[Tax Year Change] Asset count after reclassification: {asset_count_after}")
+        if asset_count_before != asset_count_after:
+            print(f"[Tax Year Change] WARNING: Asset count changed from {asset_count_before} to {asset_count_after}!")
+        if errors_count > 0:
+            print(f"[Tax Year Change] {errors_count} assets have validation errors (may include future dates)")
     else:
         print(f"[Tax Year Change] No assets in ASSET_STORE to reclassify")
+        reclassified_assets = []
 
     return {
         "status": "updated",
@@ -521,11 +547,21 @@ async def upload_file(file: UploadFile = File(...)):
         tax_year = TAX_CONFIG["tax_year"]
         classified_assets = classifier.classify_batch(assets, tax_year=tax_year)
 
-        # 3. Store in Memory
+        # 3. Store in Memory using unique IDs to prevent overwrites
+        # CRITICAL FIX: Use global counter instead of row_index as key
+        # Assets from different sheets can have the same row_index (e.g., row 5)
+        # which would cause overwrites and data loss
+        global ASSET_ID_COUNTER
         ASSET_STORE.clear()  # Clear previous upload for now
         APPROVED_ASSETS.clear()  # Clear approvals too
+        ASSET_ID_COUNTER = 0  # Reset counter for new upload
         for asset in classified_assets:
-            ASSET_STORE[asset.row_index] = asset
+            # Store asset's original row_index for reference, use unique_id as key
+            asset.unique_id = ASSET_ID_COUNTER
+            ASSET_STORE[ASSET_ID_COUNTER] = asset
+            ASSET_ID_COUNTER += 1
+
+        print(f"[Upload] Stored {len(ASSET_STORE)} assets in ASSET_STORE (counter={ASSET_ID_COUNTER})")
 
         # Log transaction type summary
         trans_types = {}
@@ -559,15 +595,16 @@ async def upload_file(file: UploadFile = File(...)):
             except Exception as cleanup_error:
                 print(f"Warning: Failed to delete temp file {temp_file}: {cleanup_error}")
 
-@app.post("/assets/{row_index}/update", response_model=Asset)
-def update_asset(row_index: int, update_data: Dict = Body(...)):
+@app.post("/assets/{asset_id}/update", response_model=Asset)
+def update_asset(asset_id: int, update_data: Dict = Body(...)):
     """
     Updates a specific asset and logs the change in the audit trail.
+    Note: asset_id here is the unique_id, not the original row_index.
     """
-    if row_index not in ASSET_STORE:
+    if asset_id not in ASSET_STORE:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    asset = ASSET_STORE[row_index]
+    asset = ASSET_STORE[asset_id]
 
     # Check for changes and log them
     for field, new_value in update_data.items():
@@ -581,55 +618,58 @@ def update_asset(row_index: int, update_data: Dict = Body(...)):
 
     return asset
 
-@app.post("/assets/{row_index}/approve")
-def approve_asset(row_index: int):
+@app.post("/assets/{asset_id}/approve")
+def approve_asset(asset_id: int):
     """
     CPA approves a single asset for export.
+    Note: asset_id here is the unique_id, not the original row_index.
     """
-    if row_index not in ASSET_STORE:
+    if asset_id not in ASSET_STORE:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    asset = ASSET_STORE[row_index]
+    asset = ASSET_STORE[asset_id]
 
     # Can't approve assets with validation errors
     if getattr(asset, 'validation_errors', None):
         raise HTTPException(status_code=400, detail="Cannot approve asset with validation errors")
 
-    APPROVED_ASSETS.add(row_index)
-    return {"approved": True, "row_index": row_index}
+    APPROVED_ASSETS.add(asset_id)
+    return {"approved": True, "unique_id": asset_id}
 
 @app.post("/assets/approve-batch")
-def approve_batch(row_indexes: List[int] = Body(...)):
+def approve_batch(asset_ids: List[int] = Body(...)):
     """
     CPA approves multiple assets at once (e.g., all high-confidence items).
+    Note: asset_ids are unique_ids, not row_indexes.
     """
     approved = []
     errors = []
 
-    for row_index in row_indexes:
-        if row_index not in ASSET_STORE:
-            errors.append({"row_index": row_index, "error": "Not found"})
+    for asset_id in asset_ids:
+        if asset_id not in ASSET_STORE:
+            errors.append({"unique_id": asset_id, "error": "Not found"})
             continue
 
-        asset = ASSET_STORE[row_index]
+        asset = ASSET_STORE[asset_id]
         if getattr(asset, 'validation_errors', None):
-            errors.append({"row_index": row_index, "error": "Has validation errors"})
+            errors.append({"unique_id": asset_id, "error": "Has validation errors"})
             continue
 
-        APPROVED_ASSETS.add(row_index)
-        approved.append(row_index)
+        APPROVED_ASSETS.add(asset_id)
+        approved.append(asset_id)
 
     return {"approved": approved, "errors": errors, "total_approved": len(approved)}
 
-@app.delete("/assets/{row_index}/approve")
-def unapprove_asset(row_index: int):
+@app.delete("/assets/{asset_id}/approve")
+def unapprove_asset(asset_id: int):
     """
     Remove approval from an asset.
+    Note: asset_id here is the unique_id, not the original row_index.
     """
-    if row_index in APPROVED_ASSETS:
-        APPROVED_ASSETS.discard(row_index)
-        return {"approved": False, "row_index": row_index}
-    return {"approved": False, "row_index": row_index, "message": "Was not approved"}
+    if asset_id in APPROVED_ASSETS:
+        APPROVED_ASSETS.discard(asset_id)
+        return {"approved": False, "unique_id": asset_id}
+    return {"approved": False, "unique_id": asset_id, "message": "Was not approved"}
 
 @app.get("/export")
 def export_assets():
