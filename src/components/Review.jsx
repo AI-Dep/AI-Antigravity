@@ -42,6 +42,25 @@ function Review({ assets = [] }) {
         }
     };
 
+    const handleTaxYearChange = async (e) => {
+        const newYear = parseInt(e.target.value, 10);
+        try {
+            const response = await axios.post('http://127.0.0.1:8000/config/tax', {
+                tax_year: newYear
+            });
+            setTaxYear(newYear);
+            // Update local assets with reclassified data from the backend
+            if (response.data.assets && response.data.assets.length > 0) {
+                setLocalAssets(response.data.assets);
+                setApprovedIds(new Set()); // Clear approvals on reclassification
+            }
+            // Refresh warnings for new tax year
+            fetchWarnings();
+        } catch (error) {
+            console.error('Failed to update tax year:', error);
+        }
+    };
+
     // Sync local assets when props change
     React.useEffect(() => {
         setLocalAssets(assets);
@@ -254,9 +273,22 @@ function Review({ assets = [] }) {
                         <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
                             Review & Approve
                         </h1>
-                        <span className="px-3 py-1 text-sm font-semibold bg-blue-100 text-blue-800 rounded-full border border-blue-200">
-                            Tax Year {taxYear}
-                        </span>
+                        <div className="relative inline-block">
+                            <select
+                                value={taxYear}
+                                onChange={handleTaxYearChange}
+                                className="px-3 py-1 text-sm font-semibold bg-blue-100 text-blue-800 rounded-full border border-blue-200 cursor-pointer hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none pr-8"
+                            >
+                                {[2020, 2021, 2022, 2023, 2024, 2025, 2026].map(year => (
+                                    <option key={year} value={year}>Tax Year {year}</option>
+                                ))}
+                            </select>
+                            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2 text-blue-800">
+                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </div>
+                        </div>
                     </div>
                     <p className="text-slate-500 dark:text-slate-400 mt-2">
                         Review AI classifications before export. Low confidence items need your attention.

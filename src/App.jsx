@@ -16,7 +16,7 @@ export default function App() {
 
     const renderContent = () => {
         switch (activeTab) {
-            case "dashboard": return <Dashboard />;
+            case "dashboard": return <Dashboard setActiveTab={setActiveTab} />;
             case "import": return <Import onUploadSuccess={handleUploadSuccess} />;
             case "review": return <Review assets={assets} />;
             case "settings": return <Settings />;

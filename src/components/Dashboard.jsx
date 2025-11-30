@@ -7,7 +7,7 @@ import {
 import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
 
-function Dashboard() {
+function Dashboard({ setActiveTab }) {
     const [systemStatus, setSystemStatus] = useState("Checking...");
     const [isOnline, setIsOnline] = useState(false);
     const [facsConnected, setFacsConnected] = useState(false);
@@ -459,20 +459,29 @@ function Dashboard() {
                         <CardDescription>Common tasks for your workflow</CardDescription>
                     </CardHeader>
                     <CardContent className="grid gap-2">
-                        <div className="p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors">
+                        <div
+                            className="p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
+                            onClick={() => setActiveTab && setActiveTab('import')}
+                        >
                             <p className="font-medium">Import New Schedule</p>
                             <p className="text-sm text-muted-foreground">Upload Excel file for AI classification</p>
                         </div>
-                        <div className="p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors">
+                        <div
+                            className="p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
+                            onClick={() => setActiveTab && setActiveTab('review')}
+                        >
                             <p className="font-medium">Review Pending Items</p>
                             <p className="text-sm text-muted-foreground">
                                 {stats.needs_review + stats.errors} items need attention
                             </p>
                         </div>
-                        <div className={`p-4 border rounded-lg transition-colors ${stats.ready_for_export
-                            ? 'bg-green-50 border-green-200 hover:bg-green-100 cursor-pointer'
-                            : 'bg-gray-50 border-gray-200 cursor-not-allowed opacity-60'
-                            }`}>
+                        <div
+                            className={`p-4 border rounded-lg transition-colors ${stats.ready_for_export
+                                ? 'bg-green-50 border-green-200 hover:bg-green-100 cursor-pointer'
+                                : 'bg-gray-50 border-gray-200 cursor-not-allowed opacity-60'
+                            }`}
+                            onClick={() => stats.ready_for_export && setActiveTab && setActiveTab('review')}
+                        >
                             <p className="font-medium">
                                 {stats.ready_for_export ? 'Export to FA CS' : 'Export Not Ready'}
                             </p>
