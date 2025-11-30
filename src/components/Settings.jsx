@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, Info, Calendar, DollarSign } from 'lucide-react';
+import { Info, Calendar, DollarSign } from 'lucide-react';
 import axios from 'axios';
 
 function Settings() {
@@ -14,13 +14,11 @@ function Settings() {
         obbba_effective: false,
         obbba_info: null
     });
-    const [warnings, setWarnings] = useState({ critical: [], warnings: [], info: [] });
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
         fetchConfig();
-        fetchWarnings();
     }, []);
 
     const fetchConfig = async () => {
@@ -34,15 +32,6 @@ function Settings() {
         }
     };
 
-    const fetchWarnings = async () => {
-        try {
-            const response = await axios.get('http://127.0.0.1:8000/warnings');
-            setWarnings(response.data);
-        } catch (error) {
-            console.error('Failed to fetch warnings:', error);
-        }
-    };
-
     const saveConfig = async () => {
         setSaving(true);
         try {
@@ -52,9 +41,8 @@ function Settings() {
                 has_afs: config.has_afs
             });
 
-            // Refresh config and warnings after save
+            // Refresh config after save
             await fetchConfig();
-            await fetchWarnings();
 
             alert(`Configuration saved! ${response.data.assets_reclassified} assets reclassified.`);
         } catch (error) {
@@ -83,29 +71,6 @@ function Settings() {
                     Configure tax year and depreciation settings for proper asset classification.
                 </p>
             </div>
-
-            {/* Warnings Section */}
-            {warnings.critical?.length > 0 && (
-                <Card className="border-red-200 bg-red-50">
-                    <CardHeader>
-                        <CardTitle className="text-red-800 flex items-center gap-2">
-                            <AlertTriangle className="w-5 h-5" />
-                            Critical Warnings ({warnings.critical.length})
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        {warnings.critical.map((warning, idx) => (
-                            <div key={idx} className="mb-4 p-3 bg-white rounded border border-red-200">
-                                <div className="font-semibold text-red-800">{warning.message}</div>
-                                <div className="text-sm text-red-600 mt-1">{warning.impact}</div>
-                                <div className="text-sm text-slate-600 mt-1">
-                                    <strong>Action:</strong> {warning.action}
-                                </div>
-                            </div>
-                        ))}
-                    </CardContent>
-                </Card>
-            )}
 
             {/* Tax Year Configuration */}
             <Card>
@@ -222,26 +187,6 @@ function Settings() {
                     </div>
                 </CardContent>
             </Card>
-
-            {/* Regular Warnings */}
-            {warnings.warnings?.length > 0 && (
-                <Card className="border-yellow-200 bg-yellow-50">
-                    <CardHeader>
-                        <CardTitle className="text-yellow-800 flex items-center gap-2">
-                            <AlertTriangle className="w-5 h-5" />
-                            Warnings ({warnings.warnings.length})
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        {warnings.warnings.map((warning, idx) => (
-                            <div key={idx} className="mb-3 p-3 bg-white rounded border border-yellow-200">
-                                <div className="font-medium text-yellow-800">{warning.message}</div>
-                                <div className="text-sm text-slate-600 mt-1">{warning.action}</div>
-                            </div>
-                        ))}
-                    </CardContent>
-                </Card>
-            )}
 
             {/* Save Button */}
             <div className="flex justify-end">

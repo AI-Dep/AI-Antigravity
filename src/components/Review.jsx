@@ -368,25 +368,6 @@ function Review({ assets = [] }) {
                 </div>
             )}
 
-            {/* Transaction Type Summary */}
-            {warnings.info?.find(i => i.type === 'TRANSACTION_SUMMARY') && (
-                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <Info className="w-4 h-4 text-blue-600" />
-                        <span className="text-sm text-blue-800">
-                            Tax Year {taxYear} | Transaction Types:
-                        </span>
-                        {Object.entries(
-                            warnings.info.find(i => i.type === 'TRANSACTION_SUMMARY')?.breakdown || {}
-                        ).map(([type, count]) => (
-                            <span key={type} className="text-sm bg-blue-100 px-2 py-0.5 rounded text-blue-700">
-                                {type}: {count}
-                            </span>
-                        ))}
-                    </div>
-                </div>
-            )}
-
             {/* Error Banner */}
             {hasBlockingErrors && (
                 <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
