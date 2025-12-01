@@ -1930,7 +1930,36 @@ async def export_assets(
             f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting.",
             {"error_count": error_count}
         )
-    
+
+    # Validate: All actionable assets must be approved before export
+    # Existing assets don't require approval (they're just being carried forward)
+    if not skip_approval_check:
+        actionable_types = {"Addition", "Disposal", "Transfer"}
+        actionable_assets = [
+            a for a in assets
+            if getattr(a, 'transaction_type', None) in actionable_types
+        ]
+        unapproved = [
+            a for a in actionable_assets
+            if a.unique_id not in session.approved_assets
+        ]
+
+        if unapproved:
+            unapproved_count = len(unapproved)
+            total_actionable = len(actionable_assets)
+            raise api_error(400, "UNAPPROVED_ASSETS",
+                f"Cannot export: {unapproved_count} of {total_actionable} actionable assets not approved. "
+                f"Review and approve all additions, disposals, and transfers before exporting.",
+                {
+                    "unapproved_count": unapproved_count,
+                    "total_actionable": total_actionable,
+                    "unapproved_ids": [a.unique_id for a in unapproved[:10]]  # First 10 for debugging
+                }
+            )
+    else:
+        # skip_approval_check requires admin - log a warning for audit trail
+        logger.warning(f"Session {session.session_id}: Export with skip_approval_check=True")
+
     # Generate Excel with tax configuration
     excel_file = exporter.generate_fa_cs_export(
         assets,
@@ -1969,7 +1998,10 @@ async def export_assets(
 
 
 @app.get("/export/audit")
-async def export_audit_documentation(request: Request):
+async def export_audit_documentation(
+    request: Request,
+    skip_approval_check: bool = Query(False, description="Skip approval validation for draft reports")
+):
     """
     Generates a comprehensive audit documentation Excel file.
     Includes ALL assets (additions, disposals, transfers, AND existing assets)
@@ -1980,6 +2012,9 @@ async def export_audit_documentation(request: Request):
     - Internal compliance records
     - Year-over-year reconciliation
 
+    IMPORTANT: All actionable assets must be approved before generating
+    official audit documentation. Use skip_approval_check=true for draft reports.
+
     SECURITY: Uses session-based storage for user isolation.
     """
     # FIX: Use session instead of global ASSET_STORE for user isolation
@@ -1989,6 +2024,32 @@ async def export_audit_documentation(request: Request):
         raise api_error(400, "NO_ASSETS", "No assets to export")
 
     assets = list(session.assets.values())
+
+    # Validate: All actionable assets must be approved for official audit documentation
+    if not skip_approval_check:
+        actionable_types = {"Addition", "Disposal", "Transfer"}
+        actionable_assets = [
+            a for a in assets
+            if getattr(a, 'transaction_type', None) in actionable_types
+        ]
+        unapproved = [
+            a for a in actionable_assets
+            if a.unique_id not in session.approved_assets
+        ]
+
+        if unapproved:
+            unapproved_count = len(unapproved)
+            total_actionable = len(actionable_assets)
+            raise api_error(400, "UNAPPROVED_ASSETS",
+                f"Cannot generate audit report: {unapproved_count} of {total_actionable} actionable assets not approved. "
+                f"Review and approve all items before generating official audit documentation. "
+                f"Use skip_approval_check=true for draft reports.",
+                {
+                    "unapproved_count": unapproved_count,
+                    "total_actionable": total_actionable
+                }
+            )
+
     tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
 
     # Create comprehensive audit DataFrame
