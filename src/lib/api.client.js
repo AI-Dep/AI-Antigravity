@@ -1,6 +1,11 @@
 /**
  * Centralized API client with timeout, retry, and error handling.
  * All components should use this client instead of direct axios/fetch calls.
+ *
+ * SCALABILITY: Uses client-side session ID generation to ensure:
+ * - Consistent session across all requests (no race conditions)
+ * - Works with load balancing (all requests have same session ID)
+ * - Session persists across page refreshes (localStorage)
  */
 import axios from 'axios';
 
@@ -27,20 +32,128 @@ const RETRY_DELAY = 1000;
 // HTTP status codes that should trigger a retry
 const RETRYABLE_STATUS_CODES = [408, 429, 500, 502, 503, 504];
 
-// Session ID storage - use header-based session tracking (more reliable than cookies)
+// Storage key for session ID persistence
+const SESSION_STORAGE_KEY = 'fa_cs_session_id';
+
+// ==============================================================================
+// CLIENT-SIDE SESSION ID GENERATION (Scalability Feature)
+// ==============================================================================
+
+/**
+ * Generate a UUID v4 for session identification.
+ * This ensures unique session IDs without server round-trip.
+ * @returns {string} UUID v4 string
+ */
+const generateUUID = () => {
+    // Use crypto.randomUUID if available (modern browsers)
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    // Fallback for older browsers
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+};
+
+/**
+ * Get or create session ID.
+ * - First checks memory (fastest)
+ * - Then checks localStorage (persists across refreshes)
+ * - Finally generates new UUID if needed
+ * @returns {string} Session ID
+ */
+const getOrCreateSessionId = () => {
+    // Check memory first (already initialized)
+    if (_sessionId) {
+        return _sessionId;
+    }
+
+    // Check localStorage for existing session (persists across page refreshes)
+    if (typeof localStorage !== 'undefined') {
+        const stored = localStorage.getItem(SESSION_STORAGE_KEY);
+        if (stored) {
+            _sessionId = stored;
+            return _sessionId;
+        }
+    }
+
+    // Generate new session ID (client-side - no server round-trip needed)
+    _sessionId = generateUUID();
+
+    // Persist to localStorage
+    if (typeof localStorage !== 'undefined') {
+        try {
+            localStorage.setItem(SESSION_STORAGE_KEY, _sessionId);
+        } catch (e) {
+            // localStorage might be full or disabled - continue without persistence
+            console.warn('Could not persist session ID to localStorage:', e);
+        }
+    }
+
+    console.log(`[Session] Generated new session ID: ${_sessionId.substring(0, 8)}...`);
+    return _sessionId;
+};
+
+// Session ID storage - initialized immediately to avoid race conditions
 let _sessionId = null;
+
+// Initialize session ID immediately on module load
+// This ensures all requests have a session ID from the start
+if (typeof window !== 'undefined') {
+    _sessionId = getOrCreateSessionId();
+}
 
 /**
  * Get the current session ID
+ * @returns {string} Current session ID
  */
-export const getSessionId = () => _sessionId;
+export const getSessionId = () => {
+    if (!_sessionId) {
+        _sessionId = getOrCreateSessionId();
+    }
+    return _sessionId;
+};
 
 /**
- * Clear the session (for logout, etc.)
+ * Clear the session (for logout, starting fresh, etc.)
+ * Removes from both memory and localStorage.
  */
 export const clearSession = () => {
     _sessionId = null;
+    if (typeof localStorage !== 'undefined') {
+        try {
+            localStorage.removeItem(SESSION_STORAGE_KEY);
+        } catch (e) {
+            // Ignore localStorage errors
+        }
+    }
+    console.log('[Session] Session cleared');
 };
+
+/**
+ * Force new session (for testing or user-requested reset)
+ * Generates a new session ID and persists it.
+ * @returns {string} New session ID
+ */
+export const newSession = () => {
+    clearSession();
+    _sessionId = generateUUID();
+    if (typeof localStorage !== 'undefined') {
+        try {
+            localStorage.setItem(SESSION_STORAGE_KEY, _sessionId);
+        } catch (e) {
+            // Ignore localStorage errors
+        }
+    }
+    console.log(`[Session] Created new session: ${_sessionId.substring(0, 8)}...`);
+    return _sessionId;
+};
+
+// ==============================================================================
+// AXIOS CLIENT CONFIGURATION
+// ==============================================================================
 
 /**
  * Create axios instance with default configuration
@@ -80,14 +193,39 @@ const isRetryable = (error) => {
 };
 
 /**
- * Response interceptor for retry logic AND session capture
+ * Request interceptor to add session ID header
+ * CRITICAL: This runs BEFORE every request, ensuring session ID is always sent.
+ */
+apiClient.interceptors.request.use(
+    (config) => {
+        // Always include session ID - generated client-side, always available
+        const sessionId = getSessionId();
+        config.headers['X-Session-ID'] = sessionId;
+        return config;
+    },
+    (error) => Promise.reject(error)
+);
+
+/**
+ * Response interceptor for retry logic and session sync
  */
 apiClient.interceptors.response.use(
     (response) => {
-        // CRITICAL: Capture session ID from response header
-        const sessionId = response.headers['x-session-id'];
-        if (sessionId) {
-            _sessionId = sessionId;
+        // Sync session ID from server response (in case server needs to override)
+        // This handles edge cases like session migration or server-side session management
+        const serverSessionId = response.headers['x-session-id'];
+        if (serverSessionId && serverSessionId !== _sessionId) {
+            // Server returned different session ID - sync to it
+            // This can happen if server migrated the session or has authoritative session management
+            console.log(`[Session] Syncing to server session: ${serverSessionId.substring(0, 8)}...`);
+            _sessionId = serverSessionId;
+            if (typeof localStorage !== 'undefined') {
+                try {
+                    localStorage.setItem(SESSION_STORAGE_KEY, serverSessionId);
+                } catch (e) {
+                    // Ignore localStorage errors
+                }
+            }
         }
         return response;
     },
@@ -126,20 +264,9 @@ apiClient.interceptors.response.use(
     }
 );
 
-/**
- * Request interceptor to add session ID header
- */
-apiClient.interceptors.request.use(
-    (config) => {
-        // CRITICAL: Send session ID with every request via header
-        // This is more reliable than cookies for Electron apps
-        if (_sessionId) {
-            config.headers['X-Session-ID'] = _sessionId;
-        }
-        return config;
-    },
-    (error) => Promise.reject(error)
-);
+// ==============================================================================
+// API HELPER FUNCTIONS
+// ==============================================================================
 
 /**
  * GET request helper
