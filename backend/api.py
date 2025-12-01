@@ -142,6 +142,30 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting FA CS Automator API...")
 
+    # Validate license (non-blocking with warnings)
+    try:
+        from backend.licensing import get_license_manager, LicenseStatus
+        license_mgr = get_license_manager()
+        license_info = license_mgr.validate()
+
+        if license_info.is_valid():
+            logger.info(f"License valid: {license_info.edition} edition for {license_info.customer_name}")
+            if license_info.warnings:
+                for warning in license_info.warnings:
+                    logger.warning(f"License warning: {warning}")
+        else:
+            # Log error but don't hard-block - allow operation with degraded features
+            logger.error(f"License validation failed: {license_info.status.value}")
+            logger.warning("Operating in UNLICENSED mode - some features may be restricted")
+
+        # Store license info in app state for endpoint access
+        app.state.license_info = license_info
+
+    except Exception as e:
+        logger.error(f"License check error: {e}")
+        logger.warning("Operating in UNLICENSED mode due to license check error")
+        app.state.license_info = None
+
     # Start session cleanup task
     session_manager = get_session_manager()
     await session_manager.start_cleanup_task()
@@ -544,6 +568,96 @@ async def get_assets(request: Request, response: Response):
     session = await get_current_session(request)
     add_session_to_response(response, session.session_id)
     return list(session.assets.values())
+
+
+# ==============================================================================
+# LICENSE STATUS ENDPOINTS
+# ==============================================================================
+
+@app.get("/license/status")
+async def get_license_status(request: Request):
+    """
+    Get current license status.
+
+    Returns license information including:
+    - Valid/invalid status
+    - Edition and features
+    - Expiration information
+    - Warnings (expiring soon, grace period, etc.)
+
+    This endpoint does NOT require authentication as license status
+    should be accessible to determine available features.
+    """
+    try:
+        from backend.licensing import get_license_manager
+
+        license_mgr = get_license_manager()
+        license_info = license_mgr.validate()
+
+        return {
+            "valid": license_info.is_valid(),
+            "status": license_info.status.value,
+            "license_id": license_info.license_id if license_info.is_valid() else None,
+            "customer": license_info.customer_name if license_info.is_valid() else None,
+            "edition": license_info.edition if license_info.is_valid() else "unlicensed",
+            "features": license_info.features,
+            "max_seats": license_info.max_seats,
+            "max_assets": license_info.max_assets,
+            "expires_at": license_info.expires_at.isoformat() if license_info.expires_at else None,
+            "days_remaining": license_info.days_until_expiry,
+            "grace_days_remaining": license_info.grace_days_remaining,
+            "warnings": license_info.warnings,
+        }
+
+    except Exception as e:
+        logger.error(f"Error checking license status: {e}")
+        return {
+            "valid": False,
+            "status": "error",
+            "edition": "unlicensed",
+            "features": [],
+            "warnings": [f"License check error: {str(e)}"],
+        }
+
+
+@app.get("/license/features/{feature}")
+async def check_license_feature(request: Request, feature: str):
+    """
+    Check if a specific feature is available in the current license.
+
+    Args:
+        feature: Feature name to check (e.g., "rpa", "bulk_approve", "api_access")
+
+    Returns:
+        {"available": true/false, "reason": "..."}
+    """
+    try:
+        from backend.licensing import get_license_manager
+
+        license_mgr = get_license_manager()
+        license_info = license_mgr.validate()
+
+        if not license_info.is_valid():
+            return {
+                "available": False,
+                "feature": feature,
+                "reason": f"License not valid: {license_info.status.value}",
+            }
+
+        available = license_info.has_feature(feature)
+        return {
+            "available": available,
+            "feature": feature,
+            "reason": None if available else f"Feature '{feature}' not included in {license_info.edition} edition",
+        }
+
+    except Exception as e:
+        logger.error(f"Error checking feature {feature}: {e}")
+        return {
+            "available": False,
+            "feature": feature,
+            "reason": f"Error: {str(e)}",
+        }
 
 
 # ==============================================================================
