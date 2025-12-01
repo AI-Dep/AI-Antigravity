@@ -647,7 +647,7 @@ function Review({ assets = [] }) {
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
                         <table className={cn(
-                            "w-full text-left min-w-[1500px]",
+                            "w-full text-left min-w-[1200px]",
                             tableCompact ? "text-xs" : "text-sm"
                         )} style={{ tableLayout: 'fixed' }}>
                             <thead className={cn(
@@ -671,7 +671,6 @@ function Review({ assets = [] }) {
                                             <span className="text-[9px] bg-blue-100 text-blue-700 px-1 rounded">179/Bonus</span>
                                         </span>
                                     </th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '280px', minWidth: '150px', resize: 'horizontal', overflow: 'hidden' }}>FA CS Category</th>
                                     <th className={cn(tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '60px' }}>Actions</th>
                                 </tr>
                             </thead>
@@ -879,31 +878,17 @@ function Review({ assets = [] }) {
                                                             <option value="ADS">ADS</option>
                                                         </select>
                                                     </td>
-                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                        <select
-                                                            className={cn(
-                                                                "border rounded w-full",
-                                                                tableCompact ? "px-1.5 py-0.5 text-xs" : "px-2 py-1 text-sm"
-                                                            )}
-                                                            value={editForm.fa_cs_wizard_category || ""}
-                                                            onChange={(e) => setEditForm({ ...editForm, fa_cs_wizard_category: e.target.value })}
-                                                        >
-                                                            <option value="">Select FA CS Category...</option>
-                                                            {Object.entries(FA_CS_WIZARD_OPTIONS).flatMap(([life, options]) =>
-                                                                options.map(opt => (
-                                                                    <option key={opt} value={opt}>{opt}</option>
-                                                                ))
-                                                            )}
-                                                        </select>
-                                                    </td>
                                                 </>
                                             ) : (
                                                 <>
                                                     <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                        <span className={cn(
-                                                            "bg-blue-50 text-blue-700 rounded font-semibold border border-blue-100",
-                                                            tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs"
-                                                        )}>
+                                                        <span
+                                                            className={cn(
+                                                                "bg-blue-50 text-blue-700 rounded font-semibold border border-blue-100 cursor-help",
+                                                                tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs"
+                                                            )}
+                                                            title={asset.fa_cs_wizard_category ? `FA CS: ${asset.fa_cs_wizard_category}` : ""}
+                                                        >
                                                             {asset.macrs_class}
                                                         </span>
                                                     </td>
@@ -949,17 +934,6 @@ function Review({ assets = [] }) {
                                                                 N/A
                                                             </span>
                                                         )}
-                                                    </td>
-                                                    <td className={cn(
-                                                        "text-slate-600 max-w-[280px]",
-                                                        tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
-                                                    )}>
-                                                        <span
-                                                            className="block truncate cursor-help"
-                                                            title={asset.fa_cs_wizard_category || "-"}
-                                                        >
-                                                            {asset.fa_cs_wizard_category || "-"}
-                                                        </span>
                                                     </td>
                                                 </>
                                             )}
