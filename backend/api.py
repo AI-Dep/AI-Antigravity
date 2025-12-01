@@ -827,6 +827,11 @@ async def get_warnings(request: Request, response: Response):
         }
     }
 
+# Maximum upload file size (50MB) - prevents DoS via large files
+MAX_UPLOAD_SIZE_MB = 50
+MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+
 @app.post("/upload", response_model=List[Asset])
 async def upload_file(request: Request, response: Response, file: UploadFile = File(...)):
     """
@@ -839,11 +844,26 @@ async def upload_file(request: Request, response: Response, file: UploadFile = F
     - Disposals
     - Transfers
 
-    SAFETY: Uses per-session locking to prevent concurrent upload data corruption.
+    SAFETY:
+    - Uses per-session locking to prevent concurrent upload data corruption.
+    - Enforces file size limit to prevent DoS attacks.
     """
     # Get or create session for this user
     session = await get_current_session(request)
     add_session_to_response(response, session.session_id)
+
+    # Check file size limit (security: prevent DoS via large files)
+    # Read file content to check size (UploadFile.size may not be available)
+    file_content = await file.read()
+    file_size = len(file_content)
+    await file.seek(0)  # Reset file position for later reading
+
+    if file_size > MAX_UPLOAD_SIZE_BYTES:
+        raise api_error(
+            413, "FILE_TOO_LARGE",
+            f"File size ({file_size / 1024 / 1024:.1f}MB) exceeds maximum allowed size ({MAX_UPLOAD_SIZE_MB}MB)",
+            {"max_size_mb": MAX_UPLOAD_SIZE_MB, "file_size_mb": round(file_size / 1024 / 1024, 1)}
+        )
 
     # Acquire session lock to prevent concurrent upload corruption
     session_lock = get_session_lock(session.session_id)
@@ -858,7 +878,7 @@ async def upload_file(request: Request, response: Response, file: UploadFile = F
     try:
         # Save uploaded file temporarily
         with open(temp_file, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            buffer.write(file_content)  # Use already-read content
 
         # Perform tab analysis before processing
         try:

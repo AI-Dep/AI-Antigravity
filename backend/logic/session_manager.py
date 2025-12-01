@@ -19,15 +19,125 @@ import time
 import asyncio
 import logging
 import json
-import pickle
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Any, TypeVar, Generic
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from collections import OrderedDict
 from threading import Lock
 import hashlib
 
 logger = logging.getLogger(__name__)
+
+
+# ==============================================================================
+# SAFE JSON SERIALIZATION (Replaces pickle to prevent RCE vulnerabilities)
+# ==============================================================================
+
+class SessionJSONEncoder(json.JSONEncoder):
+    """
+    Safe JSON encoder for session data.
+
+    Handles:
+    - datetime/date objects -> ISO format strings
+    - sets -> lists
+    - Pydantic models (Asset) -> dict via .dict()
+    - dataclasses -> dict
+    """
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return {"__type__": "datetime", "value": obj.isoformat()}
+        if isinstance(obj, date):
+            return {"__type__": "date", "value": obj.isoformat()}
+        if isinstance(obj, set):
+            return {"__type__": "set", "value": list(obj)}
+        # Handle Pydantic models (like Asset)
+        if hasattr(obj, 'dict') and callable(obj.dict):
+            return {"__type__": "pydantic", "class": obj.__class__.__name__, "value": obj.dict()}
+        # Handle dataclasses
+        if hasattr(obj, '__dataclass_fields__'):
+            return {"__type__": "dataclass", "class": obj.__class__.__name__, "value": asdict(obj)}
+        return super().default(obj)
+
+
+def session_json_decoder(dct: dict) -> Any:
+    """
+    Safe JSON decoder hook for session data.
+
+    Reconstructs typed objects from their JSON representation.
+    Only allows known safe types - prevents arbitrary code execution.
+    """
+    if "__type__" not in dct:
+        return dct
+
+    type_tag = dct["__type__"]
+    value = dct.get("value")
+
+    if type_tag == "datetime":
+        return datetime.fromisoformat(value)
+    if type_tag == "date":
+        return date.fromisoformat(value)
+    if type_tag == "set":
+        return set(value)
+    if type_tag == "pydantic":
+        # Only reconstruct known Pydantic models
+        class_name = dct.get("class")
+        if class_name == "Asset":
+            # Import here to avoid circular imports
+            from backend.models.asset import Asset
+            return Asset(**value)
+        # Unknown Pydantic class - return as dict for safety
+        logger.warning(f"Unknown Pydantic class in session: {class_name}")
+        return value
+    if type_tag == "dataclass":
+        # For dataclasses, we just return the dict - caller reconstructs
+        return value
+
+    return dct
+
+
+def serialize_session(session: 'SessionData') -> str:
+    """Safely serialize SessionData to JSON string."""
+    data = {
+        "session_id": session.session_id,
+        "user_id": session.user_id,
+        "created_at": session.created_at,
+        "last_accessed": session.last_accessed,
+        "expires_at": session.expires_at,
+        "assets": session.assets,
+        "asset_id_counter": session.asset_id_counter,
+        "approved_assets": session.approved_assets,
+        "tab_analysis_result": session.tab_analysis_result,
+        "last_upload_filename": session.last_upload_filename,
+        "tax_config": session.tax_config,
+        "facs_config": session.facs_config,
+    }
+    return json.dumps(data, cls=SessionJSONEncoder)
+
+
+def deserialize_session(json_str: str) -> 'SessionData':
+    """Safely deserialize JSON string to SessionData."""
+    data = json.loads(json_str, object_hook=session_json_decoder)
+
+    # Convert assets dict keys back to int (JSON only supports string keys)
+    assets = {}
+    if data.get("assets"):
+        for key, value in data["assets"].items():
+            assets[int(key)] = value
+
+    return SessionData(
+        session_id=data["session_id"],
+        user_id=data.get("user_id"),
+        created_at=data["created_at"],
+        last_accessed=data["last_accessed"],
+        expires_at=data["expires_at"],
+        assets=assets,
+        asset_id_counter=data.get("asset_id_counter", 0),
+        approved_assets=data.get("approved_assets", set()),
+        tab_analysis_result=data.get("tab_analysis_result"),
+        last_upload_filename=data.get("last_upload_filename"),
+        tax_config=data.get("tax_config", {}),
+        facs_config=data.get("facs_config", {}),
+    )
 
 T = TypeVar('T')
 
@@ -265,7 +375,8 @@ class SessionManager:
             try:
                 ttl = int((session.expires_at - datetime.utcnow()).total_seconds())
                 if ttl > 0:
-                    data = pickle.dumps(session)
+                    # Use safe JSON serialization instead of pickle (prevents RCE)
+                    data = serialize_session(session)
                     self._redis_client.setex(
                         f"session:{session.session_id}",
                         ttl,
@@ -286,7 +397,10 @@ class SessionManager:
             try:
                 data = self._redis_client.get(f"session:{session_id}")
                 if data:
-                    session = pickle.loads(data)
+                    # Use safe JSON deserialization instead of pickle (prevents RCE)
+                    if isinstance(data, bytes):
+                        data = data.decode('utf-8')
+                    session = deserialize_session(data)
                     self._local_cache.set(session_id, session)
                     return session
             except Exception as e:
