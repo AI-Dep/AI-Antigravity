@@ -1038,6 +1038,224 @@ async def upload_file(
             except Exception as cleanup_error:
                 logger.warning(f"Failed to delete temp file {temp_file}: {cleanup_error}")
 
+
+# ==============================================================================
+# BACKGROUND JOB API
+# ==============================================================================
+
+from backend.logic.job_processor import (
+    get_job_processor,
+    init_job_handlers,
+    JobType,
+    JobStatus
+)
+
+# Initialize job handlers on import
+init_job_handlers()
+
+
+@app.post("/jobs/upload")
+async def submit_upload_job(
+    request: Request,
+    response: Response,
+    file: UploadFile = File(...),
+    user: AuthUser = Depends(optional_auth)
+):
+    """
+    Submit a file upload for async background processing.
+
+    Returns a job_id immediately. Client polls /jobs/{job_id} for status.
+
+    This prevents HTTP timeouts for large files with many assets.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    # Validate file
+    if not file.filename:
+        raise api_error(400, "NO_FILE", "No file provided")
+
+    if not file.filename.lower().endswith(('.xlsx', '.xls')):
+        raise api_error(400, "INVALID_FILE_TYPE", "Only Excel files (.xlsx, .xls) are supported")
+
+    # Save to temp file
+    temp_fd, temp_file = tempfile.mkstemp(suffix='.xlsx', prefix='facs_job_')
+    try:
+        content = await file.read()
+
+        # Size check
+        max_size = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "50")) * 1024 * 1024
+        if len(content) > max_size:
+            os.close(temp_fd)
+            os.remove(temp_file)
+            raise api_error(413, "FILE_TOO_LARGE", f"File exceeds maximum size of {max_size // (1024*1024)}MB")
+
+        os.write(temp_fd, content)
+        os.close(temp_fd)
+
+        # Submit job
+        processor = get_job_processor()
+        job = processor.submit(
+            job_type=JobType.UPLOAD,
+            params={
+                "file_path": temp_file,
+                "filename": file.filename,
+                "tax_year": session.tax_config.get("tax_year"),
+            },
+            session_id=session.session_id,
+            user_id=user.user_id if user else None
+        )
+
+        logger.info(f"Submitted upload job {job.job_id} for file {file.filename}")
+
+        return {
+            "job_id": job.job_id,
+            "status": job.status.value,
+            "message": "Upload job submitted. Poll /jobs/{job_id} for status.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Clean up on error
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except Exception:
+                pass
+        logger.error(f"Error submitting upload job: {e}", exc_info=True)
+        raise api_error(500, "JOB_SUBMIT_FAILED", "Failed to submit upload job")
+
+
+@app.get("/jobs/{job_id}")
+async def get_job_status(
+    request: Request,
+    response: Response,
+    job_id: str
+):
+    """
+    Get the status of a background job.
+
+    Client should poll this endpoint until status is 'completed' or 'failed'.
+    Recommended polling interval: 1-2 seconds.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    processor = get_job_processor()
+    status = processor.get_job_status(job_id)
+
+    if not status:
+        raise api_error(404, "JOB_NOT_FOUND", f"Job {job_id} not found")
+
+    return status
+
+
+@app.get("/jobs/{job_id}/result")
+async def get_job_result(
+    request: Request,
+    response: Response,
+    job_id: str
+):
+    """
+    Get the result of a completed job.
+
+    For upload jobs, this returns the list of classified assets.
+    Assets are automatically stored in the session.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    processor = get_job_processor()
+    job = processor.get_job(job_id)
+
+    if not job:
+        raise api_error(404, "JOB_NOT_FOUND", f"Job {job_id} not found")
+
+    if job.status != JobStatus.COMPLETED:
+        raise api_error(400, "JOB_NOT_COMPLETED",
+            f"Job is not completed. Current status: {job.status.value}")
+
+    result = job.result
+
+    # For upload jobs, store assets in session
+    if job.job_type == JobType.UPLOAD and result and "assets" in result:
+        from backend.models.asset import Asset
+
+        # Clear existing and store new
+        session.assets.clear()
+        session.approved_assets.clear()
+
+        for asset_data in result["assets"]:
+            asset = Asset(**asset_data)
+            session.assets[asset.unique_id] = asset
+
+        session.last_upload_filename = job.metadata.get("filename", "unknown")
+
+        # Save session
+        manager = get_session_manager()
+        manager._save_session(session)
+
+        logger.info(f"Stored {len(session.assets)} assets from job {job_id} to session {session.session_id}")
+
+    return result
+
+
+@app.delete("/jobs/{job_id}")
+async def cancel_job(
+    request: Request,
+    response: Response,
+    job_id: str
+):
+    """
+    Cancel a pending job.
+
+    Only pending jobs can be cancelled. Running jobs will complete.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    processor = get_job_processor()
+
+    if not processor.get_job(job_id):
+        raise api_error(404, "JOB_NOT_FOUND", f"Job {job_id} not found")
+
+    if processor.cancel_job(job_id):
+        return {"status": "cancelled", "job_id": job_id}
+    else:
+        raise api_error(400, "CANNOT_CANCEL",
+            "Job cannot be cancelled. It may already be running or completed.")
+
+
+@app.get("/jobs")
+async def list_session_jobs(
+    request: Request,
+    response: Response
+):
+    """
+    List all jobs for the current session.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    processor = get_job_processor()
+    jobs = processor.get_jobs_by_session(session.session_id)
+
+    return {
+        "jobs": [j.to_dict() for j in jobs],
+        "count": len(jobs),
+    }
+
+
+@app.get("/jobs/stats")
+async def get_job_stats():
+    """
+    Get job processor statistics.
+    """
+    processor = get_job_processor()
+    return processor.get_stats()
+
+
 @app.post("/assets/{asset_id}/update", response_model=Asset)
 async def update_asset(
     request: Request,
