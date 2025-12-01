@@ -458,16 +458,33 @@ class AuthMiddleware:
 # ==============================================================================
 
 def init_default_users():
-    """Initialize default users for development."""
+    """Initialize default users for development.
+
+    Credentials are loaded from environment variables:
+    - FA_ADMIN_EMAIL: Admin email (default: admin@localhost)
+    - FA_ADMIN_PASSWORD: Admin password (required, no default)
+    - FA_ADMIN_NAME: Admin display name (default: Admin User)
+    """
     if not _users:
-        # Create default admin user
+        admin_email = os.environ.get("FA_ADMIN_EMAIL", "admin@localhost")
+        admin_password = os.environ.get("FA_ADMIN_PASSWORD")
+        admin_name = os.environ.get("FA_ADMIN_NAME", "Admin User")
+
+        if not admin_password:
+            logger.warning(
+                "FA_ADMIN_PASSWORD environment variable not set. "
+                "Default admin user will NOT be created. "
+                "Set FA_ADMIN_PASSWORD to enable admin user."
+            )
+            return
+
         create_user(
-            email="admin@example.com",
-            password="admin123",  # Change in production!
-            name="Admin User",
+            email=admin_email,
+            password=admin_password,
+            name=admin_name,
             roles=["admin", "user"]
         )
-        logger.info("Created default admin user: admin@example.com")
+        logger.info(f"Created admin user: {admin_email}")
 
 
 # Auto-initialize on module load (development only)

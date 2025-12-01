@@ -100,6 +100,12 @@ hidden_imports = [
     # Crypto (if using encryption module)
     'cryptography',
     'cryptography.fernet',
+
+    # AI/ML dependencies
+    'openai',
+    'rapidfuzz',
+    'rapidfuzz.fuzz',
+    'rapidfuzz.process',
 ]
 
 # Collect all backend submodules dynamically

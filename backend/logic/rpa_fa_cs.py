@@ -2,22 +2,42 @@
 """
 RPA Automation Module for Fixed Asset CS
 Automates data entry into Thomson Reuters Fixed Asset CS software
+
+IMPORTANT: This module requires Windows. pywinauto only works on Windows.
 """
 
+import sys
 import time
 import logging
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 import pandas as pd
 
-try:
-    import pyautogui
-    import pywinauto
-    from pywinauto import Application
-    from pywinauto.findwindows import ElementNotFoundError
-    import psutil
-except ImportError as e:
-    logging.warning(f"RPA libraries not installed: {e}")
+# Platform check - RPA requires Windows
+_RPA_AVAILABLE = sys.platform == 'win32'
+
+if not _RPA_AVAILABLE:
+    logging.warning("RPA module requires Windows. RPA features will be disabled.")
+    pyautogui = None
+    pywinauto = None
+    Application = None
+    ElementNotFoundError = Exception  # Fallback for type hints
+    psutil = None
+else:
+    try:
+        import pyautogui
+        import pywinauto
+        from pywinauto import Application
+        from pywinauto.findwindows import ElementNotFoundError
+        import psutil
+    except ImportError as e:
+        logging.warning(f"RPA libraries not installed: {e}")
+        _RPA_AVAILABLE = False
+        pyautogui = None
+        pywinauto = None
+        Application = None
+        ElementNotFoundError = Exception
+        psutil = None
 
 from .logging_utils import get_logger
 
@@ -66,6 +86,11 @@ class FACSWindowManager:
     """Manages Fixed Asset CS window interactions"""
 
     def __init__(self, config: RPAConfig = None):
+        if not _RPA_AVAILABLE:
+            raise RuntimeError(
+                "RPA module requires Windows. "
+                "pywinauto and pyautogui are only supported on Windows platforms."
+            )
         self.config = config or RPAConfig()
         self.app: Optional[Application] = None
         self.main_window = None

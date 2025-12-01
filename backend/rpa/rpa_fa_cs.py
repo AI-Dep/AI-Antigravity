@@ -2,22 +2,42 @@
 """
 RPA Automation Module for Fixed Asset CS
 Automates data entry into Thomson Reuters Fixed Asset CS software
+
+IMPORTANT: This module requires Windows. pywinauto only works on Windows.
 """
 
+import sys
 import time
 import logging
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 import pandas as pd
 
-try:
-    import pyautogui
-    import pywinauto
-    from pywinauto import Application
-    from pywinauto.findwindows import ElementNotFoundError
-    import psutil
-except ImportError as e:
-    logging.warning(f"RPA libraries not installed: {e}")
+# Platform check - RPA requires Windows
+_RPA_AVAILABLE = sys.platform == 'win32'
+
+if not _RPA_AVAILABLE:
+    logging.warning("RPA module requires Windows. RPA features will be disabled.")
+    pyautogui = None
+    pywinauto = None
+    Application = None
+    ElementNotFoundError = Exception  # Fallback for type hints
+    psutil = None
+else:
+    try:
+        import pyautogui
+        import pywinauto
+        from pywinauto import Application
+        from pywinauto.findwindows import ElementNotFoundError
+        import psutil
+    except ImportError as e:
+        logging.warning(f"RPA libraries not installed: {e}")
+        _RPA_AVAILABLE = False
+        pyautogui = None
+        pywinauto = None
+        Application = None
+        ElementNotFoundError = Exception
+        psutil = None
 
 from .logging_utils import get_logger
 
@@ -58,6 +78,42 @@ class RPAConfig:
     }
 
 
+def _with_retry(func, max_retries: int = 3, retry_delay: float = 1.0, operation_name: str = "operation"):
+    """
+    Retry wrapper for RPA operations.
+
+    Args:
+        func: Callable that returns bool (True=success, False=failure)
+        max_retries: Maximum number of retry attempts
+        retry_delay: Delay between retries in seconds
+        operation_name: Name for logging purposes
+
+    Returns:
+        True if operation succeeded within retries, False otherwise
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            result = func()
+            if result:
+                return True
+            # Function returned False, retry
+            if attempt < max_retries:
+                logger.warning(
+                    f"{operation_name} failed (attempt {attempt}/{max_retries}). "
+                    f"Retrying in {retry_delay}s..."
+                )
+                time.sleep(retry_delay)
+        except Exception as e:
+            logger.error(f"{operation_name} error (attempt {attempt}/{max_retries}): {e}")
+            if attempt < max_retries:
+                time.sleep(retry_delay)
+            else:
+                raise
+
+    logger.error(f"{operation_name} failed after {max_retries} attempts")
+    return False
+
+
 # ==============================================================================
 # WINDOW MANAGER
 # ==============================================================================
@@ -66,6 +122,11 @@ class FACSWindowManager:
     """Manages Fixed Asset CS window interactions"""
 
     def __init__(self, config: RPAConfig = None):
+        if not _RPA_AVAILABLE:
+            raise RuntimeError(
+                "RPA module requires Windows. "
+                "pywinauto and pyautogui are only supported on Windows platforms."
+            )
         self.config = config or RPAConfig()
         self.app: Optional[Application] = None
         self.main_window = None
@@ -280,9 +341,15 @@ class FACSDataEntry:
         """Process entire dataframe of assets"""
         logger.info(f"Starting RPA processing for {len(df)} assets")
 
-        # Ensure FA CS is active
-        if not self.wm.activate_window():
-            logger.error("Could not activate FA CS window")
+        # Ensure FA CS is active with retry
+        activate_success = _with_retry(
+            self.wm.activate_window,
+            max_retries=self.config.MAX_RETRIES,
+            retry_delay=self.config.RETRY_DELAY,
+            operation_name="Activate FA CS window"
+        )
+        if not activate_success:
+            logger.error("Could not activate FA CS window after retries")
             return self.stats
 
         # Process each asset
@@ -291,16 +358,30 @@ class FACSDataEntry:
                 continue
 
             self.stats["processed"] += 1
+            asset_dict = row.to_dict()
+            asset_id = asset_dict.get("Asset #", asset_dict.get("Asset ID", f"row_{idx}"))
 
-            # Navigate to new asset entry
-            if not self.navigate_to_asset_entry():
-                logger.error(f"Failed to navigate to asset entry for row {idx}")
+            # Navigate to new asset entry with retry
+            nav_success = _with_retry(
+                self.navigate_to_asset_entry,
+                max_retries=self.config.MAX_RETRIES,
+                retry_delay=self.config.RETRY_DELAY,
+                operation_name=f"Navigate to asset entry for {asset_id}"
+            )
+            if not nav_success:
+                logger.error(f"Failed to navigate to asset entry for {asset_id} after retries")
                 self.stats["failed"] += 1
                 continue
 
-            # Input asset data
-            asset_dict = row.to_dict()
-            self.input_asset_data(asset_dict)
+            # Input asset data with retry
+            input_success = _with_retry(
+                lambda: self.input_asset_data(asset_dict),
+                max_retries=self.config.MAX_RETRIES,
+                retry_delay=self.config.RETRY_DELAY,
+                operation_name=f"Input data for asset {asset_id}"
+            )
+            if not input_success:
+                logger.warning(f"Asset {asset_id} failed after retries")
 
             # Brief pause between assets
             time.sleep(0.5)
@@ -394,11 +475,17 @@ class FARobotOrchestrator:
             )
             return False
 
-        # Connect to FA CS
-        if not self.window_manager.connect_to_fa_cs():
+        # Connect to FA CS with retry
+        connect_success = _with_retry(
+            self.window_manager.connect_to_fa_cs,
+            max_retries=self.config.MAX_RETRIES,
+            retry_delay=self.config.RETRY_DELAY,
+            operation_name="Connect to FA CS"
+        )
+        if not connect_success:
             logger.error(
-                "Failed to connect to FA CS. Ensure you have completed the manual login "
-                "process and FA CS main window is visible."
+                "Failed to connect to FA CS after retries. Ensure you have completed "
+                "the manual login process and FA CS main window is visible."
             )
             return False
 
@@ -466,13 +553,42 @@ def run_fa_cs_automation(
 
     Returns:
         Statistics dictionary with results
+
+    Raises:
+        RuntimeError: If not running on Windows
     """
+    if not _RPA_AVAILABLE:
+        raise RuntimeError(
+            "RPA automation requires Windows. "
+            "This feature is not available on the current platform."
+        )
     orchestrator = FARobotOrchestrator(config)
     return orchestrator.run_automation(df, preview_mode=preview_mode)
 
 
 def test_fa_cs_connection() -> bool:
-    """Test if we can connect to FA CS"""
+    """Test if we can connect to FA CS
+
+    Returns:
+        True if connected, False otherwise
+
+    Raises:
+        RuntimeError: If not running on Windows
+    """
+    if not _RPA_AVAILABLE:
+        raise RuntimeError(
+            "RPA automation requires Windows. "
+            "This feature is not available on the current platform."
+        )
     config = RPAConfig()
     wm = FACSWindowManager(config)
     return wm.connect_to_fa_cs()
+
+
+def is_rpa_available() -> bool:
+    """Check if RPA features are available on this platform.
+
+    Returns:
+        True if on Windows with required libraries, False otherwise
+    """
+    return _RPA_AVAILABLE
