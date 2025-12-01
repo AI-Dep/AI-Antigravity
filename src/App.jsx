@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
 import { Import } from './components/Import';
+import { DataCleanup } from './components/DataCleanup';
 import { Review } from './components/Review';
 import { Settings } from './components/Settings';
 
@@ -18,6 +19,7 @@ export default function App() {
         switch (activeTab) {
             case "dashboard": return <Dashboard setActiveTab={setActiveTab} />;
             case "import": return <Import onUploadSuccess={handleUploadSuccess} />;
+            case "cleanup": return <DataCleanup setActiveTab={setActiveTab} />;
             case "review": return <Review assets={assets} />;
             case "settings": return <Settings />;
             default: return <Dashboard />;
