@@ -41,6 +41,19 @@ class Asset(BaseModel):
     transaction_type: Optional[str] = Field("addition", description="Transaction type: addition, disposal, transfer, existing")
     classification_reason: Optional[str] = Field(None, description="Reason for transaction type classification")
 
+    # Disposal fields (for disposed assets)
+    disposal_date: Optional[date] = Field(None, description="Date asset was disposed/sold")
+    proceeds: Optional[float] = Field(None, description="Sale proceeds from disposal")
+    sale_price: Optional[float] = Field(None, description="Alias for proceeds")
+    accumulated_depreciation: Optional[float] = Field(None, description="Accumulated depreciation at disposal")
+    is_disposed: bool = Field(False, description="Flag indicating asset is disposed")
+
+    # Transfer fields (for transferred assets)
+    from_location: Optional[str] = Field(None, description="Original location/department")
+    to_location: Optional[str] = Field(None, description="New location/department")
+    transfer_date: Optional[date] = Field(None, description="Date of transfer")
+    is_transfer: bool = Field(False, description="Flag indicating asset is a transfer")
+
     # Audit Trail
     audit_trail: List['AuditEvent'] = Field(default_factory=list)
 
@@ -48,7 +61,7 @@ class Asset(BaseModel):
     validation_errors: List[str] = Field(default_factory=list)
     validation_warnings: List[str] = Field(default_factory=list)
 
-    @validator('acquisition_date', 'in_service_date', pre=True)
+    @validator('acquisition_date', 'in_service_date', 'disposal_date', 'transfer_date', pre=True)
     def parse_date(cls, v):
         if v is None:
             return None

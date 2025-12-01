@@ -433,9 +433,12 @@ async def get_tax_config(request: Request, response: Response):
 
     # Calculate bonus rate based on tax year
     if TAX_YEAR_CONFIG_AVAILABLE:
-        bonus_info = tax_year_config.get_bonus_depreciation_rate(tax_year)
-        config["bonus_rate"] = bonus_info.get("rate", 0) if isinstance(bonus_info, dict) else bonus_info
-        config["section_179_limit"] = tax_year_config.get_section_179_limit(tax_year)
+        # get_bonus_percentage returns a float (e.g., 1.0 for 100%, 0.6 for 60%)
+        bonus_rate = tax_year_config.get_bonus_percentage(tax_year)
+        config["bonus_rate"] = int(bonus_rate * 100)  # Convert to percentage (e.g., 100, 60)
+        # get_section_179_limits returns a dict with 'max_deduction' and 'phaseout_threshold'
+        section_179_info = tax_year_config.get_section_179_limits(tax_year)
+        config["section_179_limit"] = section_179_info.get("max_deduction", 0)
         config["obbba_effective"] = tax_year >= 2025  # OBBBA passed in 2025
         config["obbba_info"] = {
             "name": "One Big Beautiful Bill Act (OBBBA) 2025",
@@ -1087,70 +1090,13 @@ async def export_assets(
             f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting.",
             {"error_count": error_count}
         )
-
-    # SECURITY FIX: Require admin key to skip approval check
-    if skip_approval_check:
-        admin_key = request.headers.get("X-Admin-Key", "")
-        expected_key = os.environ.get("ADMIN_API_KEY", "")
-        if not expected_key or admin_key != expected_key:
-            logger.warning(f"Unauthorized attempt to skip approval check from session {session.session_id}")
-            raise api_error(403, "FORBIDDEN", "Admin authentication required to skip approval check")
-        logger.info(f"Admin bypass: Skipping approval check for session {session.session_id}")
-
-    # Validate all actionable assets are approved
-    # Existing assets don't need approval - they're just for reference
-    if not skip_approval_check:
-        actionable_assets = [
-            a for a in assets
-            if a.transaction_type not in ["Existing Asset", None]
-        ]
-
-        unapproved = [
-            a for a in actionable_assets
-            if a.unique_id not in session.approved_assets
-        ]
-
-        if unapproved:
-            unapproved_count = len(unapproved)
-            total_actionable = len(actionable_assets)
-            approved_count = total_actionable - unapproved_count
-
-            # Build helpful error message
-            unapproved_by_type = {}
-            for a in unapproved:
-                tt = a.transaction_type or "Unknown"
-                unapproved_by_type[tt] = unapproved_by_type.get(tt, 0) + 1
-
-            type_breakdown = ", ".join([f"{count} {tt}" for tt, count in unapproved_by_type.items()])
-
-            raise api_error(400, "ASSETS_NOT_APPROVED",
-                f"Cannot export: {unapproved_count} of {total_actionable} actionable assets not approved.",
-                {
-                    "approved": approved_count,
-                    "unapproved": unapproved_count,
-                    "unapproved_by_type": unapproved_by_type,
-                    "breakdown": type_breakdown,
-                    "hint": "Approve all additions, disposals, and transfers before exporting."
-                }
-            )
-
-        # Also check that low-confidence assets were explicitly reviewed
-        low_confidence_unreviewed = [
-            a for a in actionable_assets
-            if a.confidence_score <= 0.8 and a.unique_id not in session.approved_assets
-        ]
-
-        if low_confidence_unreviewed:
-            raise api_error(400, "LOW_CONFIDENCE_NOT_REVIEWED",
-                f"{len(low_confidence_unreviewed)} low-confidence asset(s) require manual review and approval.",
-                {
-                    "count": len(low_confidence_unreviewed),
-                    "hint": "Review and approve all assets with confidence <= 80%."
-                }
-            )
-
-    # Generate Excel
-    excel_file = exporter.generate_fa_cs_export(assets)
+    
+    # Generate Excel with tax configuration
+    excel_file = exporter.generate_fa_cs_export(
+        assets,
+        tax_year=TAX_CONFIG["tax_year"],
+        de_minimis_limit=TAX_CONFIG["de_minimis_threshold"]
+    )
 
     # Save to Bot Handoff Folder (use custom path if set)
     if FACS_CONFIG["export_path"]:
