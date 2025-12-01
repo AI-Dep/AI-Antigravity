@@ -313,6 +313,36 @@ function Review({ assets = [] }) {
         ],
     };
 
+    // Tax year configuration for dynamic limits
+    const TAX_YEAR_CONFIG = {
+        2020: { section179Limit: 1040000, bonusPercent: 100 },
+        2021: { section179Limit: 1050000, bonusPercent: 100 },
+        2022: { section179Limit: 1080000, bonusPercent: 100 },
+        2023: { section179Limit: 1160000, bonusPercent: 80 },
+        2024: { section179Limit: 1220000, bonusPercent: 60 },
+        2025: { section179Limit: 1250000, bonusPercent: 40 },  // Estimated
+        2026: { section179Limit: 1290000, bonusPercent: 20 },  // Estimated
+    };
+
+    // Get tax year limits (with fallback for unknown years)
+    const getTaxYearConfig = (year) => {
+        if (TAX_YEAR_CONFIG[year]) return TAX_YEAR_CONFIG[year];
+        // Fallback: estimate based on trend
+        if (year > 2026) return { section179Limit: 1300000, bonusPercent: 0 };
+        return { section179Limit: 1000000, bonusPercent: 100 };
+    };
+
+    const currentYearConfig = getTaxYearConfig(taxYear);
+
+    // De Minimis Safe Harbor threshold
+    const DE_MINIMIS_THRESHOLD = 2500;
+
+    // Check if property is real property (can't take bonus depreciation)
+    const isRealProperty = (macrsLife) => {
+        const life = parseFloat(macrsLife);
+        return life === 27.5 || life === 39;
+    };
+
     const handleEditClick = (asset) => {
         // Use unique_id for tracking edit state (unique across sheets)
         setEditingId(asset.unique_id);
@@ -456,6 +486,25 @@ function Review({ assets = [] }) {
         }
     };
 
+    // Approve all currently visible (filtered) assets
+    const handleApproveAllVisible = async () => {
+        try {
+            // Get IDs of visible assets that can be approved (no errors, not already approved)
+            const visibleApprovableIds = filteredAssets
+                .filter(a => !a.validation_errors?.length && !approvedIds.has(a.unique_id))
+                .map(a => a.unique_id);
+
+            if (visibleApprovableIds.length === 0) return;
+
+            // Batch approve on backend
+            await apiPost('/assets/approve-batch', visibleApprovableIds);
+            setApprovedIds(prev => new Set([...prev, ...visibleApprovableIds]));
+        } catch (error) {
+            console.error("Failed to approve batch:", error);
+            alert(`Failed to approve: ${error.message || 'Unknown error'}`);
+        }
+    };
+
     // Helper function to download file without opening new window (works in Electron)
     const downloadFile = async (endpoint, defaultFilename) => {
         try {
@@ -543,6 +592,20 @@ function Review({ assets = [] }) {
                     >
                         <CheckCircle className="w-4 h-4 mr-2" />
                         Approve All High Confidence
+                    </Button>
+                    <Button
+                        variant="outline"
+                        onClick={handleApproveAllVisible}
+                        disabled={filteredAssets.filter(a => !a.validation_errors?.length && !approvedIds.has(a.unique_id)).length === 0}
+                        className={cn(
+                            filteredAssets.filter(a => !a.validation_errors?.length && !approvedIds.has(a.unique_id)).length === 0
+                                ? "text-gray-400 cursor-not-allowed"
+                                : "text-blue-600 hover:bg-blue-50"
+                        )}
+                        title={`Approve all ${filteredAssets.filter(a => !a.validation_errors?.length && !approvedIds.has(a.unique_id)).length} visible unapproved assets`}
+                    >
+                        <Check className="w-4 h-4 mr-2" />
+                        Approve Visible ({filteredAssets.filter(a => !a.validation_errors?.length && !approvedIds.has(a.unique_id)).length})
                     </Button>
                     <Button
                         variant="outline"
@@ -980,12 +1043,48 @@ function Review({ assets = [] }) {
                                                     {asset.description}
                                                 </span>
                                             </td>
-                                            {/* Cost */}
+                                            {/* Cost - with gain/loss preview for disposals */}
                                             <td className={cn(
                                                 "font-mono text-slate-600",
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
                                             )}>
-                                                ${(asset.cost || 0).toLocaleString()}
+                                                <div className="flex flex-col">
+                                                    <span>${(asset.cost || 0).toLocaleString()}</span>
+                                                    {/* Disposal gain/loss preview */}
+                                                    {isDisposal(asset.transaction_type) && (
+                                                        <span className={cn(
+                                                            "text-[10px]",
+                                                            // Calculate estimated gain/loss
+                                                            (() => {
+                                                                const proceeds = asset.sale_proceeds || asset.proceeds || 0;
+                                                                const accumDepr = asset.accumulated_depreciation || asset.accum_depr || 0;
+                                                                const bookValue = (asset.cost || 0) - accumDepr;
+                                                                const gainLoss = proceeds - bookValue;
+                                                                return gainLoss >= 0 ? "text-green-600" : "text-red-600";
+                                                            })()
+                                                        )}
+                                                            title={(() => {
+                                                                const proceeds = asset.sale_proceeds || asset.proceeds || 0;
+                                                                const accumDepr = asset.accumulated_depreciation || asset.accum_depr || 0;
+                                                                const bookValue = (asset.cost || 0) - accumDepr;
+                                                                return `Cost: $${(asset.cost || 0).toLocaleString()}\nAccum Depr: $${accumDepr.toLocaleString()}\nBook Value: $${bookValue.toLocaleString()}\nProceeds: $${proceeds.toLocaleString()}`;
+                                                            })()}
+                                                        >
+                                                            {(() => {
+                                                                const proceeds = asset.sale_proceeds || asset.proceeds || 0;
+                                                                const accumDepr = asset.accumulated_depreciation || asset.accum_depr || 0;
+                                                                const bookValue = (asset.cost || 0) - accumDepr;
+                                                                const gainLoss = proceeds - bookValue;
+                                                                if (accumDepr === 0 && proceeds === 0) {
+                                                                    return <span className="text-slate-400 cursor-help" title="Add accumulated depreciation and sale proceeds for gain/loss calculation">Est. G/L: —</span>;
+                                                                }
+                                                                return gainLoss >= 0
+                                                                    ? `Gain: $${gainLoss.toLocaleString()}`
+                                                                    : `Loss: ($${Math.abs(gainLoss).toLocaleString()})`;
+                                                            })()}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </td>
                                             {/* Key Date - Context-aware based on transaction type */}
                                             <td className={cn(
@@ -1203,17 +1302,24 @@ function Review({ assets = [] }) {
                                             {/* Election Column - 179/Bonus/DeMinimis/MACRS (always visible, outside edit mode toggle) */}
                                             <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                 {asset.transaction_type === "Current Year Addition" ? (
-                                                    <div className="group relative">
+                                                    <div className="group relative flex items-center gap-1">
                                                         <select
                                                             value={asset.depreciation_election || "MACRS"}
                                                             onChange={(e) => handleElectionChange(asset.unique_id, e.target.value)}
                                                             className={cn(
                                                                 "rounded border font-medium cursor-pointer",
                                                                 tableCompact ? "px-1 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-xs",
-                                                                asset.depreciation_election === "DeMinimis" && "bg-green-100 text-green-700 border-green-300",
+                                                                // De Minimis with cost warning
+                                                                asset.depreciation_election === "DeMinimis" && asset.cost > DE_MINIMIS_THRESHOLD
+                                                                    ? "bg-orange-100 text-orange-700 border-orange-400"
+                                                                    : asset.depreciation_election === "DeMinimis" && "bg-green-100 text-green-700 border-green-300",
+                                                                // Bonus on real property warning
+                                                                asset.depreciation_election === "Bonus" && isRealProperty(asset.macrs_life)
+                                                                    ? "bg-red-100 text-red-700 border-red-400"
+                                                                    : asset.depreciation_election === "Bonus" && "bg-purple-100 text-purple-700 border-purple-300",
                                                                 asset.depreciation_election === "Section179" && "bg-blue-100 text-blue-700 border-blue-300",
-                                                                asset.depreciation_election === "Bonus" && "bg-purple-100 text-purple-700 border-purple-300",
-                                                                (!asset.depreciation_election || asset.depreciation_election === "MACRS") && "bg-slate-100 text-slate-700 border-slate-300"
+                                                                (!asset.depreciation_election || asset.depreciation_election === "MACRS") && "bg-slate-100 text-slate-700 border-slate-300",
+                                                                asset.depreciation_election === "ADS" && "bg-slate-100 text-slate-700 border-slate-300"
                                                             )}
                                                         >
                                                             <option value="MACRS">MACRS</option>
@@ -1222,14 +1328,27 @@ function Review({ assets = [] }) {
                                                             <option value="Bonus">Bonus</option>
                                                             <option value="ADS">ADS</option>
                                                         </select>
-                                                        {/* Tooltip showing election info */}
+                                                        {/* Warning icon for De Minimis over threshold */}
+                                                        {asset.depreciation_election === "DeMinimis" && asset.cost > DE_MINIMIS_THRESHOLD && (
+                                                            <AlertTriangle className="w-3.5 h-3.5 text-orange-500" title={`Cost $${asset.cost.toLocaleString()} exceeds De Minimis threshold of $${DE_MINIMIS_THRESHOLD.toLocaleString()}`} />
+                                                        )}
+                                                        {/* Warning icon for Bonus on real property */}
+                                                        {asset.depreciation_election === "Bonus" && isRealProperty(asset.macrs_life) && (
+                                                            <AlertTriangle className="w-3.5 h-3.5 text-red-500" title="Real property (27.5/39 year) cannot take bonus depreciation" />
+                                                        )}
+                                                        {/* Tooltip showing election info with dynamic tax year values */}
                                                         <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-20">
                                                             {asset.depreciation_election === "DeMinimis" ? (
                                                                 <>
                                                                     <div className="font-semibold text-green-300 mb-1">⚡ De Minimis Safe Harbor</div>
-                                                                    <div>• Expense immediately (≤$2,500)</div>
+                                                                    <div>• Expense immediately (≤${DE_MINIMIS_THRESHOLD.toLocaleString()})</div>
                                                                     <div>• NOT added to FA CS</div>
                                                                     <div>• Exported to separate sheet</div>
+                                                                    {asset.cost > DE_MINIMIS_THRESHOLD && (
+                                                                        <div className="mt-1 p-1 bg-orange-900/50 rounded text-orange-200">
+                                                                            ⚠️ Cost ${asset.cost.toLocaleString()} exceeds threshold!
+                                                                        </div>
+                                                                    )}
                                                                     <div className="mt-1 text-yellow-200 text-[10px]">Rev. Proc. 2015-20</div>
                                                                 </>
                                                             ) : asset.depreciation_election === "Section179" ? (
@@ -1237,14 +1356,25 @@ function Review({ assets = [] }) {
                                                                     <div className="font-semibold text-blue-300 mb-1">§179 Expense Election</div>
                                                                     <div>• Full deduction in Year 1</div>
                                                                     <div>• Subject to business income limit</div>
-                                                                    <div>• 2024 limit: $1,160,000</div>
+                                                                    <div>• {taxYear} limit: ${currentYearConfig.section179Limit.toLocaleString()}</div>
                                                                 </>
                                                             ) : asset.depreciation_election === "Bonus" ? (
                                                                 <>
                                                                     <div className="font-semibold text-purple-300 mb-1">Bonus Depreciation</div>
-                                                                    <div>• 60% deduction in Year 1 (2024)</div>
-                                                                    <div>• Remaining 40% via MACRS</div>
+                                                                    {currentYearConfig.bonusPercent > 0 ? (
+                                                                        <>
+                                                                            <div>• {currentYearConfig.bonusPercent}% deduction in Year 1 ({taxYear})</div>
+                                                                            <div>• Remaining {100 - currentYearConfig.bonusPercent}% via MACRS</div>
+                                                                        </>
+                                                                    ) : (
+                                                                        <div className="text-red-300">• Bonus depreciation expired for {taxYear}</div>
+                                                                    )}
                                                                     <div>• No income limitation</div>
+                                                                    {isRealProperty(asset.macrs_life) && (
+                                                                        <div className="mt-1 p-1 bg-red-900/50 rounded text-red-200">
+                                                                            ⚠️ Real property cannot take bonus depreciation!
+                                                                        </div>
+                                                                    )}
                                                                 </>
                                                             ) : asset.depreciation_election === "ADS" ? (
                                                                 <>
