@@ -1,22 +1,30 @@
 import React from 'react';
+import { useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 
-function Layout({ children, activeTab, setActiveTab }) {
-    // Derive title from active tab
+// Map route paths to page titles
+const routeTitles = {
+    '/dashboard': 'Dashboard',
+    '/import': 'Import Asset Schedule',
+    '/cleanup': 'Data Cleanup',
+    '/review': 'Review & Approve',
+    '/settings': 'Settings',
+};
+
+function Layout({ children }) {
+    const location = useLocation();
+
+    // Derive title from current route
     const getTitle = () => {
-        switch (activeTab) {
-            case 'dashboard': return 'Dashboard';
-            case 'import': return 'Import Asset Schedule';
-            case 'review': return 'Review & Approve';
-            case 'settings': return 'Settings';
-            default: return 'FA CS Automator';
-        }
+        // Handle parameterized routes like /review/:sessionId
+        const basePath = '/' + location.pathname.split('/')[1];
+        return routeTitles[basePath] || 'FA CS Automator';
     };
 
     return (
         <div className="flex h-screen bg-background overflow-hidden font-sans">
-            <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+            <Sidebar />
             <div className="flex-1 flex flex-col min-w-0">
                 <Header title={getTitle()} />
                 <main className="flex-1 overflow-auto p-6">

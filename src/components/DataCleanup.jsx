@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { Button } from './ui/button';
 import {
@@ -19,7 +20,8 @@ import { apiGet, apiPost } from '../lib/api.client';
  * - Auto-fill missing In-Service dates from acquisition date
  * - Header detection for any format
  */
-export function DataCleanup({ setActiveTab }) {
+export function DataCleanup() {
+    const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [analyzing, setAnalyzing] = useState(false);
     const [fixing, setFixing] = useState(null);
@@ -211,7 +213,7 @@ export function DataCleanup({ setActiveTab }) {
                             </div>
                         </div>
                         {!hasIssues && stats.total > 0 && (
-                            <Button onClick={() => setActiveTab && setActiveTab('review')}>
+                            <Button onClick={() => navigate('/review')}>
                                 Proceed to Review
                             </Button>
                         )}

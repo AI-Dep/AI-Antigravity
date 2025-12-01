@@ -1,16 +1,17 @@
 import React from 'react';
+import { NavLink } from 'react-router-dom';
 import { LayoutDashboard, FileInput, CheckSquare, Settings, LogOut, Sparkles } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const navItems = [
-    { icon: LayoutDashboard, label: 'Dashboard', id: 'dashboard' },
-    { icon: FileInput, label: 'Import Data', id: 'import' },
-    { icon: Sparkles, label: 'Data Cleanup', id: 'cleanup', badge: 'NEW' },
-    { icon: CheckSquare, label: 'Review & Approve', id: 'review' },
-    { icon: Settings, label: 'Settings', id: 'settings' },
+    { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
+    { icon: FileInput, label: 'Import Data', path: '/import' },
+    { icon: Sparkles, label: 'Data Cleanup', path: '/cleanup', badge: 'NEW' },
+    { icon: CheckSquare, label: 'Review & Approve', path: '/review' },
+    { icon: Settings, label: 'Settings', path: '/settings' },
 ];
 
-export function Sidebar({ activeTab, setActiveTab }) {
+export function Sidebar() {
     return (
         <div className="w-64 bg-card border-r border-border h-screen flex flex-col">
             <div className="p-6 border-b border-border">
@@ -23,31 +24,34 @@ export function Sidebar({ activeTab, setActiveTab }) {
             <nav className="flex-1 p-4 space-y-2">
                 {navItems.map((item) => {
                     const Icon = item.icon;
-                    const isActive = activeTab === item.id;
                     return (
-                        <button
-                            key={item.id}
-                            onClick={() => setActiveTab(item.id)}
-                            className={cn(
+                        <NavLink
+                            key={item.path}
+                            to={item.path}
+                            className={({ isActive }) => cn(
                                 "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-sm font-medium",
                                 isActive
                                     ? "bg-primary text-primary-foreground"
                                     : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                             )}
                         >
-                            <Icon size={20} />
-                            <span className="flex-1 text-left">{item.label}</span>
-                            {item.badge && (
-                                <span className={cn(
-                                    "px-1.5 py-0.5 text-[10px] font-bold rounded",
-                                    isActive
-                                        ? "bg-primary-foreground/20 text-primary-foreground"
-                                        : "bg-green-100 text-green-700"
-                                )}>
-                                    {item.badge}
-                                </span>
+                            {({ isActive }) => (
+                                <>
+                                    <Icon size={20} />
+                                    <span className="flex-1 text-left">{item.label}</span>
+                                    {item.badge && (
+                                        <span className={cn(
+                                            "px-1.5 py-0.5 text-[10px] font-bold rounded",
+                                            isActive
+                                                ? "bg-primary-foreground/20 text-primary-foreground"
+                                                : "bg-green-100 text-green-700"
+                                        )}>
+                                            {item.badge}
+                                        </span>
+                                    )}
+                                </>
                             )}
-                        </button>
+                        </NavLink>
                     );
                 })}
             </nav>
