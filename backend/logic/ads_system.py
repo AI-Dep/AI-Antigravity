@@ -282,11 +282,35 @@ def should_use_ads(asset: Dict) -> Tuple[bool, Optional[str]]:
     if asset.get("ADS Elected") or asset.get("Elect ADS"):
         return True, "Taxpayer elected ADS (IRC §168(g)(7))"
 
-    # Check for tax-exempt use property
-    # (Would need additional data fields to detect)
-
-    # Check for tax-exempt bond financing
-    # (Would need additional data fields to detect)
+    # =========================================================================
+    # KNOWN LIMITATIONS - ADS triggers NOT currently detected:
+    # =========================================================================
+    #
+    # 1. TAX-EXEMPT USE PROPERTY (IRC §168(h)(2)(D))
+    #    - Property used by tax-exempt organizations (governments, non-profits)
+    #    - Property in tax-exempt bond financed facilities
+    #    - Detection would require: "Tax-Exempt Use %" or "Tax-Exempt Entity" fields
+    #    - IMPACT: If asset is used by tax-exempt entity, ADS is required but
+    #      this system will NOT detect it automatically.
+    #
+    # 2. TAX-EXEMPT BOND FINANCING (IRC §168(g)(1)(A))
+    #    - Property financed with tax-exempt bonds
+    #    - Detection would require: "Bond Financed" or "Tax-Exempt Bond" indicator
+    #    - IMPACT: Bond-financed property requires ADS but this system will
+    #      NOT detect it automatically.
+    #
+    # 3. IMPORTED PROPERTY COVERED BY EXECUTIVE ORDERS
+    #    - Certain imported property may require ADS
+    #    - Detection would require: "Import Country" or "Executive Order" fields
+    #
+    # 4. FARMING PROPERTY ELECTING OUT OF IRC §163(j)
+    #    - Farm property where taxpayer elected out of interest limitation
+    #    - Detection would require: "Farm Property" and "163(j) Election" fields
+    #
+    # RECOMMENDATION: For clients with significant tax-exempt use, bond financing,
+    # or farming operations, manually verify ADS requirements or add the relevant
+    # indicator fields to the source data.
+    # =========================================================================
 
     return False, None
 

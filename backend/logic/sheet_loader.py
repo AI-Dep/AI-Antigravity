@@ -2168,6 +2168,9 @@ def analyze_excel_structure(sheets: Dict[str, pd.DataFrame]) -> Dict[str, SheetA
 
             # Extract data
             df = df_raw.iloc[header_idx:].copy()
+            if df.empty or len(df) < 1:
+                logger.warning(f"Sheet '{sheet_name}' has no data after header row {header_idx}")
+                continue
             df.columns = [_normalize_header(x) for x in df.iloc[0]]
             df = df.iloc[1:].reset_index(drop=True)
 

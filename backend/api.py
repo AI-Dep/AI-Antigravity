@@ -29,6 +29,29 @@ def get_session_lock(session_id: str) -> Lock:
             _session_locks[session_id] = Lock()
         return _session_locks[session_id]
 
+
+def cleanup_session_lock(session_id: str) -> None:
+    """Remove a session lock when the session expires."""
+    with _session_locks_lock:
+        if session_id in _session_locks:
+            del _session_locks[session_id]
+
+
+def cleanup_stale_session_locks(active_session_ids: set) -> int:
+    """Remove locks for sessions that no longer exist.
+
+    Args:
+        active_session_ids: Set of session IDs that are still active
+
+    Returns:
+        Number of locks removed
+    """
+    with _session_locks_lock:
+        stale_ids = set(_session_locks.keys()) - active_session_ids
+        for session_id in stale_ids:
+            del _session_locks[session_id]
+        return len(stale_ids)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1327,17 +1350,19 @@ async def get_data_quality(request: Request):
 
 
 @app.get("/tabs")
-def get_tab_analysis():
+async def get_tab_analysis(request: Request, response: Response):
     """
     Get the tab analysis results from the last upload.
     Shows which tabs were detected and their roles.
     """
-    global TAB_ANALYSIS_RESULT
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
 
-    if TAB_ANALYSIS_RESULT is None:
+    tab_result = getattr(session, 'tab_analysis_result', None)
+    if tab_result is None:
         return {
             "tabs": [],
-            "target_fiscal_year": TAX_CONFIG["tax_year"],
+            "target_fiscal_year": session.tax_config.get("tax_year", TAX_CONFIG["tax_year"]),
             "warnings": [],
             "summary": "No file uploaded yet",
             "efficiency": {}
@@ -1345,7 +1370,7 @@ def get_tab_analysis():
 
     # Convert tab analysis to serializable format
     tabs_data = []
-    for tab in TAB_ANALYSIS_RESULT.tabs:
+    for tab in tab_result.tabs:
         tabs_data.append({
             "tab_name": tab.tab_name,
             "role": tab.role.value,
@@ -1362,27 +1387,30 @@ def get_tab_analysis():
             "detection_notes": tab.detection_notes
         })
 
-    efficiency = TAB_ANALYSIS_RESULT.get_efficiency_stats()
+    efficiency = tab_result.get_efficiency_stats()
 
     return {
         "tabs": tabs_data,
-        "target_fiscal_year": TAB_ANALYSIS_RESULT.target_fiscal_year,
-        "warnings": TAB_ANALYSIS_RESULT.warnings,
-        "summary_tabs": TAB_ANALYSIS_RESULT.summary_tabs,
-        "detail_tabs": TAB_ANALYSIS_RESULT.detail_tabs,
-        "disposal_tabs": TAB_ANALYSIS_RESULT.disposal_tabs,
+        "target_fiscal_year": tab_result.target_fiscal_year,
+        "warnings": tab_result.warnings,
+        "summary_tabs": tab_result.summary_tabs,
+        "detail_tabs": tab_result.detail_tabs,
+        "disposal_tabs": tab_result.disposal_tabs,
         "efficiency": efficiency,
-        "filename": LAST_UPLOAD_FILENAME
+        "filename": getattr(session, 'last_upload_filename', None)
     }
 
 
 @app.get("/rollforward")
-def get_rollforward_status():
+async def get_rollforward_status(request: Request, response: Response):
     """
     Get rollforward reconciliation status for loaded assets.
     Shows beginning balance, additions, disposals, and ending balance.
     """
-    if not ASSET_STORE:
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    if not session.assets:
         return {
             "is_balanced": True,
             "beginning_balance": 0,
@@ -1398,7 +1426,7 @@ def get_rollforward_status():
         }
 
     # Convert assets to DataFrame
-    assets = list(ASSET_STORE.values())
+    assets = list(session.assets.values())
     df_data = []
     for a in assets:
         df_data.append({
@@ -1428,7 +1456,7 @@ def get_rollforward_status():
             "status_label": status_label
         }
     except Exception as e:
-        print(f"Rollforward error: {e}")
+        logger.error(f"Rollforward error: {e}")
         return {
             "is_balanced": False,
             "beginning_balance": 0,
@@ -1445,12 +1473,15 @@ def get_rollforward_status():
 
 
 @app.get("/projection")
-def get_depreciation_projection():
+async def get_depreciation_projection(request: Request, response: Response):
     """
     Get 10-year depreciation projection for loaded assets.
     Shows year-by-year tax depreciation forecast.
     """
-    if not ASSET_STORE:
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    if not session.assets:
         return {
             "years": [],
             "depreciation": [],
@@ -1460,7 +1491,7 @@ def get_depreciation_projection():
         }
 
     # Convert assets to DataFrame with required columns
-    assets = list(ASSET_STORE.values())
+    assets = list(session.assets.values())
     df_data = []
     for a in assets:
         # Calculate depreciable basis (simplified - full calc in export)
@@ -1475,7 +1506,7 @@ def get_depreciation_projection():
         })
 
     df = pd.DataFrame(df_data)
-    current_year = TAX_CONFIG["tax_year"]
+    current_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
 
     try:
         projection_df = project_portfolio_depreciation(df, current_year, projection_years=10)
@@ -1495,8 +1526,7 @@ def get_depreciation_projection():
             "summary": f"${total_10_year:,.0f} total depreciation over 10 years"
         }
     except Exception as e:
-        print(f"Projection error: {e}")
-        traceback.print_exc()
+        logger.error(f"Projection error: {e}")
         return {
             "years": [],
             "depreciation": [],
@@ -1507,12 +1537,15 @@ def get_depreciation_projection():
 
 
 @app.get("/confidence")
-def get_confidence_breakdown():
+async def get_confidence_breakdown(request: Request, response: Response):
     """
     Get breakdown of assets by confidence level.
     Helps CPAs prioritize review time.
     """
-    if not ASSET_STORE:
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    if not session.assets:
         return {
             "high": {"count": 0, "pct": 0},
             "medium": {"count": 0, "pct": 0},
@@ -1521,7 +1554,7 @@ def get_confidence_breakdown():
             "auto_approve_eligible": 0
         }
 
-    assets = list(ASSET_STORE.values())
+    assets = list(session.assets.values())
     total = len(assets)
 
     # Count by confidence tier

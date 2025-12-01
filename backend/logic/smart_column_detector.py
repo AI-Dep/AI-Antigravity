@@ -448,8 +448,12 @@ def generate_detection_report(
     # Set up DataFrame with detected headers
     if header_row >= 0 and header_row < len(df_raw):
         df = df_raw.iloc[header_row:].copy()
-        df.columns = [str(x).strip() for x in df.iloc[0]]
-        df = df.iloc[1:].reset_index(drop=True)
+        if df.empty or len(df) < 1:
+            warnings.append("DataFrame is empty after header extraction")
+            df = df_raw.copy()
+        else:
+            df.columns = [str(x).strip() for x in df.iloc[0]]
+            df = df.iloc[1:].reset_index(drop=True)
     else:
         df = df_raw.copy()
 
@@ -474,7 +478,7 @@ def generate_detection_report(
     else:
         # Confidence based on critical fields detected
         detected_critical = len([f for f in critical_fields if f in detected_mappings])
-        overall_confidence = detected_critical / len(critical_fields)
+        overall_confidence = detected_critical / len(critical_fields) if critical_fields else 0.0
         detection_method = "standard"
 
     return DetectionReport(
@@ -587,6 +591,8 @@ def enhanced_header_detection(
 
     # Extract headers
     df = df_raw.iloc[header_idx:].copy()
+    if df.empty or len(df) < 1:
+        raise ValueError("No data rows found after header detection")
     df.columns = [_normalize_header(x) for x in df.iloc[0]]
     df = df.iloc[1:].reset_index(drop=True)
 
