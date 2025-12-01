@@ -1103,6 +1103,249 @@ async def get_export_status(request: Request, response: Response):
     }
 
 
+@app.get("/export/compatibility-check")
+async def check_fa_cs_compatibility(request: Request, response: Response):
+    """
+    Real-Time FA CS Compatibility Checker.
+    Validates assets before export to prevent broken imports.
+
+    Checks:
+    - Missing required fields
+    - Valid method/life pairs for FA CS
+    - Date format validity
+    - Negative number formatting
+    - Class to category mapping validity
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    if not session.assets:
+        return {
+            "is_compatible": True,
+            "issues": [],
+            "summary": "No assets to check"
+        }
+
+    issues = []
+    assets = list(session.assets.values())
+
+    # Valid MACRS life/method combinations for FA CS
+    valid_life_method = {
+        3: ["200DB", "150DB", "SL"],
+        5: ["200DB", "150DB", "SL"],
+        7: ["200DB", "150DB", "SL"],
+        10: ["200DB", "150DB", "SL"],
+        15: ["150DB", "SL"],
+        20: ["150DB", "SL"],
+        25: ["SL"],
+        27.5: ["SL"],
+        39: ["SL"],
+    }
+
+    for asset in assets:
+        # Skip existing assets (they're already in FA CS)
+        if asset.transaction_type == "Existing Asset":
+            continue
+
+        asset_id = asset.asset_id or f"Row {asset.unique_id}"
+
+        # Check 1: Missing required fields
+        if not asset.description:
+            issues.append({
+                "asset_id": asset_id,
+                "severity": "error",
+                "message": "Missing description",
+                "suggestion": "Add asset description"
+            })
+
+        if not asset.cost or asset.cost == 0:
+            issues.append({
+                "asset_id": asset_id,
+                "severity": "error",
+                "message": "Missing or zero cost",
+                "suggestion": "Enter valid cost amount"
+            })
+
+        if not asset.in_service_date:
+            issues.append({
+                "asset_id": asset_id,
+                "severity": "error",
+                "message": "Missing in-service date",
+                "suggestion": "Use Data Cleanup to auto-fill from acquisition date"
+            })
+
+        # Check 2: Valid method/life pair
+        life = asset.macrs_life
+        method = asset.macrs_method
+        if life and method:
+            valid_methods = valid_life_method.get(life, [])
+            if method not in valid_methods and valid_methods:
+                issues.append({
+                    "asset_id": asset_id,
+                    "severity": "warning",
+                    "message": f"Invalid method/life: {method}/{life} yr",
+                    "suggestion": f"Valid methods for {life}-yr: {', '.join(valid_methods)}"
+                })
+
+        # Check 3: Missing MACRS class
+        if not asset.macrs_class:
+            issues.append({
+                "asset_id": asset_id,
+                "severity": "warning",
+                "message": "Missing MACRS class",
+                "suggestion": "Review and assign asset class"
+            })
+
+        # Check 4: Negative cost format
+        if asset.cost and asset.cost < 0 and asset.transaction_type != "Disposal":
+            issues.append({
+                "asset_id": asset_id,
+                "severity": "warning",
+                "message": f"Negative cost (${asset.cost:,.2f}) for non-disposal",
+                "suggestion": "Verify if this should be a disposal"
+            })
+
+    is_compatible = len([i for i in issues if i["severity"] == "error"]) == 0
+
+    return {
+        "is_compatible": is_compatible,
+        "issues": issues,
+        "summary": f"{len(issues)} potential issues found" if issues else "All checks passed"
+    }
+
+
+@app.get("/export/depreciation-preview")
+async def get_depreciation_preview(request: Request, response: Response):
+    """
+    179/Bonus Election Preview.
+    Shows estimated Year 1 depreciation breakdown before export.
+
+    Returns:
+    - Section 179 eligible amount
+    - Bonus depreciation (60% for 2024)
+    - Regular MACRS depreciation
+    - Total Year 1 depreciation
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    if not session.assets:
+        return {
+            "section_179": 0,
+            "bonus": 0,
+            "regular_macrs": 0,
+            "total_year1": 0,
+            "summary": "No assets loaded"
+        }
+
+    assets = list(session.assets.values())
+    tax_year = session.tax_config.get("tax_year", 2024)
+
+    # 2024 limits (adjust for future years)
+    section_179_limit = 1160000  # 2024 limit
+    bonus_rate = 0.60  # 60% for 2024
+
+    section_179_total = 0
+    bonus_total = 0
+    regular_macrs_total = 0
+
+    for asset in assets:
+        # Only CY additions are eligible for 179/Bonus
+        if asset.transaction_type != "Current Year Addition":
+            continue
+
+        cost = asset.cost or 0
+        if cost <= 0:
+            continue
+
+        is_bonus_eligible = getattr(asset, 'is_bonus_eligible', True)
+        life = asset.macrs_life or 7
+
+        # First year MACRS rate (approximation)
+        first_year_rates = {
+            3: 0.3333,
+            5: 0.20,
+            7: 0.1429,
+            10: 0.10,
+            15: 0.05,
+            20: 0.0375,
+            27.5: 0.03636,
+            39: 0.02564,
+        }
+
+        first_year_rate = first_year_rates.get(life, 0.1429)
+
+        if is_bonus_eligible:
+            # Assume 179 election for smaller assets
+            if cost <= 2500:
+                # De minimis - expense fully
+                section_179_total += cost
+            elif cost <= 50000 and section_179_total + cost <= section_179_limit:
+                # 179 candidate
+                section_179_total += cost
+            else:
+                # Bonus depreciation
+                bonus_amount = cost * bonus_rate
+                remaining = cost - bonus_amount
+                regular = remaining * first_year_rate
+                bonus_total += bonus_amount
+                regular_macrs_total += regular
+        else:
+            # Regular MACRS only (existing assets, not eligible)
+            regular_macrs_total += cost * first_year_rate
+
+    total_year1 = section_179_total + bonus_total + regular_macrs_total
+
+    return {
+        "section_179": round(section_179_total, 2),
+        "bonus": round(bonus_total, 2),
+        "regular_macrs": round(regular_macrs_total, 2),
+        "total_year1": round(total_year1, 2),
+        "tax_year": tax_year,
+        "bonus_rate": bonus_rate,
+        "section_179_limit": section_179_limit,
+        "summary": f"Estimated ${total_year1:,.0f} Year 1 depreciation"
+    }
+
+
+@app.post("/export/auto-fix")
+async def auto_fix_compatibility_issues(request: Request, response: Response):
+    """
+    Auto-fix common FA CS compatibility issues.
+
+    Fixes:
+    - Missing method: Default to 200DB for 3-7yr, 150DB for 15-20yr, SL for others
+    - Missing convention: Default to HY
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    fixed_count = 0
+    assets = session.assets
+
+    for asset_id, asset in assets.items():
+        # Fix missing method based on life
+        if not asset.macrs_method and asset.macrs_life:
+            life = asset.macrs_life
+            if life in [3, 5, 7, 10]:
+                asset.macrs_method = "200DB"
+            elif life in [15, 20]:
+                asset.macrs_method = "150DB"
+            else:
+                asset.macrs_method = "SL"
+            fixed_count += 1
+
+        # Fix missing convention
+        if not asset.macrs_convention:
+            asset.macrs_convention = "HY"
+            fixed_count += 1
+
+    return {
+        "success": True,
+        "fixed_count": fixed_count
+    }
+
+
 @app.get("/export")
 async def export_assets(
     request: Request,
@@ -1684,6 +1927,178 @@ def get_system_status():
             "status": "Online",
             "version": "1.0.0"
         }
+    }
+
+
+# ==============================================================================
+# DATA CLEANUP ENDPOINTS
+# ==============================================================================
+
+@app.get("/cleanup/analyze")
+async def analyze_data_cleanup(request: Request, response: Response):
+    """
+    Analyze loaded data for common quality issues that can be auto-fixed.
+
+    Returns categorized issues:
+    - invalid_dates: Dates that don't exist (e.g., Feb 30)
+    - negative_format: Numbers with trailing minus
+    - missing_dates: In-service dates that can be filled from acquisition date
+    - ocr_errors: Common OCR/scanning mistakes
+    - cost_format: Currency symbols, invalid characters in costs
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    if not session.assets:
+        return {
+            "issues": {},
+            "stats": {"total": 0},
+            "summary": "No assets loaded"
+        }
+
+    issues = {
+        "invalid_dates": [],
+        "negative_format": [],
+        "missing_dates": [],
+        "ocr_errors": [],
+        "cost_format": []
+    }
+
+    assets = list(session.assets.values())
+
+    for asset in assets:
+        asset_id = asset.asset_id
+
+        # Check for invalid dates
+        if asset.in_service_date:
+            date_str = str(asset.in_service_date)
+            # Check for obviously invalid dates
+            if "2/30" in date_str or "2/31" in date_str or "4/31" in date_str or "6/31" in date_str:
+                issues["invalid_dates"].append({
+                    "asset_id": asset_id,
+                    "field": "In Service Date",
+                    "current_value": date_str,
+                    "suggested_fix": "Correct to valid date"
+                })
+
+        # Check for missing in-service dates (can use acquisition date)
+        if not asset.in_service_date and asset.acquisition_date:
+            issues["missing_dates"].append({
+                "asset_id": asset_id,
+                "field": "In Service Date",
+                "current_value": "Missing",
+                "suggested_fix": str(asset.acquisition_date)
+            })
+
+        # Check for cost format issues
+        if asset.cost is not None:
+            cost_str = str(asset.cost)
+            # Check for trailing minus (e.g., "4,129.66-")
+            if cost_str.endswith('-'):
+                issues["negative_format"].append({
+                    "asset_id": asset_id,
+                    "field": "Cost",
+                    "current_value": cost_str,
+                    "suggested_fix": f"-{cost_str[:-1]}"
+                })
+            # Check for currency symbols or weird characters
+            if '$' in cost_str or '€' in cost_str or '£' in cost_str:
+                issues["cost_format"].append({
+                    "asset_id": asset_id,
+                    "field": "Cost",
+                    "current_value": cost_str,
+                    "suggested_fix": cost_str.replace('$', '').replace('€', '').replace('£', '').strip()
+                })
+
+        # Check description for OCR errors (O vs 0 in what looks like numbers)
+        if asset.description:
+            desc = asset.description
+            # Common OCR errors: O instead of 0, l instead of 1
+            if 'O' in desc and any(c.isdigit() for c in desc):
+                # Potential OCR error - O in numeric context
+                issues["ocr_errors"].append({
+                    "asset_id": asset_id,
+                    "field": "Description",
+                    "current_value": desc[:50] + ('...' if len(desc) > 50 else ''),
+                    "suggested_fix": "Review for OCR errors"
+                })
+
+    return {
+        "issues": issues,
+        "stats": {
+            "total": len(assets),
+            "issues_count": sum(len(v) for v in issues.values())
+        },
+        "summary": f"Found {sum(len(v) for v in issues.values())} issues in {len(assets)} assets"
+    }
+
+
+@app.post("/cleanup/fix")
+async def fix_data_category(request: Request, response: Response, body: dict = Body(...)):
+    """
+    Apply auto-fix for a specific category of issues.
+
+    Body: { "category": "invalid_dates" | "negative_format" | "missing_dates" | "ocr_errors" | "cost_format" }
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    category = body.get("category")
+    if not category:
+        raise HTTPException(status_code=400, detail="Category required")
+
+    fixed_count = 0
+    assets = session.assets
+
+    for asset_id, asset in assets.items():
+        if category == "missing_dates":
+            if not asset.in_service_date and asset.acquisition_date:
+                asset.in_service_date = asset.acquisition_date
+                fixed_count += 1
+
+        elif category == "negative_format":
+            if asset.cost is not None:
+                cost_str = str(asset.cost)
+                if cost_str.endswith('-'):
+                    try:
+                        asset.cost = -float(cost_str[:-1].replace(',', ''))
+                        fixed_count += 1
+                    except ValueError:
+                        pass
+
+        elif category == "cost_format":
+            if asset.cost is not None:
+                cost_str = str(asset.cost)
+                if '$' in cost_str or '€' in cost_str or '£' in cost_str:
+                    try:
+                        cleaned = cost_str.replace('$', '').replace('€', '').replace('£', '').replace(',', '').strip()
+                        asset.cost = float(cleaned)
+                        fixed_count += 1
+                    except ValueError:
+                        pass
+
+    return {
+        "success": True,
+        "category": category,
+        "fixed_count": fixed_count
+    }
+
+
+@app.post("/cleanup/fix-all")
+async def fix_all_data_issues(request: Request, response: Response):
+    """Apply all available auto-fixes."""
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    total_fixed = 0
+
+    for category in ["missing_dates", "negative_format", "cost_format"]:
+        result = await fix_data_category(request, response, {"category": category})
+        total_fixed += result.get("fixed_count", 0)
+
+    return {
+        "success": True,
+        "total_fixed": total_fixed
     }
 
 

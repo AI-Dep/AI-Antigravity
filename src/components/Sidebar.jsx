@@ -1,10 +1,11 @@
 import React from 'react';
-import { LayoutDashboard, FileInput, CheckSquare, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, FileInput, CheckSquare, Settings, LogOut, Sparkles } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const navItems = [
     { icon: LayoutDashboard, label: 'Dashboard', id: 'dashboard' },
     { icon: FileInput, label: 'Import Data', id: 'import' },
+    { icon: Sparkles, label: 'Data Cleanup', id: 'cleanup', badge: 'NEW' },
     { icon: CheckSquare, label: 'Review & Approve', id: 'review' },
     { icon: Settings, label: 'Settings', id: 'settings' },
 ];
@@ -35,7 +36,17 @@ export function Sidebar({ activeTab, setActiveTab }) {
                             )}
                         >
                             <Icon size={20} />
-                            {item.label}
+                            <span className="flex-1 text-left">{item.label}</span>
+                            {item.badge && (
+                                <span className={cn(
+                                    "px-1.5 py-0.5 text-[10px] font-bold rounded",
+                                    isActive
+                                        ? "bg-primary-foreground/20 text-primary-foreground"
+                                        : "bg-green-100 text-green-700"
+                                )}>
+                                    {item.badge}
+                                </span>
+                            )}
                         </button>
                     );
                 })}

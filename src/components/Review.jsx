@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2 } from 'lucide-react';
+import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2, Shield, Wand2, DollarSign, Calculator } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 // Import API types for consistent contract
@@ -22,6 +22,10 @@ function Review({ assets = [] }) {
     const [taxYearLoading, setTaxYearLoading] = useState(false); // Loading state for tax year change
     const [tableCompact, setTableCompact] = useState(false); // Table density: false = comfortable, true = compact
     const [exportStatus, setExportStatus] = useState({ ready: false, reason: null }); // Track export readiness
+    const [compatibilityCheck, setCompatibilityCheck] = useState(null); // FA CS compatibility check results
+    const [showCompatDialog, setShowCompatDialog] = useState(false); // Show compatibility dialog
+    const [depreciationPreview, setDepreciationPreview] = useState(null); // 179/Bonus preview
+    const [checkingCompatibility, setCheckingCompatibility] = useState(false);
 
     // Fetch warnings and export status when assets change
     useEffect(() => {
@@ -80,6 +84,43 @@ function Review({ assets = [] }) {
             }
         } catch (error) {
             console.error('Failed to fetch export status:', error);
+        }
+    };
+
+    // Check FA CS compatibility before export
+    const checkFACSCompatibility = async () => {
+        setCheckingCompatibility(true);
+        try {
+            const data = await apiGet('/export/compatibility-check');
+            setCompatibilityCheck(data);
+            setShowCompatDialog(true);
+
+            // Also fetch depreciation preview
+            const preview = await apiGet('/export/depreciation-preview');
+            setDepreciationPreview(preview);
+        } catch (error) {
+            console.error('Failed to check compatibility:', error);
+            // Show dialog anyway with error state
+            setCompatibilityCheck({ error: error.message });
+            setShowCompatDialog(true);
+        } finally {
+            setCheckingCompatibility(false);
+        }
+    };
+
+    // Auto-fix compatibility issues
+    const autoFixCompatibilityIssues = async () => {
+        try {
+            const result = await apiPost('/export/auto-fix');
+            // Re-check compatibility after fix
+            await checkFACSCompatibility();
+            // Refresh assets
+            const assetsData = await apiGet('/assets');
+            if (assetsData && Array.isArray(assetsData)) {
+                setLocalAssets(assetsData);
+            }
+        } catch (error) {
+            console.error('Failed to auto-fix:', error);
         }
     };
 
@@ -392,9 +433,9 @@ function Review({ assets = [] }) {
                         Audit Report
                     </Button>
                     <Button
-                        onClick={handleExport}
-                        disabled={!exportStatus.ready}
-                        title={exportStatus.ready ? "Export approved assets to FA CS" : exportStatus.reason || "Not ready to export"}
+                        onClick={checkFACSCompatibility}
+                        disabled={!exportStatus.ready || checkingCompatibility}
+                        title={exportStatus.ready ? "Check FA CS compatibility and export" : exportStatus.reason || "Not ready to export"}
                         className={cn(
                             "text-white",
                             !exportStatus.ready
@@ -402,7 +443,11 @@ function Review({ assets = [] }) {
                                 : "bg-green-600 hover:bg-green-700"
                         )}
                     >
-                        <Download className="w-4 h-4 mr-2" />
+                        {checkingCompatibility ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                            <Shield className="w-4 h-4 mr-2" />
+                        )}
                         Export to FA CS
                     </Button>
                 </div>
@@ -939,6 +984,163 @@ function Review({ assets = [] }) {
                     </button>
                 )}
             </div>
+
+            {/* FA CS Compatibility Check Dialog */}
+            {showCompatDialog && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                        {/* Dialog Header */}
+                        <div className="p-6 border-b">
+                            <div className="flex items-center gap-3">
+                                <div className={cn(
+                                    "h-10 w-10 rounded-full flex items-center justify-center",
+                                    compatibilityCheck?.is_compatible
+                                        ? "bg-green-100"
+                                        : "bg-yellow-100"
+                                )}>
+                                    {compatibilityCheck?.is_compatible ? (
+                                        <CheckCircle className="h-5 w-5 text-green-600" />
+                                    ) : (
+                                        <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                                    )}
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-bold">
+                                        {compatibilityCheck?.is_compatible
+                                            ? "Ready for FA CS Export"
+                                            : "FA CS Compatibility Issues Found"
+                                        }
+                                    </h2>
+                                    <p className="text-sm text-muted-foreground">
+                                        {compatibilityCheck?.is_compatible
+                                            ? "All assets passed validation checks"
+                                            : `${compatibilityCheck?.issues?.length || 0} issues need attention`
+                                        }
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 179/Bonus Depreciation Preview */}
+                        {depreciationPreview && (
+                            <div className="p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-b">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <Calculator className="h-5 w-5 text-blue-600" />
+                                    <h3 className="font-semibold text-blue-900">Year 1 Depreciation Preview</h3>
+                                </div>
+                                <p className="text-xs text-blue-700 mb-3">
+                                    Based on current elections, FA CS will calculate:
+                                </p>
+                                <div className="grid grid-cols-3 gap-4">
+                                    <div className="bg-white rounded-lg p-3 shadow-sm">
+                                        <div className="text-xs text-slate-500 mb-1">Section 179</div>
+                                        <div className="text-lg font-bold text-green-600">
+                                            ${(depreciationPreview.section_179 || 0).toLocaleString()}
+                                        </div>
+                                    </div>
+                                    <div className="bg-white rounded-lg p-3 shadow-sm">
+                                        <div className="text-xs text-slate-500 mb-1">Bonus (60%)</div>
+                                        <div className="text-lg font-bold text-blue-600">
+                                            ${(depreciationPreview.bonus || 0).toLocaleString()}
+                                        </div>
+                                    </div>
+                                    <div className="bg-white rounded-lg p-3 shadow-sm">
+                                        <div className="text-xs text-slate-500 mb-1">Regular MACRS</div>
+                                        <div className="text-lg font-bold text-slate-700">
+                                            ${(depreciationPreview.regular_macrs || 0).toLocaleString()}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="mt-3 pt-3 border-t border-blue-200">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-sm font-medium text-blue-900">Total Year 1 Depreciation</span>
+                                        <span className="text-xl font-bold text-blue-600">
+                                            ${(depreciationPreview.total_year1 || 0).toLocaleString()}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Compatibility Issues */}
+                        {compatibilityCheck?.issues?.length > 0 && (
+                            <div className="p-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="font-semibold">Issues to Review</h3>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={autoFixCompatibilityIssues}
+                                        className="text-blue-600"
+                                    >
+                                        <Wand2 className="h-4 w-4 mr-1" />
+                                        Auto-Fix All
+                                    </Button>
+                                </div>
+                                <div className="space-y-2 max-h-60 overflow-y-auto">
+                                    {compatibilityCheck.issues.map((issue, idx) => (
+                                        <div
+                                            key={idx}
+                                            className={cn(
+                                                "p-3 rounded-lg border text-sm",
+                                                issue.severity === 'error'
+                                                    ? "bg-red-50 border-red-200"
+                                                    : "bg-yellow-50 border-yellow-200"
+                                            )}
+                                        >
+                                            <div className="flex items-start gap-2">
+                                                {issue.severity === 'error' ? (
+                                                    <X className="h-4 w-4 text-red-500 mt-0.5" />
+                                                ) : (
+                                                    <AlertTriangle className="h-4 w-4 text-yellow-500 mt-0.5" />
+                                                )}
+                                                <div className="flex-1">
+                                                    <div className="font-medium">{issue.asset_id}</div>
+                                                    <div className="text-muted-foreground">{issue.message}</div>
+                                                    {issue.suggestion && (
+                                                        <div className="text-xs text-blue-600 mt-1">
+                                                            Suggestion: {issue.suggestion}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Dialog Actions */}
+                        <div className="p-6 border-t bg-slate-50 flex justify-end gap-3">
+                            <Button
+                                variant="outline"
+                                onClick={() => setShowCompatDialog(false)}
+                            >
+                                Cancel
+                            </Button>
+                            <Button
+                                onClick={() => {
+                                    setShowCompatDialog(false);
+                                    handleExport();
+                                }}
+                                disabled={!compatibilityCheck?.is_compatible}
+                                className={cn(
+                                    "text-white",
+                                    compatibilityCheck?.is_compatible
+                                        ? "bg-green-600 hover:bg-green-700"
+                                        : "bg-gray-400 cursor-not-allowed"
+                                )}
+                            >
+                                <Download className="w-4 h-4 mr-2" />
+                                {compatibilityCheck?.is_compatible
+                                    ? "Export Now"
+                                    : "Fix Issues First"
+                                }
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
