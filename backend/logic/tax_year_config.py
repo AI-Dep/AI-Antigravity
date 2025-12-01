@@ -258,12 +258,13 @@ def get_bonus_percentage(
                 return 0.00
 
     # Historical TCJA phase-down (for tax years before 2025)
+    # Per Form 4562 Instructions and TCJA §168(k)(6)
     if tax_year <= 2022:
         return 1.00  # 100% bonus (2017-2022)
     elif tax_year == 2023:
         return 0.80  # 80% bonus
     elif tax_year == 2024:
-        return 0.60  # 60% bonus
+        return 0.80  # 80% bonus (per Form 4562 Instructions)
     else:
         return 0.00  # Fallback
 

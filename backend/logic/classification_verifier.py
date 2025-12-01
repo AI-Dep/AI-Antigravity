@@ -21,6 +21,7 @@ import pandas as pd
 from datetime import date, datetime
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+from . import tax_year_config
 
 
 @dataclass
@@ -410,15 +411,9 @@ def _verify_bonus_depreciation_eligibility(df: pd.DataFrame, tax_year: int) -> L
     """Verify bonus depreciation eligibility."""
     issues = []
 
-    # Bonus depreciation phase-out schedule
-    bonus_rates = {
-        2023: 0.80,  # 80%
-        2024: 0.60,  # 60%
-        2025: 0.40,  # 40%
-        2026: 0.20,  # 20%
-        2027: 0.00,  # 0%
-    }
-    max_bonus_rate = bonus_rates.get(tax_year, 0.60)
+    # Get bonus rate from centralized config (OBBBA/TCJA compliant)
+    # Note: For verification, we use the max rate (assumes OBBBA eligibility for 2025+)
+    max_bonus_rate = tax_year_config.get_bonus_percentage(tax_year)
 
     for idx, row in df.iterrows():
         asset_id = str(row.get("Asset ID", row.get("Asset #", f"Row {idx+1}")))
