@@ -292,6 +292,17 @@ export const apiPost = async (url, data = {}, config = {}) => {
 };
 
 /**
+ * DELETE request helper
+ * @param {string} url - Endpoint URL
+ * @param {object} config - Optional axios config
+ * @returns {Promise} - Response data
+ */
+export const apiDelete = async (url, config = {}) => {
+    const response = await apiClient.delete(url, config);
+    return response.data;
+};
+
+/**
  * Upload file helper with progress tracking
  * @param {string} url - Endpoint URL
  * @param {FormData} formData - Form data with file
