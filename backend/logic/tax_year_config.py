@@ -197,7 +197,7 @@ def get_bonus_percentage(
     Historical Phase-Down (TCJA):
     - 2017-2022: 100%
     - 2023: 80%
-    - 2024: 60%
+    - 2024: 80% (per Form 4562 Instructions)
     - Jan 1-19, 2025: 40%
 
     OBBBA (Enacted July 4, 2025):
