@@ -5,24 +5,19 @@ Tax Year Configuration Module
 Centralizes all tax year-dependent values (indexed for inflation).
 Updates annually per IRS guidance.
 
-CRITICAL: This file must be updated each year when IRS publishes
-inflation-adjusted amounts (typically November for next year).
+CONFIGURATION SOURCE:
+- Primary: backend/config/tax_rules.json (editable without code changes)
+- Fallback: Embedded defaults in this file
+
+ANNUAL UPDATE INSTRUCTIONS:
+1. Edit backend/config/tax_rules.json with new IRS-published values
+2. Update the "_meta.last_updated" field
+3. Run: python -m backend.logic.tax_year_config --validate
 
 References:
 - IRC §179(b) - Section 179 limits
 - IRC §280F - Luxury auto limits
 - Rev. Proc. published annually
-
-==============================================================================
-ANNUAL UPDATE CHECKLIST (Run when IRS publishes new limits)
-==============================================================================
-1. Section 179 limits - Usually in Rev. Proc. (October-November)
-2. Luxury auto limits (§280F) - Rev. Proc. for passenger autos
-3. Heavy SUV Section 179 limit
-4. Verify bonus depreciation percentage (legislative changes)
-5. Update CONFIG_LAST_UPDATED and SUPPORTED_TAX_YEARS below
-6. Run: python -m fixed_asset_ai.logic.tax_year_config --validate
-==============================================================================
 """
 
 from typing import Dict, Any, Optional, List, Tuple
@@ -30,15 +25,78 @@ from datetime import date
 from dataclasses import dataclass
 from enum import Enum
 import pandas as pd
+import json
+import os
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+# ==============================================================================
+# JSON CONFIGURATION LOADER
+# ==============================================================================
+
+def _get_config_path() -> str:
+    """Get path to tax_rules.json config file."""
+    # Try relative to this file first
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(this_dir, "..", "config", "tax_rules.json")
+    if os.path.exists(config_path):
+        return config_path
+
+    # Try environment variable
+    env_path = os.environ.get("TAX_RULES_CONFIG")
+    if env_path and os.path.exists(env_path):
+        return env_path
+
+    return config_path  # Return default even if not found
+
+
+def _load_json_config() -> Optional[Dict[str, Any]]:
+    """
+    Load tax rules from JSON configuration file.
+
+    Returns:
+        Dict with configuration or None if file not found/invalid
+    """
+    config_path = _get_config_path()
+
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            logger.info(f"Loaded tax rules from: {config_path}")
+
+            # Log version info
+            meta = config.get("_meta", {})
+            logger.info(f"Tax rules version: {meta.get('version', 'unknown')}, "
+                       f"last updated: {meta.get('last_updated', 'unknown')}")
+
+            return config
+    except FileNotFoundError:
+        logger.warning(f"Tax rules config not found at {config_path}, using embedded defaults")
+        return None
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in tax rules config: {e}, using embedded defaults")
+        return None
+    except Exception as e:
+        logger.error(f"Error loading tax rules config: {e}, using embedded defaults")
+        return None
+
+
+# Load configuration at module import (with fallback to defaults)
+_JSON_CONFIG: Optional[Dict[str, Any]] = _load_json_config()
 
 
 # ==============================================================================
 # VERSION & COMPLIANCE TRACKING
 # ==============================================================================
 
-CONFIG_VERSION = "2.0.0"
-CONFIG_LAST_UPDATED = "2025-07-15"  # YYYY-MM-DD format
-CONFIG_UPDATED_BY = "Tax Team"
+# Load from JSON or use embedded defaults
+_meta = _JSON_CONFIG.get("_meta", {}) if _JSON_CONFIG else {}
+CONFIG_VERSION = _meta.get("version", "2.0.0")
+CONFIG_LAST_UPDATED = _meta.get("last_updated", "2025-07-15")
+CONFIG_UPDATED_BY = _meta.get("updated_by", "Tax Team")
+
 
 # Track which tax years have OFFICIAL IRS-published values vs ESTIMATED
 class TaxYearStatus(Enum):
@@ -47,14 +105,31 @@ class TaxYearStatus(Enum):
     UNSUPPORTED = "unsupported"  # Too old or too far in future
 
 
-# Define supported tax years and their status
-SUPPORTED_TAX_YEARS: Dict[int, TaxYearStatus] = {
-    2022: TaxYearStatus.OFFICIAL,
-    2023: TaxYearStatus.OFFICIAL,
-    2024: TaxYearStatus.OFFICIAL,
-    2025: TaxYearStatus.OFFICIAL,  # OBBBA enacted July 4, 2025
-    2026: TaxYearStatus.ESTIMATED,  # Awaiting IRS guidance
-}
+def _load_supported_years() -> Dict[int, TaxYearStatus]:
+    """Load supported years from JSON or use defaults."""
+    if _JSON_CONFIG and "supported_years" in _JSON_CONFIG:
+        result = {}
+        for year_str, status_str in _JSON_CONFIG["supported_years"].items():
+            try:
+                year = int(year_str)
+                status = TaxYearStatus(status_str)
+                result[year] = status
+            except (ValueError, KeyError):
+                logger.warning(f"Invalid supported_years entry: {year_str}={status_str}")
+        if result:
+            return result
+
+    # Embedded defaults
+    return {
+        2022: TaxYearStatus.OFFICIAL,
+        2023: TaxYearStatus.OFFICIAL,
+        2024: TaxYearStatus.OFFICIAL,
+        2025: TaxYearStatus.OFFICIAL,
+        2026: TaxYearStatus.ESTIMATED,
+    }
+
+
+SUPPORTED_TAX_YEARS: Dict[int, TaxYearStatus] = _load_supported_years()
 
 # Minimum and maximum supported years
 MIN_SUPPORTED_YEAR = min(SUPPORTED_TAX_YEARS.keys())
@@ -122,7 +197,67 @@ def get_config_info() -> Dict[str, Any]:
         "estimated_years": sorted(estimated_years),
         "min_year": MIN_SUPPORTED_YEAR,
         "max_year": MAX_SUPPORTED_YEAR,
+        "config_source": "json" if _JSON_CONFIG else "embedded",
+        "config_path": _get_config_path() if _JSON_CONFIG else None,
     }
+
+
+def reload_config() -> bool:
+    """
+    Reload tax rules from JSON configuration file.
+
+    This allows updating tax rules at runtime without restarting the server.
+    Useful for testing or applying emergency updates.
+
+    Returns:
+        True if reload successful, False otherwise
+    """
+    global _JSON_CONFIG, SUPPORTED_TAX_YEARS, SECTION_179_LIMITS, LUXURY_AUTO_LIMITS
+    global HEAVY_SUV_179_LIMITS, _EFFECTIVE_DATES, OBBB_BONUS_EFFECTIVE_DATE
+    global OBBB_SECTION_179_EFFECTIVE_DATE, QIP_EFFECTIVE_DATE
+    global CONFIG_VERSION, CONFIG_LAST_UPDATED, CONFIG_UPDATED_BY
+    global MIN_SUPPORTED_YEAR, MAX_SUPPORTED_YEAR
+
+    try:
+        new_config = _load_json_config()
+        if new_config:
+            _JSON_CONFIG = new_config
+
+            # Reload metadata
+            _meta = _JSON_CONFIG.get("_meta", {})
+            CONFIG_VERSION = _meta.get("version", CONFIG_VERSION)
+            CONFIG_LAST_UPDATED = _meta.get("last_updated", CONFIG_LAST_UPDATED)
+            CONFIG_UPDATED_BY = _meta.get("updated_by", CONFIG_UPDATED_BY)
+
+            # Reload all data
+            SUPPORTED_TAX_YEARS.clear()
+            SUPPORTED_TAX_YEARS.update(_load_supported_years())
+            MIN_SUPPORTED_YEAR = min(SUPPORTED_TAX_YEARS.keys())
+            MAX_SUPPORTED_YEAR = max(SUPPORTED_TAX_YEARS.keys())
+
+            SECTION_179_LIMITS.clear()
+            SECTION_179_LIMITS.update(_load_section_179_limits())
+
+            LUXURY_AUTO_LIMITS.clear()
+            LUXURY_AUTO_LIMITS.update(_load_luxury_auto_limits())
+
+            HEAVY_SUV_179_LIMITS.clear()
+            HEAVY_SUV_179_LIMITS.update(_load_heavy_suv_limits())
+
+            _EFFECTIVE_DATES.clear()
+            _EFFECTIVE_DATES.update(_load_effective_dates())
+            OBBB_BONUS_EFFECTIVE_DATE = _EFFECTIVE_DATES.get("obbba_bonus", date(2025, 1, 19))
+            OBBB_SECTION_179_EFFECTIVE_DATE = _EFFECTIVE_DATES.get("obbba_section_179", date(2024, 12, 31))
+            QIP_EFFECTIVE_DATE = _EFFECTIVE_DATES.get("qip_effective", date(2018, 1, 1))
+
+            logger.info("Tax rules configuration reloaded successfully")
+            return True
+        else:
+            logger.warning("Config reload failed - file not found or invalid")
+            return False
+    except Exception as e:
+        logger.error(f"Error reloading tax rules config: {e}")
+        return False
 
 
 # ==============================================================================
@@ -175,13 +310,38 @@ def is_obbba_enabled() -> bool:
     return _OBBBA_ENABLED
 
 
+def _load_effective_dates() -> Dict[str, date]:
+    """Load effective dates from JSON or use defaults."""
+    defaults = {
+        "obbba_bonus": date(2025, 1, 19),
+        "obbba_section_179": date(2024, 12, 31),
+        "qip_effective": date(2018, 1, 1),
+    }
+
+    if _JSON_CONFIG and "effective_dates" in _JSON_CONFIG:
+        result = {}
+        for key, date_str in _JSON_CONFIG["effective_dates"].items():
+            if key.startswith("_"):  # Skip description fields
+                continue
+            try:
+                result[key] = date.fromisoformat(date_str)
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid effective_dates entry: {key}={date_str}")
+        # Merge with defaults (JSON takes precedence)
+        return {**defaults, **result}
+
+    return defaults
+
+
+_EFFECTIVE_DATES = _load_effective_dates()
+
 # OBBB Act effective date - property must be BOTH acquired AND placed in service
 # after this date to qualify for 100% bonus depreciation
-OBBB_BONUS_EFFECTIVE_DATE = date(2025, 1, 19)
+OBBB_BONUS_EFFECTIVE_DATE = _EFFECTIVE_DATES.get("obbba_bonus", date(2025, 1, 19))
 
 # OBBB Act effective date for Section 179 increases
 # Property placed in service AFTER December 31, 2024 qualifies for new limits
-OBBB_SECTION_179_EFFECTIVE_DATE = date(2024, 12, 31)
+OBBB_SECTION_179_EFFECTIVE_DATE = _EFFECTIVE_DATES.get("obbba_section_179", date(2024, 12, 31))
 
 
 def get_bonus_percentage(
@@ -285,29 +445,35 @@ def get_bonus_percentage(
 #
 # Source: https://rsmus.com/insights/services/business-tax/obba-tax-bonus-depreciation.html
 
-SECTION_179_LIMITS = {
-    2023: {
-        "max_deduction": 1160000,
-        "phaseout_threshold": 2890000,
-    },
-    2024: {
-        "max_deduction": 1220000,
-        "phaseout_threshold": 3050000,
-    },
-    # OBBBA limits effective for property placed in service after 12/31/2024
-    2025: {
-        "max_deduction": 2500000,  # OBBBA increase
-        "phaseout_threshold": 4000000,  # OBBBA increase
-        "indexed_for_inflation": True,
-    },
-    2026: {
-        # Estimated with ~2.5% inflation - UPDATE when IRS publishes
-        "max_deduction": 2560000,
-        "phaseout_threshold": 4100000,
-        "indexed_for_inflation": True,
-    },
-    # Add future years as IRS publishes inflation adjustments
-}
+def _load_section_179_limits() -> Dict[int, Dict[str, Any]]:
+    """Load Section 179 limits from JSON or use defaults."""
+    if _JSON_CONFIG and "section_179_limits" in _JSON_CONFIG:
+        result = {}
+        for year_str, limits in _JSON_CONFIG["section_179_limits"].items():
+            if year_str.startswith("_"):  # Skip description fields
+                continue
+            try:
+                year = int(year_str)
+                result[year] = {
+                    "max_deduction": limits.get("max_deduction"),
+                    "phaseout_threshold": limits.get("phaseout_threshold"),
+                }
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid section_179_limits entry: {year_str}")
+        if result:
+            return result
+
+    # Embedded defaults
+    return {
+        2022: {"max_deduction": 1080000, "phaseout_threshold": 2700000},
+        2023: {"max_deduction": 1160000, "phaseout_threshold": 2890000},
+        2024: {"max_deduction": 1220000, "phaseout_threshold": 3050000},
+        2025: {"max_deduction": 2500000, "phaseout_threshold": 4000000},
+        2026: {"max_deduction": 2560000, "phaseout_threshold": 4100000},
+    }
+
+
+SECTION_179_LIMITS = _load_section_179_limits()
 
 
 def get_section_179_limits(tax_year: int) -> Dict[str, int]:
@@ -338,23 +504,38 @@ def get_section_179_limits(tax_year: int) -> Dict[str, int]:
 # IRC §280F LUXURY AUTO LIMITS (Inflation-Adjusted Annually)
 # ==============================================================================
 
-LUXURY_AUTO_LIMITS = {
-    2024: {
-        "year_1_without_bonus": 20200,
-        "year_1_with_bonus": 28200,
-        "year_2": 19500,
-        "year_3": 11700,
-        "year_4_plus": 6960,
-    },
-    2025: {
-        # Update these when IRS publishes Rev. Proc. for 2025
-        "year_1_without_bonus": 20600,  # Estimated
-        "year_1_with_bonus": 28600,  # Estimated
-        "year_2": 19900,  # Estimated
-        "year_3": 11900,  # Estimated
-        "year_4_plus": 7100,  # Estimated
-    },
-}
+def _load_luxury_auto_limits() -> Dict[int, Dict[str, int]]:
+    """Load luxury auto limits from JSON or use defaults."""
+    if _JSON_CONFIG and "luxury_auto_limits" in _JSON_CONFIG:
+        result = {}
+        for year_str, limits in _JSON_CONFIG["luxury_auto_limits"].items():
+            if year_str.startswith("_"):  # Skip description fields
+                continue
+            try:
+                year = int(year_str)
+                result[year] = {
+                    "year_1_without_bonus": limits.get("year_1_without_bonus"),
+                    "year_1_with_bonus": limits.get("year_1_with_bonus"),
+                    "year_2": limits.get("year_2"),
+                    "year_3": limits.get("year_3"),
+                    "year_4_plus": limits.get("year_4_plus"),
+                }
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid luxury_auto_limits entry: {year_str}")
+        if result:
+            return result
+
+    # Embedded defaults
+    return {
+        2022: {"year_1_without_bonus": 11200, "year_1_with_bonus": 19200, "year_2": 18000, "year_3": 10800, "year_4_plus": 6460},
+        2023: {"year_1_without_bonus": 12200, "year_1_with_bonus": 20200, "year_2": 19500, "year_3": 11700, "year_4_plus": 6960},
+        2024: {"year_1_without_bonus": 12400, "year_1_with_bonus": 20400, "year_2": 19800, "year_3": 11900, "year_4_plus": 7160},
+        2025: {"year_1_without_bonus": 12800, "year_1_with_bonus": 20800, "year_2": 20200, "year_3": 12200, "year_4_plus": 7260},
+        2026: {"year_1_without_bonus": 13000, "year_1_with_bonus": 21000, "year_2": 20500, "year_3": 12400, "year_4_plus": 7400},
+    }
+
+
+LUXURY_AUTO_LIMITS = _load_luxury_auto_limits()
 
 
 def get_luxury_auto_limits(tax_year: int, asset_year: int = 1) -> int:
@@ -391,10 +572,32 @@ def get_luxury_auto_limits(tax_year: int, asset_year: int = 1) -> int:
 # HEAVY SUV SECTION 179 LIMIT
 # ==============================================================================
 
-HEAVY_SUV_179_LIMITS = {
-    2024: 28900,
-    2025: 31300,  # Per Form 4562 Instructions 2025 Draft (IRC §179(b)(5))
-}
+def _load_heavy_suv_limits() -> Dict[int, int]:
+    """Load heavy SUV 179 limits from JSON or use defaults."""
+    if _JSON_CONFIG and "heavy_suv_179_limits" in _JSON_CONFIG:
+        result = {}
+        for year_str, limit in _JSON_CONFIG["heavy_suv_179_limits"].items():
+            if year_str.startswith("_"):  # Skip description fields
+                continue
+            try:
+                year = int(year_str)
+                result[year] = int(limit)
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid heavy_suv_179_limits entry: {year_str}")
+        if result:
+            return result
+
+    # Embedded defaults
+    return {
+        2022: 27000,
+        2023: 28900,
+        2024: 30500,
+        2025: 31300,
+        2026: 32000,
+    }
+
+
+HEAVY_SUV_179_LIMITS = _load_heavy_suv_limits()
 
 
 def get_heavy_suv_179_limit(tax_year: int) -> int:
@@ -418,7 +621,7 @@ def get_heavy_suv_179_limit(tax_year: int) -> int:
 # QIP ELIGIBILITY DATE
 # ==============================================================================
 
-QIP_EFFECTIVE_DATE = date(2018, 1, 1)  # Per TCJA
+QIP_EFFECTIVE_DATE = _EFFECTIVE_DATES.get("qip_effective", date(2018, 1, 1))  # Per TCJA
 
 
 def is_qip_eligible_date(in_service_date: date) -> bool:

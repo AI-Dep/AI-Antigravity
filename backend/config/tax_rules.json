@@ -1,0 +1,148 @@
+{
+  "_meta": {
+    "version": "2.0.0",
+    "last_updated": "2025-07-15",
+    "updated_by": "Tax Team",
+    "description": "IRS tax limits for fixed asset depreciation calculations",
+    "sources": [
+      "IRC §179(b) - Section 179 limits",
+      "IRC §280F - Luxury auto limits",
+      "IRC §168(k) - Bonus depreciation (TCJA + OBBBA)",
+      "Rev. Proc. published annually"
+    ],
+    "update_instructions": "Update this file when IRS publishes new Rev. Proc. (typically October-November for next year)"
+  },
+
+  "supported_years": {
+    "2022": "official",
+    "2023": "official",
+    "2024": "official",
+    "2025": "official",
+    "2026": "estimated"
+  },
+
+  "section_179_limits": {
+    "_description": "IRC §179 expense election limits. OBBBA increased limits effective for property placed in service after 12/31/2024.",
+    "2022": {
+      "max_deduction": 1080000,
+      "phaseout_threshold": 2700000
+    },
+    "2023": {
+      "max_deduction": 1160000,
+      "phaseout_threshold": 2890000
+    },
+    "2024": {
+      "max_deduction": 1220000,
+      "phaseout_threshold": 3050000
+    },
+    "2025": {
+      "max_deduction": 2500000,
+      "phaseout_threshold": 4000000,
+      "notes": "OBBBA increase effective for property placed in service after 12/31/2024"
+    },
+    "2026": {
+      "max_deduction": 2560000,
+      "phaseout_threshold": 4100000,
+      "notes": "Estimated with ~2.5% inflation - UPDATE when IRS publishes"
+    }
+  },
+
+  "bonus_depreciation": {
+    "_description": "TCJA bonus depreciation phase-down, modified by OBBBA (enacted July 4, 2025). OBBBA: 100% permanent for property acquired AND placed in service after 1/19/2025.",
+    "tcja_phasedown": {
+      "2022": 1.00,
+      "2023": 0.80,
+      "2024": 0.60,
+      "2025": 0.40,
+      "2026": 0.20,
+      "2027": 0.00
+    },
+    "obbba": {
+      "enabled_by_default": true,
+      "percentage": 1.00,
+      "notes": "100% permanent for qualifying property under OBBBA"
+    }
+  },
+
+  "luxury_auto_limits": {
+    "_description": "IRC §280F limits for passenger automobiles. Published annually in Rev. Proc.",
+    "2022": {
+      "year_1_without_bonus": 11200,
+      "year_1_with_bonus": 19200,
+      "year_2": 18000,
+      "year_3": 10800,
+      "year_4_plus": 6460
+    },
+    "2023": {
+      "year_1_without_bonus": 12200,
+      "year_1_with_bonus": 20200,
+      "year_2": 19500,
+      "year_3": 11700,
+      "year_4_plus": 6960
+    },
+    "2024": {
+      "year_1_without_bonus": 12400,
+      "year_1_with_bonus": 20400,
+      "year_2": 19800,
+      "year_3": 11900,
+      "year_4_plus": 7160
+    },
+    "2025": {
+      "year_1_without_bonus": 12800,
+      "year_1_with_bonus": 20800,
+      "year_2": 20200,
+      "year_3": 12200,
+      "year_4_plus": 7260,
+      "notes": "Estimated - UPDATE when IRS publishes Rev. Proc."
+    },
+    "2026": {
+      "year_1_without_bonus": 13000,
+      "year_1_with_bonus": 21000,
+      "year_2": 20500,
+      "year_3": 12400,
+      "year_4_plus": 7400,
+      "notes": "Estimated - UPDATE when IRS publishes Rev. Proc."
+    }
+  },
+
+  "heavy_suv_179_limits": {
+    "_description": "IRC §179(b)(5) limit for SUVs over 6,000 lbs GVWR but under 14,000 lbs.",
+    "2022": 27000,
+    "2023": 28900,
+    "2024": 30500,
+    "2025": 31300,
+    "2026": 32000
+  },
+
+  "effective_dates": {
+    "_description": "Key effective dates for tax provisions",
+    "obbba_bonus": "2025-01-19",
+    "obbba_section_179": "2024-12-31",
+    "qip_effective": "2018-01-01",
+    "tcja_effective": "2017-12-22"
+  },
+
+  "de_minimis_threshold": {
+    "_description": "De Minimis Safe Harbor threshold per Rev. Proc. 2015-20",
+    "with_aps": 5000,
+    "without_aps": 2500,
+    "default": 2500
+  },
+
+  "macrs_conventions": {
+    "_description": "MACRS averaging conventions",
+    "half_year": {
+      "description": "Half-Year Convention",
+      "applies_to": "Most property",
+      "mid_quarter_trigger": 0.40
+    },
+    "mid_month": {
+      "description": "Mid-Month Convention",
+      "applies_to": "Real property (27.5 and 39 year)"
+    },
+    "mid_quarter": {
+      "description": "Mid-Quarter Convention",
+      "applies_to": "When >40% of property placed in service in Q4"
+    }
+  }
+}
