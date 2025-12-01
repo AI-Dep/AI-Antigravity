@@ -12,7 +12,12 @@ const getStoredProfile = () => {
 };
 
 const setStoredProfile = (profile) => {
-    localStorage.setItem('userProfile', JSON.stringify(profile));
+    try {
+        localStorage.setItem('userProfile', JSON.stringify(profile));
+    } catch (e) {
+        // localStorage may be unavailable (incognito) or full
+        console.warn('Failed to save profile to localStorage:', e);
+    }
 };
 
 export function Header({ title }) {
