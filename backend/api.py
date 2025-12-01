@@ -167,6 +167,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Session-ID"],  # CRITICAL: Allow frontend to read session ID header
 )
 
 # Add timeout middleware (must be added before other middleware)
