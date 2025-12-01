@@ -9,7 +9,8 @@ const getBaseUrl = () => {
     if (typeof window !== 'undefined' && window.electronAPI?.getBackendUrl) {
         return window.electronAPI.getBackendUrl();
     }
-    return import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+    // Use localhost (not 127.0.0.1) to match frontend origin for cookie sharing
+    return import.meta.env.VITE_API_URL || 'http://localhost:8000';
 };
 
 export const API_BASE = getBaseUrl();

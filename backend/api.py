@@ -151,12 +151,14 @@ def get_cors_origins():
         # Production: use configured origins
         return [origin.strip() for origin in env_origins.split(",") if origin.strip()]
     else:
-        # Development: allow localhost
+        # Development: allow both localhost and 127.0.0.1 variants
         return [
             "http://localhost:3000",
             "http://localhost:5173",
+            "http://localhost:8000",
             "http://127.0.0.1:3000",
-            "http://127.0.0.1:5173"
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:8000"
         ]
 
 app.add_middleware(
@@ -186,7 +188,8 @@ async def rate_limit_middleware(request: Request, call_next):
         operation = "upload"
     elif "/classify" in path or "/assets" in path and request.method == "POST":
         operation = "classify"
-    elif "/export" in path:
+    elif "/export" in path and "/status" not in path and request.method != "GET":
+        # Only rate-limit actual export operations, not status checks
         operation = "export"
     elif request.method == "GET":
         operation = "read"
@@ -196,10 +199,20 @@ async def rate_limit_middleware(request: Request, call_next):
     try:
         await limiter.check(request, operation=operation)
     except HTTPException as e:
+        # Must manually add CORS headers since this runs before CORS middleware
+        origin = request.headers.get("origin", "")
+        allowed_origins = get_cors_origins()
+        cors_headers = {}
+        if origin in allowed_origins:
+            cors_headers = {
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Credentials": "true",
+            }
+        response_headers = {**(e.headers or {}), **cors_headers}
         return JSONResponse(
             status_code=e.status_code,
             content=e.detail if isinstance(e.detail, dict) else {"error": e.detail},
-            headers=e.headers
+            headers=response_headers
         )
 
     response = await call_next(request)
@@ -1618,17 +1631,31 @@ def get_system_status():
     except Exception:
         pass
 
-    # Count classification rules
+    # Count classification rules and keywords
     rules_count = 0
+    keywords_count = 0
     try:
-        rules_path = Path(__file__).resolve().parent / "logic" / "config" / "rules.json"
+        config_dir = Path(__file__).resolve().parent / "logic" / "config"
+
+        # Count explicit rules
+        rules_path = config_dir / "rules.json"
         if rules_path.exists():
             import json
             with open(rules_path, "r") as f:
                 rules_data = json.load(f)
                 rules_count = len(rules_data.get("rules", []))
+
+        # Count classification keywords (these also act as rules)
+        keywords_path = config_dir / "classification_keywords.json"
+        if keywords_path.exists():
+            with open(keywords_path, "r") as f:
+                keywords_data = json.load(f)
+                if isinstance(keywords_data, dict):
+                    keywords_count = sum(len(v) if isinstance(v, list) else 1 for v in keywords_data.values())
     except Exception:
         pass
+
+    total_rules = rules_count + keywords_count
 
     return {
         "ai": {
@@ -1641,8 +1668,8 @@ def get_system_status():
             "status": "Active" if memory_patterns > 0 else "Empty"
         },
         "rules": {
-            "count": rules_count,
-            "status": "Loaded" if rules_count > 0 else "Not Found"
+            "count": total_rules,
+            "status": f"Loaded ({rules_count} rules + {keywords_count} keywords)" if total_rules > 0 else "Not Found"
         },
         "backend": {
             "status": "Online",
