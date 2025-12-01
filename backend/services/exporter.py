@@ -213,6 +213,47 @@ class ExporterService:
         fa_cs_import_df = export_df[available_cols].copy()
 
         # ================================================================
+        # SEPARATE DE MINIMIS ASSETS - These are expensed, not capitalized
+        # ================================================================
+        # De Minimis Safe Harbor items should NOT go into FA CS
+        # They are immediate expenses, not depreciable assets
+        de_minimis_mask = fa_cs_import_df["Depreciation Election"] == "DeMinimis"
+        de_minimis_df = fa_cs_import_df[de_minimis_mask].copy()
+        fa_cs_import_df = fa_cs_import_df[~de_minimis_mask].copy()
+
+        # Create De Minimis Expenses sheet with expense account suggestions
+        if not de_minimis_df.empty:
+            de_minimis_expenses = []
+            for _, row in de_minimis_df.iterrows():
+                desc = str(row.get("Description", "")).lower()
+                cost = row.get("Tax Cost", 0)
+
+                # Suggest expense account based on description
+                if any(x in desc for x in ["computer", "laptop", "monitor", "keyboard", "mouse", "printer"]):
+                    expense_account = "Computer Equipment Expense"
+                elif any(x in desc for x in ["furniture", "desk", "chair", "cabinet", "shelf"]):
+                    expense_account = "Furniture & Fixtures Expense"
+                elif any(x in desc for x in ["phone", "tablet", "mobile"]):
+                    expense_account = "Telecommunications Expense"
+                elif any(x in desc for x in ["tool", "equipment"]):
+                    expense_account = "Small Equipment Expense"
+                else:
+                    expense_account = "Office Supplies Expense"
+
+                de_minimis_expenses.append({
+                    "Description": row.get("Description", ""),
+                    "Cost": cost,
+                    "Date": row.get("Date In Service", ""),
+                    "Suggested Expense Account": expense_account,
+                    "Tax Treatment": "De Minimis Safe Harbor (Rev. Proc. 2015-20)",
+                    "Note": "Expense immediately - DO NOT add to FA CS"
+                })
+
+            de_minimis_expenses_df = pd.DataFrame(de_minimis_expenses)
+        else:
+            de_minimis_expenses_df = None
+
+        # ================================================================
         # AUDIT TRAIL SHEET - Full data for records
         # ================================================================
         audit_data = []
@@ -271,12 +312,23 @@ class ExporterService:
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             # Sheet 1: FA CS Entry - Data formatted for manual FA CS entry via RPA
+            # NOTE: De Minimis items are EXCLUDED - they go to separate sheet
             fa_cs_import_df.to_excel(writer, sheet_name='FA CS Entry', index=False)
 
-            # Sheet 2: Audit Trail (full data with Book/State)
+            # Sheet 2: De Minimis Expenses - Items to expense (NOT add to FA CS)
+            if de_minimis_expenses_df is not None and not de_minimis_expenses_df.empty:
+                de_minimis_expenses_df.to_excel(writer, sheet_name='De Minimis Expenses', index=False)
+                # Add summary row
+                ws_deminimis = writer.sheets['De Minimis Expenses']
+                total_row = len(de_minimis_expenses_df) + 2
+                ws_deminimis.cell(row=total_row, column=1, value="TOTAL TO EXPENSE:")
+                ws_deminimis.cell(row=total_row, column=2, value=de_minimis_expenses_df['Cost'].sum())
+                ws_deminimis.cell(row=total_row, column=1).font = ws_deminimis.cell(row=total_row, column=1).font.copy(bold=True)
+
+            # Sheet 3: Audit Trail (full data with Book/State)
             audit_df.to_excel(writer, sheet_name='Audit Trail', index=False)
 
-            # Sheet 3: Change Log - Shows what changed from original data
+            # Sheet 4: Change Log - Shows what changed from original data
             change_log_df = self._build_change_log(df, export_df, assets)
             if change_log_df is not None and not change_log_df.empty:
                 change_log_df.to_excel(writer, sheet_name='Change Log', index=False)
