@@ -3,6 +3,7 @@ from datetime import date
 from backend.models.asset import Asset
 from backend.logic import macrs_classification
 from backend.logic import transaction_classifier
+from backend.logic import tax_year_config
 from backend.logic.fa_cs_mappings import (
     FA_CS_WIZARD_5_YEAR,
     FA_CS_WIZARD_7_YEAR,
@@ -179,7 +180,8 @@ class ClassifierService:
 
         # Bonus depreciation candidates - larger qualifying property
         elif asset.is_bonus_eligible:
-            bonus_rate = 0.60 if tax_year >= 2024 else 0.80 if tax_year == 2023 else 1.0
+            # Use centralized tax config for OBBBA/TCJA compliant bonus rates
+            bonus_rate = tax_year_config.get_bonus_percentage(tax_year)
             bonus_pct = int(bonus_rate * 100)
             election = "Bonus"
             reason = f"Qualifying property - {bonus_pct}% bonus depreciation available"

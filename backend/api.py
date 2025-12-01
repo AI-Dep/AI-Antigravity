@@ -1469,9 +1469,10 @@ async def get_depreciation_preview(request: Request, response: Response):
     assets = list(session.assets.values())
     tax_year = session.tax_config.get("tax_year", 2024)
 
-    # 2024 limits (adjust for future years)
-    section_179_limit = 1160000  # 2024 limit
-    bonus_rate = 0.60  # 60% for 2024
+    # Get tax year limits from centralized config (OBBBA/TCJA compliant)
+    section_179_config = tax_year_config.get_section_179_limits(tax_year)
+    section_179_limit = section_179_config.get("max_deduction", 1220000)
+    bonus_rate = tax_year_config.get_bonus_percentage(tax_year)
 
     section_179_total = 0
     bonus_total = 0
