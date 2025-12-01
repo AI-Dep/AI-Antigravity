@@ -314,22 +314,25 @@ function Review({ assets = [] }) {
     };
 
     // Tax year configuration for dynamic limits
+    // Sources: IRS Rev. Proc., OBBBA (One Big Beautiful Bill Act) effective 1/19/2025
     const TAX_YEAR_CONFIG = {
-        2020: { section179Limit: 1040000, bonusPercent: 100 },
-        2021: { section179Limit: 1050000, bonusPercent: 100 },
-        2022: { section179Limit: 1080000, bonusPercent: 100 },
-        2023: { section179Limit: 1160000, bonusPercent: 80 },
-        2024: { section179Limit: 1220000, bonusPercent: 60 },
-        2025: { section179Limit: 1250000, bonusPercent: 40 },  // Estimated
-        2026: { section179Limit: 1290000, bonusPercent: 20 },  // Estimated
+        2020: { section179Limit: 1040000, bonusPercent: 100, source: "TCJA" },
+        2021: { section179Limit: 1050000, bonusPercent: 100, source: "TCJA" },
+        2022: { section179Limit: 1080000, bonusPercent: 100, source: "TCJA" },
+        2023: { section179Limit: 1160000, bonusPercent: 80, source: "TCJA phaseout" },
+        2024: { section179Limit: 1220000, bonusPercent: 80, source: "TCJA phaseout" },
+        2025: { section179Limit: 2500000, bonusPercent: 100, source: "OBBBA §179 & bonus restored" },
+        2026: { section179Limit: 2500000, bonusPercent: 60, source: "OBBBA §179, TCJA bonus phaseout" },
     };
 
     // Get tax year limits (with fallback for unknown years)
     const getTaxYearConfig = (year) => {
         if (TAX_YEAR_CONFIG[year]) return TAX_YEAR_CONFIG[year];
-        // Fallback: estimate based on trend
-        if (year > 2026) return { section179Limit: 1300000, bonusPercent: 0 };
-        return { section179Limit: 1000000, bonusPercent: 100 };
+        // Fallback: TCJA bonus phaseout continues, OBBBA §179 limits remain
+        if (year === 2027) return { section179Limit: 2500000, bonusPercent: 40, source: "TCJA phaseout" };
+        if (year === 2028) return { section179Limit: 2500000, bonusPercent: 20, source: "TCJA phaseout" };
+        if (year >= 2029) return { section179Limit: 2500000, bonusPercent: 0, source: "Bonus expired" };
+        return { section179Limit: 1000000, bonusPercent: 100, source: "Pre-TCJA" };
     };
 
     const currentYearConfig = getTaxYearConfig(taxYear);
