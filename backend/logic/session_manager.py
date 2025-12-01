@@ -400,11 +400,16 @@ async def get_session_from_request(request) -> SessionData:
 def add_session_to_response(response, session_id: str):
     """Add session ID to response headers and cookies."""
     response.headers["X-Session-ID"] = session_id
+    # NOTE: samesite="none" is required for cross-origin requests between
+    # different ports (e.g., frontend on :5173, backend on :8000).
+    # secure=False is allowed for localhost in modern browsers.
+    # In production with HTTPS, set secure=True.
     response.set_cookie(
         key="session_id",
         value=session_id,
         max_age=SESSION_TTL_HOURS * 3600,
         httponly=True,
-        samesite="lax"
+        samesite="none",
+        secure=False  # Set to True in production with HTTPS
     )
     return response
