@@ -393,6 +393,11 @@ function Dashboard({ setActiveTab }) {
                                     <span>+ Additions:</span>
                                     <span className="font-mono">${rollforward.additions?.toLocaleString() || 0}</span>
                                 </div>
+                                {rollforward.de_minimis_count > 0 && (
+                                    <div className="flex justify-between text-emerald-600 text-[10px] pl-2" title="Expensed via De Minimis Safe Harbor - NOT capitalized">
+                                        <span className="italic">({rollforward.de_minimis_count} items expensed: ${rollforward.de_minimis_expensed?.toLocaleString() || 0})</span>
+                                    </div>
+                                )}
                                 <div className="flex justify-between text-red-600">
                                     <span>- Disposals:</span>
                                     <span className="font-mono">(${rollforward.disposals?.toLocaleString() || 0})</span>

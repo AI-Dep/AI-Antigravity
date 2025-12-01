@@ -178,9 +178,19 @@ function Review({ assets = [] }) {
         const totalCost = localAssets.reduce((sum, a) => sum + (a.cost || 0), 0);
 
         // Count by transaction type
-        const additions = localAssets.filter(a =>
+        const allAdditions = localAssets.filter(a =>
             a.transaction_type === TRANSACTION_TYPES.ADDITION
-        ).length;
+        );
+        const additions = allAdditions.length;
+
+        // De Minimis items (expensed, not capitalized)
+        const deMinimisItems = allAdditions.filter(a =>
+            a.depreciation_election === 'DeMinimis'
+        );
+        const deMinimisCount = deMinimisItems.length;
+        const deMinimisTotal = deMinimisItems.reduce((sum, a) => sum + (a.cost || 0), 0);
+        const capitalAdditions = additions - deMinimisCount;
+
         const disposals = localAssets.filter(a =>
             a.transaction_type === TRANSACTION_TYPES.DISPOSAL
         ).length;
@@ -200,6 +210,9 @@ function Review({ assets = [] }) {
             approved,
             totalCost,
             additions,
+            capitalAdditions,
+            deMinimisCount,
+            deMinimisTotal,
             disposals,
             transfers,
             existing,
@@ -591,8 +604,16 @@ function Review({ assets = [] }) {
                     <div className="h-6 w-px bg-slate-300" />
                     <div className="flex items-center gap-3 text-xs text-slate-500">
                         <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded">
-                            {stats.additions} Additions
+                            {stats.capitalAdditions} Additions
                         </span>
+                        {stats.deMinimisCount > 0 && (
+                            <span
+                                className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded cursor-help"
+                                title={`$${stats.deMinimisTotal.toLocaleString()} expensed via De Minimis Safe Harbor - NOT added to FA CS`}
+                            >
+                                {stats.deMinimisCount} Expensed
+                            </span>
+                        )}
                         <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded">
                             {stats.disposals} Disposals
                         </span>
@@ -680,6 +701,7 @@ function Review({ assets = [] }) {
                                     const isApproved = approvedIds.has(asset.unique_id);
                                     const hasErrors = asset.validation_errors?.length > 0;
                                     const needsReview = !hasErrors && asset.confidence_score <= 0.8;
+                                    const isDeMinimis = asset.depreciation_election === 'DeMinimis';
 
                                     return (
                                         <tr
@@ -688,7 +710,8 @@ function Review({ assets = [] }) {
                                                 "border-b hover:bg-slate-50 dark:border-slate-800",
                                                 hasErrors && "bg-red-50/50",
                                                 needsReview && !isApproved && "bg-yellow-50/30",
-                                                isApproved && "bg-green-50/30"
+                                                isApproved && "bg-green-50/30",
+                                                isDeMinimis && "bg-emerald-50/40 opacity-75"
                                             )}
                                         >
                                             {/* Status - MOVED TO FIRST COLUMN */}
@@ -827,15 +850,18 @@ function Review({ assets = [] }) {
                                                 <span className={cn(
                                                     "rounded font-medium whitespace-nowrap",
                                                     tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs",
-                                                    asset.transaction_type === TRANSACTION_TYPES.ADDITION && "bg-green-100 text-green-700",
+                                                    asset.transaction_type === TRANSACTION_TYPES.ADDITION && !isDeMinimis && "bg-green-100 text-green-700",
+                                                    asset.transaction_type === TRANSACTION_TYPES.ADDITION && isDeMinimis && "bg-emerald-100 text-emerald-700",
                                                     asset.transaction_type === TRANSACTION_TYPES.EXISTING && "bg-slate-100 text-slate-700",
                                                     asset.transaction_type === TRANSACTION_TYPES.DISPOSAL && "bg-red-100 text-red-700",
                                                     asset.transaction_type === TRANSACTION_TYPES.TRANSFER && "bg-purple-100 text-purple-700",
                                                     !asset.transaction_type && "bg-yellow-100 text-yellow-700"
                                                 )}>
-                                                    {asset.transaction_type === TRANSACTION_TYPES.ADDITION ? "Addition" :
-                                                     asset.transaction_type === TRANSACTION_TYPES.EXISTING ? "Existing" :
-                                                     asset.transaction_type || "Unknown"}
+                                                    {asset.transaction_type === TRANSACTION_TYPES.ADDITION
+                                                        ? (isDeMinimis ? "Expensed" : "Addition")
+                                                        : asset.transaction_type === TRANSACTION_TYPES.EXISTING
+                                                            ? "Existing"
+                                                            : asset.transaction_type || "Unknown"}
                                                 </span>
                                             </td>
 

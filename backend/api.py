@@ -425,9 +425,22 @@ async def get_stats(request: Request, response: Response):
 
     # Transaction type breakdown
     trans_types = {}
+    de_minimis_count = 0
+    de_minimis_total = 0.0
+
     for a in assets:
         tt = getattr(a, 'transaction_type', 'addition') or 'addition'
         trans_types[tt] = trans_types.get(tt, 0) + 1
+
+        # Track De Minimis items (expensed, not capitalized)
+        election = getattr(a, 'depreciation_election', 'MACRS') or 'MACRS'
+        if election == 'DeMinimis' and tt == 'Current Year Addition':
+            de_minimis_count += 1
+            de_minimis_total += a.cost or 0
+
+    # Calculate additions excluding De Minimis (for accurate capital addition count)
+    additions_count = trans_types.get('Current Year Addition', 0)
+    capital_additions = additions_count - de_minimis_count
 
     return {
         "total": total,
@@ -438,7 +451,11 @@ async def get_stats(request: Request, response: Response):
         "ready_for_export": errors == 0 and total > 0,
         "transaction_types": trans_types,
         "tax_year": session.tax_config.get("tax_year", TAX_CONFIG["tax_year"]),
-        "session_id": session.session_id
+        "session_id": session.session_id,
+        # De Minimis tracking
+        "de_minimis_count": de_minimis_count,
+        "de_minimis_total": round(de_minimis_total, 2),
+        "capital_additions": capital_additions  # Additions minus De Minimis
     }
 
 
@@ -1741,7 +1758,21 @@ async def get_rollforward_status(request: Request, response: Response):
     # Convert assets to DataFrame
     assets = list(session.assets.values())
     df_data = []
+    de_minimis_total = 0.0
+    de_minimis_count = 0
+
     for a in assets:
+        # Check if this is a De Minimis expensed item
+        election = getattr(a, 'depreciation_election', 'MACRS') or 'MACRS'
+        is_de_minimis = election == 'DeMinimis'
+
+        # Track De Minimis separately - they are expensed, not capitalized
+        if is_de_minimis and a.transaction_type == 'Current Year Addition':
+            de_minimis_total += a.cost or 0
+            de_minimis_count += 1
+            # Skip adding to rollforward - it's an expense, not a capital addition
+            continue
+
         df_data.append({
             "Cost": a.cost,
             "Transaction Type": a.transaction_type or "",
@@ -1766,7 +1797,10 @@ async def get_rollforward_status(request: Request, response: Response):
             "variance": round(result.variance, 2),
             "details": result.details,
             "warnings": result.warnings,
-            "status_label": status_label
+            "status_label": status_label,
+            # De Minimis items - expensed, not capitalized
+            "de_minimis_expensed": round(de_minimis_total, 2),
+            "de_minimis_count": de_minimis_count
         }
     except Exception as e:
         logger.error(f"Rollforward error: {e}")
@@ -1781,7 +1815,9 @@ async def get_rollforward_status(request: Request, response: Response):
             "variance": 0,
             "details": {},
             "warnings": [f"Error: {str(e)}"],
-            "status_label": "Error"
+            "status_label": "Error",
+            "de_minimis_expensed": round(de_minimis_total, 2),
+            "de_minimis_count": de_minimis_count
         }
 
 
