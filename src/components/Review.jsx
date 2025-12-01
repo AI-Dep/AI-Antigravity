@@ -595,6 +595,8 @@ function Review({ assets = [] }) {
                                 tableCompact ? "text-[10px]" : "text-xs"
                             )}>
                                 <tr>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '90px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Status</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '55px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Conf.</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Asset ID</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '220px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}>Description</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Cost</th>
@@ -604,8 +606,6 @@ function Review({ assets = [] }) {
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '60px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Life</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '70px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>Method</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '280px', minWidth: '150px', resize: 'horizontal', overflow: 'hidden' }}>FA CS Category</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '90px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Status</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '55px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Conf.</th>
                                     <th className={cn(tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '60px' }}>Actions</th>
                                 </tr>
                             </thead>
@@ -626,6 +626,86 @@ function Review({ assets = [] }) {
                                                 isApproved && "bg-green-50/30"
                                             )}
                                         >
+                                            {/* Status - MOVED TO FIRST COLUMN */}
+                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                {hasErrors ? (
+                                                    <div className="group relative flex items-center">
+                                                        <span className={cn(
+                                                            "inline-flex items-center rounded-full font-medium bg-red-100 text-red-800 cursor-help",
+                                                            tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                        )}>
+                                                            <AlertTriangle className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
+                                                            Error
+                                                        </span>
+                                                        <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-48 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-10">
+                                                            {asset.validation_errors.map((err, i) => (
+                                                                <div key={i}>• {err}</div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                ) : isApproved ? (
+                                                    <span className={cn(
+                                                        "inline-flex items-center rounded-full font-medium bg-green-100 text-green-800",
+                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                    )}>
+                                                        <Check className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
+                                                        Approved
+                                                    </span>
+                                                ) : asset.confidence_score > 0.8 ? (
+                                                    <span className={cn(
+                                                        "inline-flex items-center rounded-full font-medium bg-green-100 text-green-800",
+                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                    )}>
+                                                        High Conf.
+                                                    </span>
+                                                ) : (
+                                                    <span className={cn(
+                                                        "inline-flex items-center rounded-full font-medium bg-yellow-100 text-yellow-800",
+                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                    )}>
+                                                        <AlertTriangle className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
+                                                        Review
+                                                    </span>
+                                                )}
+                                            </td>
+                                            {/* Confidence - MOVED TO SECOND COLUMN */}
+                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                <div className="group relative">
+                                                    <span className={cn(
+                                                        "font-mono cursor-help",
+                                                        tableCompact ? "text-[10px]" : "text-xs",
+                                                        asset.confidence_score > 0.8 ? "text-green-600" :
+                                                            asset.confidence_score > 0.5 ? "text-yellow-600" : "text-red-600"
+                                                    )}>
+                                                        {Math.round((asset.confidence_score || 0) * 100)}%
+                                                    </span>
+                                                    {/* Confidence tooltip with reasoning */}
+                                                    <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-3 bg-slate-800 text-white text-xs rounded shadow-lg z-10">
+                                                        <div className="font-semibold mb-2">Confidence Score: {Math.round((asset.confidence_score || 0) * 100)}%</div>
+                                                        <div className="space-y-1 text-slate-300">
+                                                            {asset.confidence_score > 0.8 ? (
+                                                                <>
+                                                                    <div>✓ Description matched known asset patterns</div>
+                                                                    <div>✓ Recovery period matches asset class</div>
+                                                                    <div>✓ Cost within expected range</div>
+                                                                </>
+                                                            ) : asset.confidence_score > 0.5 ? (
+                                                                <>
+                                                                    <div>⚠ Partial description match</div>
+                                                                    <div>⚠ Multiple possible classifications</div>
+                                                                    <div className="mt-2 text-yellow-300">Recommend manual review</div>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <div>✗ Unknown or ambiguous asset type</div>
+                                                                    <div>✗ Insufficient data for classification</div>
+                                                                    <div className="mt-2 text-red-300">Manual classification required</div>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </td>
                                             {/* Asset ID */}
                                             <td className={cn(
                                                 "font-medium text-slate-900 dark:text-white",
@@ -787,59 +867,6 @@ function Review({ assets = [] }) {
                                                 </>
                                             )}
 
-                                            {/* Status */}
-                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                {hasErrors ? (
-                                                    <div className="group relative flex items-center">
-                                                        <span className={cn(
-                                                            "inline-flex items-center rounded-full font-medium bg-red-100 text-red-800 cursor-help",
-                                                            tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                                                        )}>
-                                                            <AlertTriangle className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
-                                                            Error
-                                                        </span>
-                                                        <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block w-48 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-10">
-                                                            {asset.validation_errors.map((err, i) => (
-                                                                <div key={i}>• {err}</div>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                ) : isApproved ? (
-                                                    <span className={cn(
-                                                        "inline-flex items-center rounded-full font-medium bg-green-100 text-green-800",
-                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                                                    )}>
-                                                        <Check className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
-                                                        Approved
-                                                    </span>
-                                                ) : asset.confidence_score > 0.8 ? (
-                                                    <span className={cn(
-                                                        "inline-flex items-center rounded-full font-medium bg-green-100 text-green-800",
-                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                                                    )}>
-                                                        High Conf.
-                                                    </span>
-                                                ) : (
-                                                    <span className={cn(
-                                                        "inline-flex items-center rounded-full font-medium bg-yellow-100 text-yellow-800",
-                                                        tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                                                    )}>
-                                                        <AlertTriangle className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
-                                                        Review
-                                                    </span>
-                                                )}
-                                            </td>
-                                            {/* Confidence */}
-                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                <span className={cn(
-                                                    "font-mono",
-                                                    tableCompact ? "text-[10px]" : "text-xs",
-                                                    asset.confidence_score > 0.8 ? "text-green-600" :
-                                                        asset.confidence_score > 0.5 ? "text-yellow-600" : "text-red-600"
-                                                )}>
-                                                    {Math.round((asset.confidence_score || 0) * 100)}%
-                                                </span>
-                                            </td>
                                             {/* Actions */}
                                             <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                 <div className="flex gap-0.5">
