@@ -2010,18 +2010,30 @@ async def analyze_data_cleanup(request: Request, response: Response):
                     "suggested_fix": cost_str.replace('$', '').replace('€', '').replace('£', '').strip()
                 })
 
-        # Check description for OCR errors (O vs 0 in what looks like numbers)
+        # Check description for OCR errors - be more specific to avoid false positives
+        # Only flag patterns that look like actual OCR mistakes, not product names like "OptiPlex"
         if asset.description:
             desc = asset.description
-            # Common OCR errors: O instead of 0, l instead of 1
-            if 'O' in desc and any(c.isdigit() for c in desc):
-                # Potential OCR error - O in numeric context
-                issues["ocr_errors"].append({
-                    "asset_id": asset_id,
-                    "field": "Description",
-                    "current_value": desc[:50] + ('...' if len(desc) > 50 else ''),
-                    "suggested_fix": "Review for OCR errors"
-                })
+            import re
+            # Look for specific OCR error patterns:
+            # - O directly adjacent to digits (e.g., "1O0" should be "100")
+            # - l or I in the middle of numbers (e.g., "1l1" should be "111")
+            ocr_patterns = [
+                (r'\d[Oo]\d', 'O in number sequence'),  # digit-O-digit
+                (r'\d[Il]\d', 'I/l in number sequence'),  # digit-I/l-digit
+                (r'[Oo]\d{2,}', 'O before numbers'),  # O followed by 2+ digits
+                (r'\d{2,}[Oo]', 'O after numbers'),  # 2+ digits followed by O
+            ]
+
+            for pattern, error_type in ocr_patterns:
+                if re.search(pattern, desc):
+                    issues["ocr_errors"].append({
+                        "asset_id": asset_id,
+                        "field": "Description",
+                        "current_value": desc[:50] + ('...' if len(desc) > 50 else ''),
+                        "suggested_fix": f"Check for {error_type}"
+                    })
+                    break  # Only report once per asset
 
     return {
         "issues": issues,
@@ -2056,6 +2068,35 @@ async def fix_data_category(request: Request, response: Response, body: dict = B
                 asset.in_service_date = asset.acquisition_date
                 fixed_count += 1
 
+        elif category == "invalid_dates":
+            # Fix invalid dates like Feb 30 -> Feb 28
+            if asset.in_service_date:
+                date_str = str(asset.in_service_date)
+                try:
+                    from datetime import datetime
+                    import calendar
+                    # Try to parse and fix invalid dates
+                    if "2/30" in date_str or "2/31" in date_str:
+                        # February - use last day of Feb
+                        year = datetime.now().year
+                        if "/" in date_str:
+                            parts = date_str.split("/")
+                            if len(parts) >= 3:
+                                year = int(parts[2]) if len(parts[2]) == 4 else 2000 + int(parts[2])
+                        last_day = 29 if calendar.isleap(year) else 28
+                        asset.in_service_date = datetime(year, 2, last_day)
+                        fixed_count += 1
+                    elif "4/31" in date_str or "6/31" in date_str or "9/31" in date_str or "11/31" in date_str:
+                        # 30-day months
+                        if "/" in date_str:
+                            parts = date_str.split("/")
+                            month = int(parts[0])
+                            year = int(parts[2]) if len(parts) >= 3 and len(parts[2]) == 4 else datetime.now().year
+                            asset.in_service_date = datetime(year, month, 30)
+                            fixed_count += 1
+                except Exception:
+                    pass  # Can't auto-fix this date
+
         elif category == "negative_format":
             if asset.cost is not None:
                 cost_str = str(asset.cost)
@@ -2077,6 +2118,21 @@ async def fix_data_category(request: Request, response: Response, body: dict = B
                     except ValueError:
                         pass
 
+        elif category == "ocr_errors":
+            # OCR errors require manual review - we can try to auto-fix common patterns
+            if asset.description:
+                import re
+                desc = asset.description
+                original = desc
+                # Fix O -> 0 when surrounded by digits
+                desc = re.sub(r'(\d)O(\d)', r'\g<1>0\g<2>', desc)
+                desc = re.sub(r'(\d)o(\d)', r'\g<1>0\g<2>', desc)
+                # Fix l -> 1 when surrounded by digits
+                desc = re.sub(r'(\d)[lI](\d)', r'\g<1>1\g<2>', desc)
+                if desc != original:
+                    asset.description = desc
+                    fixed_count += 1
+
     return {
         "success": True,
         "category": category,
@@ -2091,14 +2147,20 @@ async def fix_all_data_issues(request: Request, response: Response):
     add_session_to_response(response, session.session_id)
 
     total_fixed = 0
+    fixed_by_category = {}
 
-    for category in ["missing_dates", "negative_format", "cost_format"]:
+    # Fix all categories
+    all_categories = ["invalid_dates", "missing_dates", "negative_format", "cost_format", "ocr_errors"]
+    for category in all_categories:
         result = await fix_data_category(request, response, {"category": category})
-        total_fixed += result.get("fixed_count", 0)
+        count = result.get("fixed_count", 0)
+        total_fixed += count
+        fixed_by_category[category] = count
 
     return {
         "success": True,
-        "total_fixed": total_fixed
+        "total_fixed": total_fixed,
+        "fixed_by_category": fixed_by_category
     }
 
 
