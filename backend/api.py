@@ -142,6 +142,30 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting FA CS Automator API...")
 
+    # Validate license (non-blocking with warnings)
+    try:
+        from backend.licensing import get_license_manager, LicenseStatus
+        license_mgr = get_license_manager()
+        license_info = license_mgr.validate()
+
+        if license_info.is_valid():
+            logger.info(f"License valid: {license_info.edition} edition for {license_info.customer_name}")
+            if license_info.warnings:
+                for warning in license_info.warnings:
+                    logger.warning(f"License warning: {warning}")
+        else:
+            # Log error but don't hard-block - allow operation with degraded features
+            logger.error(f"License validation failed: {license_info.status.value}")
+            logger.warning("Operating in UNLICENSED mode - some features may be restricted")
+
+        # Store license info in app state for endpoint access
+        app.state.license_info = license_info
+
+    except Exception as e:
+        logger.error(f"License check error: {e}")
+        logger.warning("Operating in UNLICENSED mode due to license check error")
+        app.state.license_info = None
+
     # Start session cleanup task
     session_manager = get_session_manager()
     await session_manager.start_cleanup_task()
@@ -544,6 +568,458 @@ async def get_assets(request: Request, response: Response):
     session = await get_current_session(request)
     add_session_to_response(response, session.session_id)
     return list(session.assets.values())
+
+
+# ==============================================================================
+# LICENSE STATUS ENDPOINTS
+# ==============================================================================
+
+@app.get("/license/status")
+async def get_license_status(request: Request):
+    """
+    Get current license status.
+
+    Returns license information including:
+    - Valid/invalid status
+    - Edition and features
+    - Expiration information
+    - Warnings (expiring soon, grace period, etc.)
+
+    This endpoint does NOT require authentication as license status
+    should be accessible to determine available features.
+    """
+    try:
+        from backend.licensing import get_license_manager
+
+        license_mgr = get_license_manager()
+        license_info = license_mgr.validate()
+
+        return {
+            "valid": license_info.is_valid(),
+            "status": license_info.status.value,
+            "license_id": license_info.license_id if license_info.is_valid() else None,
+            "customer": license_info.customer_name if license_info.is_valid() else None,
+            "edition": license_info.edition if license_info.is_valid() else "unlicensed",
+            "features": license_info.features,
+            "max_seats": license_info.max_seats,
+            "max_assets": license_info.max_assets,
+            "expires_at": license_info.expires_at.isoformat() if license_info.expires_at else None,
+            "days_remaining": license_info.days_until_expiry,
+            "grace_days_remaining": license_info.grace_days_remaining,
+            "warnings": license_info.warnings,
+        }
+
+    except Exception as e:
+        logger.error(f"Error checking license status: {e}")
+        return {
+            "valid": False,
+            "status": "error",
+            "edition": "unlicensed",
+            "features": [],
+            "warnings": [f"License check error: {str(e)}"],
+        }
+
+
+@app.get("/license/features/{feature}")
+async def check_license_feature(request: Request, feature: str):
+    """
+    Check if a specific feature is available in the current license.
+
+    Args:
+        feature: Feature name to check (e.g., "rpa", "bulk_approve", "api_access")
+
+    Returns:
+        {"available": true/false, "reason": "..."}
+    """
+    try:
+        from backend.licensing import get_license_manager
+
+        license_mgr = get_license_manager()
+        license_info = license_mgr.validate()
+
+        if not license_info.is_valid():
+            return {
+                "available": False,
+                "feature": feature,
+                "reason": f"License not valid: {license_info.status.value}",
+            }
+
+        available = license_info.has_feature(feature)
+        return {
+            "available": available,
+            "feature": feature,
+            "reason": None if available else f"Feature '{feature}' not included in {license_info.edition} edition",
+        }
+
+    except Exception as e:
+        logger.error(f"Error checking feature {feature}: {e}")
+        return {
+            "available": False,
+            "feature": feature,
+            "reason": f"Error: {str(e)}",
+        }
+
+
+# ==============================================================================
+# RPA / WEB AUTOMATION ENDPOINTS
+# ==============================================================================
+
+@app.get("/rpa/status")
+async def get_rpa_status(request: Request, response: Response):
+    """
+    Get RPA/Automation capabilities and status.
+
+    Returns availability of different automation backends:
+    - desktop: Windows desktop automation via pywinauto/pyautogui
+    - web: Cross-platform web automation via Playwright
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    # Check desktop RPA availability (Windows only)
+    desktop_available = False
+    desktop_status = "Not available (non-Windows platform)"
+    try:
+        import sys
+        if sys.platform == "win32":
+            from backend.rpa import test_fa_cs_connection
+            desktop_available = True
+            desktop_status = "Available (Windows)"
+    except ImportError as e:
+        desktop_status = f"Not installed: {e}"
+
+    # Check Playwright availability (cross-platform)
+    web_available = False
+    web_status = "Not installed"
+    web_browsers = []
+    try:
+        from backend.rpa import is_playwright_available
+
+        if is_playwright_available():
+            web_available = True
+            web_status = "Available"
+            web_browsers = ["chromium", "firefox", "webkit"]
+        else:
+            web_status = "Playwright not installed. Install with: pip install playwright && playwright install"
+    except ImportError as e:
+        web_status = f"Module error: {e}"
+
+    # Check license for RPA feature
+    rpa_licensed = True
+    license_status = "No license check"
+    try:
+        from backend.licensing import get_license_manager
+
+        license_mgr = get_license_manager()
+        license_info = license_mgr.validate()
+
+        if license_info.is_valid():
+            rpa_licensed = license_info.has_feature("rpa")
+            license_status = "Licensed" if rpa_licensed else f"RPA not included in {license_info.edition} edition"
+        else:
+            rpa_licensed = False
+            license_status = f"License invalid: {license_info.status.value}"
+    except Exception as e:
+        license_status = f"License check skipped: {e}"
+
+    return {
+        "desktop": {
+            "available": desktop_available,
+            "status": desktop_status,
+            "platform": "Windows",
+            "target_systems": ["FA CS Desktop Application"],
+        },
+        "web": {
+            "available": web_available,
+            "status": web_status,
+            "platform": "Cross-platform",
+            "browsers": web_browsers,
+            "target_systems": ["Thomson Reuters Cloud", "QuickBooks Online", "Generic Web FA"],
+        },
+        "license": {
+            "rpa_feature": rpa_licensed,
+            "status": license_status,
+        },
+        "recommended": "web" if web_available else ("desktop" if desktop_available else None),
+    }
+
+
+@app.get("/rpa/config")
+async def get_rpa_config(request: Request, response: Response):
+    """
+    Get current RPA configuration settings.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    # Get session-stored RPA config or defaults
+    rpa_config = getattr(session, "rpa_config", None) or {
+        "browser_type": "chromium",
+        "headless": False,
+        "slow_mo": 100,
+        "max_retries": 3,
+        "retry_delay": 2.0,
+        "screenshot_on_error": True,
+        "target_system": "generic",
+        "timeout": 30000,
+    }
+
+    return rpa_config
+
+
+@app.post("/rpa/config")
+async def set_rpa_config(
+    request: Request,
+    response: Response,
+    browser_type: str = Body("chromium", embed=True),
+    headless: bool = Body(False, embed=True),
+    slow_mo: int = Body(100, embed=True, ge=0, le=1000),
+    max_retries: int = Body(3, embed=True, ge=0, le=10),
+    retry_delay: float = Body(2.0, embed=True, ge=0.5, le=30.0),
+    screenshot_on_error: bool = Body(True, embed=True),
+    target_system: str = Body("generic", embed=True),
+    timeout: int = Body(30000, embed=True, ge=5000, le=120000),
+):
+    """
+    Configure RPA/web automation settings.
+
+    Args:
+        browser_type: "chromium", "firefox", or "webkit"
+        headless: Run browser without visible window
+        slow_mo: Milliseconds to slow down actions (for debugging)
+        max_retries: Maximum retry attempts for failed operations
+        retry_delay: Seconds between retries
+        screenshot_on_error: Capture screenshot on errors
+        target_system: "generic", "thomson_cloud", "quickbooks"
+        timeout: Default timeout in milliseconds
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    if browser_type not in ["chromium", "firefox", "webkit"]:
+        raise HTTPException(status_code=400, detail=f"Invalid browser_type: {browser_type}")
+
+    if target_system not in ["generic", "thomson_cloud", "quickbooks"]:
+        raise HTTPException(status_code=400, detail=f"Invalid target_system: {target_system}")
+
+    rpa_config = {
+        "browser_type": browser_type,
+        "headless": headless,
+        "slow_mo": slow_mo,
+        "max_retries": max_retries,
+        "retry_delay": retry_delay,
+        "screenshot_on_error": screenshot_on_error,
+        "target_system": target_system,
+        "timeout": timeout,
+    }
+
+    session.rpa_config = rpa_config
+
+    return {"success": True, "config": rpa_config}
+
+
+@app.post("/rpa/web/test-connection")
+async def test_web_connection(
+    request: Request,
+    response: Response,
+    url: str = Body(..., embed=True),
+):
+    """
+    Test web automation connection by navigating to a URL.
+
+    This verifies Playwright is working and can access the target site.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    try:
+        from backend.rpa import is_playwright_available, PlaywrightConfig, PlaywrightFAAutomation
+
+        if not is_playwright_available():
+            return {
+                "success": False,
+                "error": "Playwright not available. Install with: pip install playwright && playwright install",
+            }
+
+        # Get session RPA config
+        rpa_config = getattr(session, "rpa_config", {})
+        config = PlaywrightConfig(
+            browser_type=rpa_config.get("browser_type", "chromium"),
+            headless=True,  # Always headless for connection test
+            timeout=rpa_config.get("timeout", 30000),
+        )
+
+        automation = PlaywrightFAAutomation(config)
+        await automation.initialize()
+
+        try:
+            # Navigate to URL
+            await automation.page.goto(url, timeout=config.timeout)
+            title = await automation.page.title()
+            current_url = automation.page.url
+
+            return {
+                "success": True,
+                "url": current_url,
+                "title": title,
+                "browser": config.browser_type,
+            }
+        finally:
+            await automation.close()
+
+    except Exception as e:
+        logger.error(f"Web connection test failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+        }
+
+
+@app.post("/rpa/web/run")
+async def run_web_automation(
+    request: Request,
+    response: Response,
+    url: str = Body(..., embed=True),
+    username: str = Body(None, embed=True),
+    password: str = Body(None, embed=True),
+    dry_run: bool = Body(False, embed=True),
+):
+    """
+    Run web-based FA automation to enter assets into a web accounting system.
+
+    Args:
+        url: Login URL for the target system
+        username: Optional login username
+        password: Optional login password
+        dry_run: If True, validate but don't actually submit data
+
+    Requires:
+        - Assets loaded in session
+        - All actionable assets approved
+        - Playwright installed
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    # Check for assets
+    if not session.assets:
+        raise HTTPException(status_code=400, detail="No assets loaded. Upload an asset schedule first.")
+
+    # Get actionable assets (additions, disposals, transfers)
+    actionable_types = {"Addition", "Disposal", "Transfer", "Current Year Addition"}
+    assets = list(session.assets.values())
+    actionable_assets = [
+        a for a in assets if a.transaction_type in actionable_types
+    ]
+
+    if not actionable_assets:
+        raise HTTPException(
+            status_code=400,
+            detail="No actionable assets found (additions, disposals, or transfers)."
+        )
+
+    # Check approval status
+    approved_ids = session.approved_assets or set()
+    unapproved = [
+        a for a in actionable_assets if a.unique_id not in approved_ids
+    ]
+
+    if unapproved:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{len(unapproved)} assets not approved. Approve all assets before automation."
+        )
+
+    # Check Playwright availability
+    try:
+        from backend.rpa import is_playwright_available, PlaywrightConfig, PlaywrightFAAutomation
+
+        if not is_playwright_available():
+            raise HTTPException(
+                status_code=503,
+                detail="Playwright not available. Install with: pip install playwright && playwright install"
+            )
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"RPA module error: {e}")
+
+    # Build configuration
+    rpa_config = getattr(session, "rpa_config", {})
+    config = PlaywrightConfig(
+        browser_type=rpa_config.get("browser_type", "chromium"),
+        headless=rpa_config.get("headless", False),
+        slow_mo=rpa_config.get("slow_mo", 100),
+        timeout=rpa_config.get("timeout", 30000),
+        max_retries=rpa_config.get("max_retries", 3),
+        target_system=rpa_config.get("target_system", "generic"),
+    )
+
+    # Convert assets to DataFrame for automation
+    import pandas as pd
+
+    df_data = []
+    for asset in actionable_assets:
+        df_data.append({
+            "Asset ID": asset.asset_id,
+            "Description": asset.description,
+            "Cost": asset.cost,
+            "In Service Date": asset.in_service_date,
+            "MACRS Class": asset.macrs_class,
+            "MACRS Life": asset.macrs_life,
+            "Method": asset.macrs_method,
+            "Convention": asset.macrs_convention,
+            "Transaction Type": asset.transaction_type,
+            "Depreciation Election": getattr(asset, "depreciation_election", "MACRS"),
+        })
+
+    assets_df = pd.DataFrame(df_data)
+
+    if dry_run:
+        return {
+            "success": True,
+            "dry_run": True,
+            "assets_count": len(actionable_assets),
+            "config": {
+                "browser": config.browser_type,
+                "target_system": config.target_system,
+                "headless": config.headless,
+            },
+            "message": f"Dry run complete. {len(actionable_assets)} assets ready for automation.",
+        }
+
+    # Run automation
+    automation = PlaywrightFAAutomation(config)
+    try:
+        await automation.initialize()
+
+        # Login if credentials provided
+        if username and password:
+            login_success = await automation.login(url, username, password)
+            if not login_success:
+                return {
+                    "success": False,
+                    "error": "Login failed. Check credentials and try again.",
+                }
+
+        # Enter assets
+        result = await automation.enter_assets(assets_df)
+
+        return {
+            "success": result.success,
+            "total_assets": result.total,
+            "successful": result.successful,
+            "failed": result.failed,
+            "errors": result.errors[:10] if result.errors else [],  # Limit error list
+            "duration_seconds": result.duration_seconds,
+        }
+
+    except Exception as e:
+        logger.error(f"Web automation failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+        }
+    finally:
+        await automation.close()
 
 
 # ==============================================================================
