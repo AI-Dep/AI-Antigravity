@@ -846,7 +846,7 @@ async def test_web_connection(
         config = PlaywrightConfig(
             browser_type=rpa_config.get("browser_type", "chromium"),
             headless=True,  # Always headless for connection test
-            timeout=rpa_config.get("timeout", 30000),
+            default_timeout=rpa_config.get("timeout", 30000),
         )
 
         automation = PlaywrightFAAutomation(config)
@@ -854,7 +854,7 @@ async def test_web_connection(
 
         try:
             # Navigate to URL
-            await automation.page.goto(url, timeout=config.timeout)
+            await automation.page.goto(url, timeout=config.default_timeout)
             title = await automation.page.title()
             current_url = automation.page.url
 
@@ -948,7 +948,7 @@ async def run_web_automation(
         browser_type=rpa_config.get("browser_type", "chromium"),
         headless=rpa_config.get("headless", False),
         slow_mo=rpa_config.get("slow_mo", 100),
-        timeout=rpa_config.get("timeout", 30000),
+        default_timeout=rpa_config.get("timeout", 30000),
         max_retries=rpa_config.get("max_retries", 3),
         target_system=rpa_config.get("target_system", "generic"),
     )
@@ -1005,9 +1005,10 @@ async def run_web_automation(
 
         return {
             "success": result.success,
-            "total_assets": result.total,
-            "successful": result.successful,
-            "failed": result.failed,
+            "message": result.message,
+            "total_assets": result.assets_processed,
+            "successful": result.assets_succeeded,
+            "failed": result.assets_failed,
             "errors": result.errors[:10] if result.errors else [],  # Limit error list
             "duration_seconds": result.duration_seconds,
         }
