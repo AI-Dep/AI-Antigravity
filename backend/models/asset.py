@@ -22,7 +22,8 @@ class Asset(BaseModel):
     # This field allows CPA to specify the exact FA CS number to use
     fa_cs_asset_number: Optional[int] = Field(
         None,
-        description="FA CS Asset # (numeric). If not set, auto-generated from asset_id or row_index"
+        ge=1,  # FA CS requires positive asset numbers
+        description="FA CS Asset # (numeric, >= 1). If not set, auto-generated from asset_id or row_index"
     )
 
     # Dates (all optional - some assets may not have dates)

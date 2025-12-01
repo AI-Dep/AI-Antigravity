@@ -968,6 +968,29 @@ async def update_asset(request: Request, response: Response, asset_id: int, upda
             {"allowed_fields": list(ALLOWED_UPDATE_FIELDS)}
         )
 
+    # Validate fa_cs_asset_number if provided (must be positive integer >= 1 or None)
+    if "fa_cs_asset_number" in safe_update_data:
+        fa_cs_num = safe_update_data["fa_cs_asset_number"]
+        if fa_cs_num is not None:
+            # Ensure it's an integer
+            if not isinstance(fa_cs_num, int):
+                try:
+                    fa_cs_num = int(fa_cs_num)
+                    safe_update_data["fa_cs_asset_number"] = fa_cs_num
+                except (ValueError, TypeError):
+                    raise api_error(
+                        400, "INVALID_FA_CS_NUMBER",
+                        "FA CS Asset # must be a positive integer",
+                        {"value": fa_cs_num}
+                    )
+            # Ensure it's >= 1
+            if fa_cs_num < 1:
+                raise api_error(
+                    400, "INVALID_FA_CS_NUMBER",
+                    "FA CS Asset # must be >= 1 (FA CS requires positive asset numbers)",
+                    {"value": fa_cs_num}
+                )
+
     if asset_id not in session.assets:
         raise api_error(404, "ASSET_NOT_FOUND", f"Asset with ID {asset_id} not found")
 

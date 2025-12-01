@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2, Shield, Wand2, DollarSign, Calculator } from 'lucide-react';
@@ -26,6 +26,10 @@ function Review({ assets = [] }) {
     const [showCompatDialog, setShowCompatDialog] = useState(false); // Show compatibility dialog
     const [depreciationPreview, setDepreciationPreview] = useState(null); // 179/Bonus preview
     const [checkingCompatibility, setCheckingCompatibility] = useState(false);
+
+    // FA CS # editing: Track pending values and debounce timers
+    const [pendingFacsNumbers, setPendingFacsNumbers] = useState({}); // { uniqueId: pendingValue }
+    const facsDebounceTimers = useRef({}); // { uniqueId: timerId }
 
     // Fetch warnings and export status when assets change
     useEffect(() => {
@@ -349,6 +353,53 @@ function Review({ assets = [] }) {
             console.error("Failed to update asset:", error);
         }
     };
+
+    // Debounced FA CS # update handler (500ms delay to prevent API flood)
+    const handleFacsNumberChange = useCallback((uniqueId, inputValue) => {
+        // Parse the input value
+        const parsedValue = inputValue === "" ? null : parseInt(inputValue, 10);
+
+        // Validate: must be null (empty) or positive integer >= 1
+        const isValid = parsedValue === null || (Number.isInteger(parsedValue) && parsedValue >= 1);
+
+        if (!isValid) {
+            // Invalid input (NaN, 0, negative) - don't update
+            return;
+        }
+
+        // Store pending value for immediate UI feedback
+        setPendingFacsNumbers(prev => ({
+            ...prev,
+            [uniqueId]: parsedValue
+        }));
+
+        // Clear any existing debounce timer for this asset
+        if (facsDebounceTimers.current[uniqueId]) {
+            clearTimeout(facsDebounceTimers.current[uniqueId]);
+        }
+
+        // Set new debounce timer (500ms)
+        facsDebounceTimers.current[uniqueId] = setTimeout(async () => {
+            try {
+                // Update local assets state
+                setLocalAssets(prev => prev.map(a =>
+                    a.unique_id === uniqueId
+                        ? { ...a, fa_cs_asset_number: parsedValue }
+                        : a
+                ));
+                // Clear pending state
+                setPendingFacsNumbers(prev => {
+                    const updated = { ...prev };
+                    delete updated[uniqueId];
+                    return updated;
+                });
+                // Call backend to persist
+                await apiPost(`/assets/${uniqueId}/update`, { fa_cs_asset_number: parsedValue });
+            } catch (error) {
+                console.error("Failed to update FA CS #:", error);
+            }
+        }, 500);
+    }, []);
 
     const handleApprove = async (uniqueId) => {
         try {
@@ -839,7 +890,12 @@ function Review({ assets = [] }) {
                                                     className={cn(
                                                         "w-full border rounded text-center font-mono",
                                                         tableCompact ? "px-1 py-0.5 text-[10px]" : "px-2 py-1 text-xs",
-                                                        asset.fa_cs_asset_number ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white",
+                                                        // Show pending state while debouncing
+                                                        pendingFacsNumbers[asset.unique_id] !== undefined
+                                                            ? "border-yellow-300 bg-yellow-50"
+                                                            : asset.fa_cs_asset_number
+                                                                ? "border-blue-300 bg-blue-50"
+                                                                : "border-slate-200 bg-white",
                                                         "focus:outline-none focus:ring-1 focus:ring-blue-500"
                                                     )}
                                                     placeholder={(() => {
@@ -850,11 +906,13 @@ function Review({ assets = [] }) {
                                                         }
                                                         return String(asset.row_index);
                                                     })()}
-                                                    value={asset.fa_cs_asset_number || ""}
-                                                    onChange={(e) => {
-                                                        const newValue = e.target.value ? parseInt(e.target.value, 10) : null;
-                                                        handleAssetUpdate(asset.unique_id, { fa_cs_asset_number: newValue });
-                                                    }}
+                                                    value={
+                                                        // Show pending value if debouncing, else actual value
+                                                        pendingFacsNumbers[asset.unique_id] !== undefined
+                                                            ? (pendingFacsNumbers[asset.unique_id] ?? "")
+                                                            : (asset.fa_cs_asset_number ?? "")
+                                                    }
+                                                    onChange={(e) => handleFacsNumberChange(asset.unique_id, e.target.value)}
                                                     title={asset.fa_cs_asset_number
                                                         ? `Explicit FA CS #: ${asset.fa_cs_asset_number}`
                                                         : `Auto-generated from "${asset.asset_id || 'row ' + asset.row_index}". Click to override.`
