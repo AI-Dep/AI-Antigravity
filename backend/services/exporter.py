@@ -120,6 +120,10 @@ class ExporterService:
                 "Business Use %": 1.0,
                 "Tax Year": date.today().year,
 
+                # Depreciation Election (CPA decision for tax treatment)
+                "Depreciation Election": getattr(asset, 'depreciation_election', 'MACRS') or 'MACRS',
+                "Election Reason": getattr(asset, 'election_reason', '') or '',
+
                 # Additional columns required by build_fa for recapture calculations
                 # These are initialized and will be computed by build_fa
                 "Section 179 Amount": 0.0,
@@ -178,6 +182,10 @@ class ExporterService:
             "Tax Sec 179 Expensed",
             "Tax Prior Depreciation",
 
+            # Depreciation Election (CPA decision)
+            "Depreciation Election",
+            "Election Reason",
+
             # Transaction type for CPA review
             "Transaction Type",
 
@@ -234,6 +242,10 @@ class ExporterService:
                 "From Location": getattr(asset, 'from_location', None),
                 "To Location": getattr(asset, 'to_location', None),
                 "Transfer Date": getattr(asset, 'transfer_date', None),
+
+                # Depreciation Election
+                "Depreciation Election": getattr(asset, 'depreciation_election', 'MACRS') or 'MACRS',
+                "Election Reason": getattr(asset, 'election_reason', '') or '',
 
                 # Metadata
                 "Confidence Score": asset.confidence_score,
@@ -406,6 +418,19 @@ class ExporterService:
                     "Original Value": proc_row.get("Cat_TypoNote", "").split(" → ")[0] if " → " in str(proc_row.get("Cat_TypoNote", "")) else "",
                     "New Value": proc_row.get("Cat_TypoNote", "").split(" → ")[1] if " → " in str(proc_row.get("Cat_TypoNote", "")) else proc_row.get("Cat_TypoNote", ""),
                     "Reason": "Automatic category name correction applied"
+                })
+
+            # Check for Depreciation Election (CPA decision)
+            election = proc_row.get("Depreciation Election", "MACRS")
+            election_reason = proc_row.get("Election Reason", "")
+            if election and election != "MACRS":
+                changes.append({
+                    "Asset #": asset_num,
+                    "Description": description,
+                    "Field Changed": "Depreciation Election",
+                    "Original Value": "MACRS (default)",
+                    "New Value": election,
+                    "Reason": election_reason if election_reason else f"{election} election selected"
                 })
 
             # Check for Section 179/Bonus elections (computed values)

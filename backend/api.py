@@ -984,6 +984,54 @@ async def approve_asset(request: Request, response: Response, asset_id: int):
 
     return {"approved": True, "unique_id": asset_id}
 
+
+@app.post("/assets/{asset_id}/election")
+async def update_asset_election(
+    request: Request,
+    response: Response,
+    asset_id: int,
+    body: dict = Body(...)
+):
+    """
+    Update depreciation election for an asset.
+
+    Valid elections:
+    - MACRS: Standard MACRS depreciation
+    - DeMinimis: De minimis safe harbor (expense immediately if ≤$2,500)
+    - Section179: Section 179 expense election
+    - Bonus: Bonus depreciation (60% for 2024)
+    - ADS: Alternative Depreciation System
+
+    Note: This is a CPA decision based on client's income situation.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    if asset_id not in session.assets:
+        raise api_error(404, "ASSET_NOT_FOUND", f"Asset with ID {asset_id} not found")
+
+    election = body.get("election", "MACRS")
+    valid_elections = ["MACRS", "DeMinimis", "Section179", "Bonus", "ADS"]
+
+    if election not in valid_elections:
+        raise api_error(400, "INVALID_ELECTION", f"Invalid election: {election}",
+                       {"valid_options": valid_elections})
+
+    asset = session.assets[asset_id]
+    asset.depreciation_election = election
+    asset.election_reason = f"Manually selected by CPA"
+
+    # Save session
+    manager = get_session_manager()
+    manager._save_session(session)
+
+    return {
+        "success": True,
+        "unique_id": asset_id,
+        "election": election
+    }
+
+
 @app.post("/assets/approve-batch")
 async def approve_batch(request: Request, response: Response, asset_ids: List[int] = Body(...)):
     """

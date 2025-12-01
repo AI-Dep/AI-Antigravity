@@ -36,6 +36,17 @@ class Asset(BaseModel):
     is_qualified_improvement: bool = False
     is_bonus_eligible: bool = False
 
+    # Depreciation Election - CPA decision for tax treatment
+    # This is what gets sent to FA CS and affects Year 1 depreciation
+    depreciation_election: Optional[str] = Field(
+        "MACRS",
+        description="Depreciation election: MACRS, Section179, Bonus, DeMinimis, ADS"
+    )
+    election_reason: Optional[str] = Field(
+        None,
+        description="Reason for election (auto-suggested or user-specified)"
+    )
+
     # Source tracking (for multi-sheet support)
     source_sheet: Optional[str] = Field(None, description="Source Excel sheet name")
     transaction_type: Optional[str] = Field("addition", description="Transaction type: addition, disposal, transfer, existing")
