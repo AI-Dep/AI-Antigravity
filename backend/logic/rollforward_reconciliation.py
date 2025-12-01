@@ -146,14 +146,16 @@ def reconcile_rollforward(
                 transfers_in_total += abs(cost)
                 details["transfers_in_count"] += 1
 
-        elif any(x in trans_type for x in ["addition", "add", "purchase", "acquire", "new"]):
+        elif any(x in trans_type for x in ["addition", "add", "purchase", "acquire", "new", "current year"]):
             # Explicit additions - current year acquisitions
+            # NOTE: "current year addition" from classifier contains "addition" AND "current year"
             additions_total += abs(cost)
             details["additions_count"] += 1
 
-        elif trans_type == "" or trans_type in ["existing", "carryover", "prior", "beginning"]:
+        elif trans_type == "" or any(x in trans_type for x in ["existing", "carryover", "prior", "beginning"]):
             # Assets with no transaction type = existing/carryover from prior years
             # These contribute to beginning balance, not additions
+            # NOTE: Uses partial match to catch "existing asset" from classifier
             existing_total += abs(cost)
             details["existing_count"] += 1
 
@@ -164,9 +166,13 @@ def reconcile_rollforward(
             if cost != 0:
                 warnings.append(f"Row {idx}: Unknown transaction type '{trans_type}' with cost ${cost:,.2f} - treated as existing asset")
 
-    # Beginning balance = passed-in value + existing assets (carryover with no transaction type)
-    # This represents the prior year ending balance
-    effective_beginning = beginning_balance + existing_total
+    # Beginning balance = passed-in value + existing assets + disposed assets + transfers out
+    # CRITICAL FIX: Assets that were disposed or transferred out EXISTED at the start
+    # of the year, so they must be included in beginning balance. The formula is:
+    #   Beginning = Prior Year Ending = Existing + Disposed + Transferred Out
+    #   Ending = Beginning + Additions - Disposals + Transfers In - Transfers Out
+    # Previously this was incorrect - disposed/transferred out assets were excluded
+    effective_beginning = beginning_balance + existing_total + disposals_total + transfers_out_total
 
     # Calculate expected ending balance using proper rollforward formula:
     # Beginning + Additions - Disposals + Transfers In - Transfers Out = Ending

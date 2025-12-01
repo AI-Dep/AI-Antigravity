@@ -128,9 +128,14 @@ function Dashboard({ setActiveTab }) {
     useEffect(() => {
         mountedRef.current = true;
 
-        // Initial data load
+        // Initial data load - CRITICAL: checkStatus must complete first to establish session
+        // Then parallel requests will use the same session ID
         const loadInitialData = async () => {
+            // First, establish session via checkStatus (returns X-Session-ID header)
             await checkStatus();
+            // Small delay to ensure session ID is stored from response
+            await new Promise(resolve => setTimeout(resolve, 50));
+            // Now make parallel requests - they'll all use the same session
             await Promise.all([
                 fetchStats(),
                 fetchQuality(),
@@ -193,7 +198,10 @@ function Dashboard({ setActiveTab }) {
         <div className="space-y-6">
             {/* Main Stats Row */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Card>
+                <Card
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => setActiveTab && setActiveTab('review')}
+                >
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Total Assets</CardTitle>
                         <Activity className="h-4 w-4 text-muted-foreground" />
@@ -205,7 +213,10 @@ function Dashboard({ setActiveTab }) {
                         </p>
                     </CardContent>
                 </Card>
-                <Card>
+                <Card
+                    className="cursor-pointer hover:bg-accent/50 transition-colors"
+                    onClick={() => setActiveTab && setActiveTab('review')}
+                >
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Needs Review</CardTitle>
                         <FileText className={`h-4 w-4 ${stats.needs_review > 0 ? 'text-yellow-500' : 'text-muted-foreground'}`} />
