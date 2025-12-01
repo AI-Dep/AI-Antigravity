@@ -162,6 +162,15 @@ class ExporterService:
             export_df = df
 
         # ================================================================
+        # MERGE ELECTION DATA - build_fa doesn't preserve these columns
+        # ================================================================
+        # Add election columns back from original df (build_fa drops them)
+        if "Depreciation Election" in df.columns and "Depreciation Election" not in export_df.columns:
+            export_df["Depreciation Election"] = df["Depreciation Election"].values
+        if "Election Reason" in df.columns and "Election Reason" not in export_df.columns:
+            export_df["Election Reason"] = df["Election Reason"].values
+
+        # ================================================================
         # FA CS IMPORT SHEET - Use comprehensive build_fa output
         # ================================================================
         # Select columns that FA CS needs for import and RPA automation
