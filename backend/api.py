@@ -312,12 +312,19 @@ def read_root():
     return {"status": "Backend Online", "version": "1.0.0"}
 
 @app.get("/check-facs")
-def check_facs():
+async def check_facs(request: Request, response: Response):
     """
     Check FA CS connection status.
     Remote mode: relies on user confirmation (can't auto-detect remote app)
     Local mode: checks if FAwin.exe is running
+
+    IMPORTANT: This endpoint establishes the session for the Dashboard.
+    It's called first, so it must return session ID for subsequent requests.
     """
+    # Establish session and add to response (critical for Dashboard parallel requests)
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
     if FACS_CONFIG["remote_mode"]:
         return {
             "running": FACS_CONFIG["user_confirmed_connected"],
@@ -1286,7 +1293,7 @@ async def export_audit_documentation(request: Request):
 # ==============================================================================
 
 @app.get("/quality")
-async def get_data_quality(request: Request):
+async def get_data_quality(request: Request, response: Response):
     """
     Get data quality score with A-F grade and detailed breakdown.
     Returns a comprehensive quality assessment for the loaded assets.
@@ -1295,6 +1302,7 @@ async def get_data_quality(request: Request):
     """
     # FIX: Use session instead of global ASSET_STORE for user isolation
     session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
 
     if not session.assets:
         return {
