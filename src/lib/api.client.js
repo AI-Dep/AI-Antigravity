@@ -27,13 +27,28 @@ const RETRY_DELAY = 1000;
 // HTTP status codes that should trigger a retry
 const RETRYABLE_STATUS_CODES = [408, 429, 500, 502, 503, 504];
 
+// Session ID storage - use header-based session tracking (more reliable than cookies)
+let _sessionId = null;
+
+/**
+ * Get the current session ID
+ */
+export const getSessionId = () => _sessionId;
+
+/**
+ * Clear the session (for logout, etc.)
+ */
+export const clearSession = () => {
+    _sessionId = null;
+};
+
 /**
  * Create axios instance with default configuration
  */
 export const apiClient = axios.create({
     baseURL: API_BASE,
     timeout: DEFAULT_TIMEOUT,
-    withCredentials: true, // CRITICAL: Include session cookies in requests
+    withCredentials: true, // Also keep cookies as backup
     headers: {
         'Content-Type': 'application/json'
     }
@@ -65,10 +80,17 @@ const isRetryable = (error) => {
 };
 
 /**
- * Response interceptor for retry logic
+ * Response interceptor for retry logic AND session capture
  */
 apiClient.interceptors.response.use(
-    (response) => response,
+    (response) => {
+        // CRITICAL: Capture session ID from response header
+        const sessionId = response.headers['x-session-id'];
+        if (sessionId) {
+            _sessionId = sessionId;
+        }
+        return response;
+    },
     async (error) => {
         const config = error.config;
 
@@ -105,12 +127,15 @@ apiClient.interceptors.response.use(
 );
 
 /**
- * Request interceptor to add session headers
+ * Request interceptor to add session ID header
  */
 apiClient.interceptors.request.use(
     (config) => {
-        // Add session ID from cookie if available
-        // The backend handles this via cookies, but we can add headers if needed
+        // CRITICAL: Send session ID with every request via header
+        // This is more reliable than cookies for Electron apps
+        if (_sessionId) {
+            config.headers['X-Session-ID'] = _sessionId;
+        }
         return config;
     },
     (error) => Promise.reject(error)
