@@ -138,13 +138,23 @@ def reconcile_rollforward(
             details["transfers_in_count"] += 1
 
         elif any(x in trans_type for x in ["transfer", "xfer"]):
-            # Generic transfer - check if cost is negative (out) or positive (in)
-            if cost < 0:
+            # Generic transfer without direction specified
+            # Check description for direction clues, otherwise warn and default to Transfer Out
+            # (conservative: assumes asset is leaving unless proven otherwise)
+            desc_lower = str(row.get("Description", "")).lower() if "Description" in df.columns else ""
+
+            if "in" in desc_lower or "from" in desc_lower or "received" in desc_lower:
+                transfers_in_total += abs(cost)
+                details["transfers_in_count"] += 1
+            elif "out" in desc_lower or "to " in desc_lower or "sent" in desc_lower or cost < 0:
                 transfers_out_total += abs(cost)
                 details["transfers_out_count"] += 1
             else:
-                transfers_in_total += abs(cost)
-                details["transfers_in_count"] += 1
+                # Ambiguous - default to Transfer Out (conservative) with warning
+                transfers_out_total += abs(cost)
+                details["transfers_out_count"] += 1
+                if cost != 0:
+                    warnings.append(f"Row {idx}: Ambiguous transfer direction for ${cost:,.2f} - treated as Transfer Out. Please verify.")
 
         elif any(x in trans_type for x in ["addition", "add", "purchase", "acquire", "new", "current year"]):
             # Explicit additions - current year acquisitions
