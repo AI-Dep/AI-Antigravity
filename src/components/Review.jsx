@@ -547,8 +547,15 @@ function Review({ assets = [] }) {
                     <Button
                         variant="outline"
                         onClick={handleAuditReport}
-                        className="text-slate-600 hover:bg-slate-50"
-                        title="Download full asset schedule for audit documentation"
+                        disabled={!exportStatus.ready}
+                        className={cn(
+                            !exportStatus.ready
+                                ? "text-gray-400 cursor-not-allowed"
+                                : "text-slate-600 hover:bg-slate-50"
+                        )}
+                        title={exportStatus.ready
+                            ? "Download full asset schedule for IRS audit documentation"
+                            : `Cannot export audit report: ${exportStatus.reason || 'Not all actionable items approved'}`}
                     >
                         <FileText className="w-4 h-4 mr-2" />
                         Audit Report
