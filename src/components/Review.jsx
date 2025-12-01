@@ -1101,150 +1101,179 @@ function Review({ assets = [] }) {
                                                 </span>
                                             </td>
 
-                                            {/* Class, Life, FA CS Category - Edit or Display mode */}
+                                            {/* Class, Life, Method - Hidden for De Minimis assets (not capitalized) */}
                                             {editingId === asset.unique_id ? (
-                                                <>
-                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                        <input
-                                                            className={cn(
-                                                                "border rounded w-full",
-                                                                tableCompact ? "px-1.5 py-0.5 text-xs" : "px-2 py-1 text-sm"
-                                                            )}
-                                                            value={editForm.macrs_class}
-                                                            onChange={(e) => setEditForm({ ...editForm, macrs_class: e.target.value })}
-                                                        />
-                                                    </td>
-                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                        <input
-                                                            type="number"
-                                                            className={cn(
-                                                                "border rounded w-14",
-                                                                tableCompact ? "px-1.5 py-0.5 text-xs" : "px-2 py-1 text-sm"
-                                                            )}
-                                                            value={editForm.macrs_life}
-                                                            onChange={(e) => setEditForm({ ...editForm, macrs_life: e.target.value })}
-                                                        />
-                                                    </td>
-                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                        <select
-                                                            className={cn(
-                                                                "border rounded w-full",
-                                                                tableCompact ? "px-1 py-0.5 text-xs" : "px-1.5 py-1 text-sm"
-                                                            )}
-                                                            value={editForm.macrs_method || ""}
-                                                            onChange={(e) => setEditForm({ ...editForm, macrs_method: e.target.value })}
-                                                        >
-                                                            <option value="200DB">200DB</option>
-                                                            <option value="150DB">150DB</option>
-                                                            <option value="SL">SL</option>
-                                                            <option value="ADS">ADS</option>
-                                                        </select>
-                                                    </td>
-                                                </>
+                                                // Edit mode - Class, Life, Method inputs (hidden for De Minimis)
+                                                isDeMinimis ? (
+                                                    // De Minimis: Show empty cells (MACRS fields not applicable)
+                                                    <>
+                                                        <td className={cn("text-center text-slate-300", tableCompact ? "px-2 py-1.5" : "px-3 py-2.5")}>—</td>
+                                                        <td className={cn("text-center text-slate-300", tableCompact ? "px-2 py-1.5" : "px-3 py-2.5")}>—</td>
+                                                        <td className={cn("text-center text-slate-300", tableCompact ? "px-2 py-1.5" : "px-3 py-2.5")}>—</td>
+                                                    </>
+                                                ) : (
+                                                    // MACRS/179/Bonus: Show edit inputs
+                                                    <>
+                                                        <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                            <input
+                                                                className={cn(
+                                                                    "border rounded w-full",
+                                                                    tableCompact ? "px-1.5 py-0.5 text-xs" : "px-2 py-1 text-sm"
+                                                                )}
+                                                                value={editForm.macrs_class}
+                                                                onChange={(e) => setEditForm({ ...editForm, macrs_class: e.target.value })}
+                                                            />
+                                                        </td>
+                                                        <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                            <input
+                                                                type="number"
+                                                                className={cn(
+                                                                    "border rounded w-14",
+                                                                    tableCompact ? "px-1.5 py-0.5 text-xs" : "px-2 py-1 text-sm"
+                                                                )}
+                                                                value={editForm.macrs_life}
+                                                                onChange={(e) => setEditForm({ ...editForm, macrs_life: e.target.value })}
+                                                            />
+                                                        </td>
+                                                        <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                            <select
+                                                                className={cn(
+                                                                    "border rounded w-full",
+                                                                    tableCompact ? "px-1 py-0.5 text-xs" : "px-1.5 py-1 text-sm"
+                                                                )}
+                                                                value={editForm.macrs_method || ""}
+                                                                onChange={(e) => setEditForm({ ...editForm, macrs_method: e.target.value })}
+                                                            >
+                                                                <option value="200DB">200DB</option>
+                                                                <option value="150DB">150DB</option>
+                                                                <option value="SL">SL</option>
+                                                                <option value="ADS">ADS</option>
+                                                            </select>
+                                                        </td>
+                                                    </>
+                                                )
                                             ) : (
-                                                <>
-                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                        <span
-                                                            className={cn(
-                                                                "bg-blue-50 text-blue-700 rounded font-semibold border border-blue-100 cursor-help",
-                                                                tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs"
-                                                            )}
-                                                            title={asset.fa_cs_wizard_category ? `FA CS: ${asset.fa_cs_wizard_category}` : ""}
-                                                        >
-                                                            {asset.macrs_class}
-                                                        </span>
-                                                    </td>
-                                                    <td className={cn(
-                                                        "text-slate-600",
-                                                        tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
-                                                    )}>{asset.macrs_life} yr</td>
-                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                        <span className={cn(
-                                                            "bg-slate-100 text-slate-700 rounded font-mono font-medium border border-slate-200",
-                                                            tableCompact ? "px-1 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-xs"
-                                                        )}>
-                                                            {asset.macrs_method || "N/A"}
-                                                        </span>
-                                                    </td>
-                                                    {/* Election Column - 179/Bonus/DeMinimis/MACRS */}
-                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                        {asset.transaction_type === "Current Year Addition" ? (
-                                                            <div className="group relative">
-                                                                <select
-                                                                    value={asset.depreciation_election || "MACRS"}
-                                                                    onChange={(e) => handleElectionChange(asset.unique_id, e.target.value)}
-                                                                    className={cn(
-                                                                        "rounded border font-medium cursor-pointer",
-                                                                        tableCompact ? "px-1 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-xs",
-                                                                        asset.depreciation_election === "DeMinimis" && "bg-green-100 text-green-700 border-green-300",
-                                                                        asset.depreciation_election === "Section179" && "bg-blue-100 text-blue-700 border-blue-300",
-                                                                        asset.depreciation_election === "Bonus" && "bg-purple-100 text-purple-700 border-purple-300",
-                                                                        (!asset.depreciation_election || asset.depreciation_election === "MACRS") && "bg-slate-100 text-slate-700 border-slate-300"
-                                                                    )}
-                                                                >
-                                                                    <option value="MACRS">MACRS</option>
-                                                                    <option value="DeMinimis">De Minimis</option>
-                                                                    <option value="Section179">§179</option>
-                                                                    <option value="Bonus">Bonus</option>
-                                                                    <option value="ADS">ADS</option>
-                                                                </select>
-                                                                {/* Tooltip showing election info */}
-                                                                <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-20">
-                                                                    {asset.depreciation_election === "DeMinimis" ? (
-                                                                        <>
-                                                                            <div className="font-semibold text-green-300 mb-1">⚡ De Minimis Safe Harbor</div>
-                                                                            <div>• Expense immediately (≤$2,500)</div>
-                                                                            <div>• NOT added to FA CS</div>
-                                                                            <div>• Exported to separate sheet</div>
-                                                                            <div className="mt-1 text-yellow-200 text-[10px]">Rev. Proc. 2015-20</div>
-                                                                        </>
-                                                                    ) : asset.depreciation_election === "Section179" ? (
-                                                                        <>
-                                                                            <div className="font-semibold text-blue-300 mb-1">§179 Expense Election</div>
-                                                                            <div>• Full deduction in Year 1</div>
-                                                                            <div>• Subject to business income limit</div>
-                                                                            <div>• 2024 limit: $1,160,000</div>
-                                                                        </>
-                                                                    ) : asset.depreciation_election === "Bonus" ? (
-                                                                        <>
-                                                                            <div className="font-semibold text-purple-300 mb-1">Bonus Depreciation</div>
-                                                                            <div>• 60% deduction in Year 1 (2024)</div>
-                                                                            <div>• Remaining 40% via MACRS</div>
-                                                                            <div>• No income limitation</div>
-                                                                        </>
-                                                                    ) : asset.depreciation_election === "ADS" ? (
-                                                                        <>
-                                                                            <div className="font-semibold text-slate-300 mb-1">Alternative Depreciation</div>
-                                                                            <div>• Straight-line method</div>
-                                                                            <div>• Longer recovery periods</div>
-                                                                            <div>• Required for some property</div>
-                                                                        </>
-                                                                    ) : (
-                                                                        <>
-                                                                            <div className="font-semibold text-slate-300 mb-1">MACRS (Default)</div>
-                                                                            <div>• Standard depreciation</div>
-                                                                            <div>• 200DB or 150DB method</div>
-                                                                            <div>• Based on property class</div>
-                                                                        </>
-                                                                    )}
-                                                                    {asset.election_reason && (
-                                                                        <div className="mt-1 pt-1 border-t border-slate-600 text-slate-300">
-                                                                            {asset.election_reason}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        ) : (
+                                                // Display mode - Class, Life, Method display (hidden for De Minimis)
+                                                isDeMinimis ? (
+                                                    // De Minimis: Show empty cells with tooltip explaining why
+                                                    <>
+                                                        <td className={cn("text-center", tableCompact ? "px-2 py-1.5" : "px-3 py-2.5")}>
+                                                            <span className="text-slate-300 cursor-help" title="De Minimis assets are expensed, not depreciated">—</span>
+                                                        </td>
+                                                        <td className={cn("text-center", tableCompact ? "px-2 py-1.5" : "px-3 py-2.5")}>
+                                                            <span className="text-slate-300 cursor-help" title="De Minimis assets are expensed, not depreciated">—</span>
+                                                        </td>
+                                                        <td className={cn("text-center", tableCompact ? "px-2 py-1.5" : "px-3 py-2.5")}>
+                                                            <span className="text-slate-300 cursor-help" title="De Minimis assets are expensed, not depreciated">—</span>
+                                                        </td>
+                                                    </>
+                                                ) : (
+                                                    // MACRS/179/Bonus: Show classification data
+                                                    <>
+                                                        <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                            <span
+                                                                className={cn(
+                                                                    "bg-blue-50 text-blue-700 rounded font-semibold border border-blue-100 cursor-help",
+                                                                    tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs"
+                                                                )}
+                                                                title={asset.fa_cs_wizard_category ? `FA CS: ${asset.fa_cs_wizard_category}` : ""}
+                                                            >
+                                                                {asset.macrs_class}
+                                                            </span>
+                                                        </td>
+                                                        <td className={cn(
+                                                            "text-slate-600",
+                                                            tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
+                                                        )}>{asset.macrs_life} yr</td>
+                                                        <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                             <span className={cn(
-                                                                "bg-slate-50 text-slate-400 rounded",
+                                                                "bg-slate-100 text-slate-700 rounded font-mono font-medium border border-slate-200",
                                                                 tableCompact ? "px-1 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-xs"
                                                             )}>
-                                                                N/A
+                                                                {asset.macrs_method || "N/A"}
                                                             </span>
-                                                        )}
-                                                    </td>
-                                                </>
+                                                        </td>
+                                                    </>
+                                                )
                                             )}
+
+                                            {/* Election Column - 179/Bonus/DeMinimis/MACRS (always visible, outside edit mode toggle) */}
+                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                {asset.transaction_type === "Current Year Addition" ? (
+                                                    <div className="group relative">
+                                                        <select
+                                                            value={asset.depreciation_election || "MACRS"}
+                                                            onChange={(e) => handleElectionChange(asset.unique_id, e.target.value)}
+                                                            className={cn(
+                                                                "rounded border font-medium cursor-pointer",
+                                                                tableCompact ? "px-1 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-xs",
+                                                                asset.depreciation_election === "DeMinimis" && "bg-green-100 text-green-700 border-green-300",
+                                                                asset.depreciation_election === "Section179" && "bg-blue-100 text-blue-700 border-blue-300",
+                                                                asset.depreciation_election === "Bonus" && "bg-purple-100 text-purple-700 border-purple-300",
+                                                                (!asset.depreciation_election || asset.depreciation_election === "MACRS") && "bg-slate-100 text-slate-700 border-slate-300"
+                                                            )}
+                                                        >
+                                                            <option value="MACRS">MACRS</option>
+                                                            <option value="DeMinimis">De Minimis</option>
+                                                            <option value="Section179">§179</option>
+                                                            <option value="Bonus">Bonus</option>
+                                                            <option value="ADS">ADS</option>
+                                                        </select>
+                                                        {/* Tooltip showing election info */}
+                                                        <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-20">
+                                                            {asset.depreciation_election === "DeMinimis" ? (
+                                                                <>
+                                                                    <div className="font-semibold text-green-300 mb-1">⚡ De Minimis Safe Harbor</div>
+                                                                    <div>• Expense immediately (≤$2,500)</div>
+                                                                    <div>• NOT added to FA CS</div>
+                                                                    <div>• Exported to separate sheet</div>
+                                                                    <div className="mt-1 text-yellow-200 text-[10px]">Rev. Proc. 2015-20</div>
+                                                                </>
+                                                            ) : asset.depreciation_election === "Section179" ? (
+                                                                <>
+                                                                    <div className="font-semibold text-blue-300 mb-1">§179 Expense Election</div>
+                                                                    <div>• Full deduction in Year 1</div>
+                                                                    <div>• Subject to business income limit</div>
+                                                                    <div>• 2024 limit: $1,160,000</div>
+                                                                </>
+                                                            ) : asset.depreciation_election === "Bonus" ? (
+                                                                <>
+                                                                    <div className="font-semibold text-purple-300 mb-1">Bonus Depreciation</div>
+                                                                    <div>• 60% deduction in Year 1 (2024)</div>
+                                                                    <div>• Remaining 40% via MACRS</div>
+                                                                    <div>• No income limitation</div>
+                                                                </>
+                                                            ) : asset.depreciation_election === "ADS" ? (
+                                                                <>
+                                                                    <div className="font-semibold text-slate-300 mb-1">Alternative Depreciation</div>
+                                                                    <div>• Straight-line method</div>
+                                                                    <div>• Longer recovery periods</div>
+                                                                    <div>• Required for some property</div>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <div className="font-semibold text-slate-300 mb-1">MACRS (Default)</div>
+                                                                    <div>• Standard depreciation</div>
+                                                                    <div>• 200DB or 150DB method</div>
+                                                                    <div>• Based on property class</div>
+                                                                </>
+                                                            )}
+                                                            {asset.election_reason && (
+                                                                <div className="mt-1 pt-1 border-t border-slate-600 text-slate-300">
+                                                                    {asset.election_reason}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <span className={cn(
+                                                        "bg-slate-50 text-slate-400 rounded",
+                                                        tableCompact ? "px-1 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-xs"
+                                                    )}>
+                                                        N/A
+                                                    </span>
+                                                )}
+                                            </td>
 
                                             {/* Actions */}
                                             <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
