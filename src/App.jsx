@@ -12,7 +12,7 @@ export default function App() {
 
     const handleUploadSuccess = (data) => {
         setAssets(data);
-        setActiveTab("review");
+        setActiveTab("cleanup");  // Go to Data Cleanup first before Review
     };
 
     const renderContent = () => {

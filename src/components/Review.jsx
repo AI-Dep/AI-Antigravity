@@ -306,6 +306,21 @@ function Review({ assets = [] }) {
         }
     };
 
+    const handleElectionChange = async (uniqueId, newElection) => {
+        try {
+            // Update local state immediately for responsive UI
+            setLocalAssets(prev => prev.map(a =>
+                a.unique_id === uniqueId
+                    ? { ...a, depreciation_election: newElection }
+                    : a
+            ));
+            // Call backend to persist the election change
+            await apiPost(`/assets/${uniqueId}/election`, { election: newElection });
+        } catch (error) {
+            console.error("Failed to update election:", error);
+        }
+    };
+
     const handleApprove = async (uniqueId) => {
         try {
             // Call backend to record approval
@@ -650,6 +665,12 @@ function Review({ assets = [] }) {
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Class</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '60px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Life</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '70px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>Method</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '80px', resize: 'horizontal', overflow: 'hidden' }}>
+                                        <span className="flex items-center gap-1">
+                                            Election
+                                            <span className="text-[9px] bg-blue-100 text-blue-700 px-1 rounded">179/Bonus</span>
+                                        </span>
+                                    </th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '280px', minWidth: '150px', resize: 'horizontal', overflow: 'hidden' }}>FA CS Category</th>
                                     <th className={cn(tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '60px' }}>Actions</th>
                                 </tr>
@@ -897,6 +918,37 @@ function Review({ assets = [] }) {
                                                         )}>
                                                             {asset.macrs_method || "N/A"}
                                                         </span>
+                                                    </td>
+                                                    {/* Election Column - 179/Bonus/DeMinimis/MACRS */}
+                                                    <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
+                                                        {asset.transaction_type === "Current Year Addition" ? (
+                                                            <select
+                                                                value={asset.depreciation_election || "MACRS"}
+                                                                onChange={(e) => handleElectionChange(asset.unique_id, e.target.value)}
+                                                                className={cn(
+                                                                    "rounded border font-medium cursor-pointer",
+                                                                    tableCompact ? "px-1 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-xs",
+                                                                    asset.depreciation_election === "DeMinimis" && "bg-green-100 text-green-700 border-green-300",
+                                                                    asset.depreciation_election === "Section179" && "bg-blue-100 text-blue-700 border-blue-300",
+                                                                    asset.depreciation_election === "Bonus" && "bg-purple-100 text-purple-700 border-purple-300",
+                                                                    (!asset.depreciation_election || asset.depreciation_election === "MACRS") && "bg-slate-100 text-slate-700 border-slate-300"
+                                                                )}
+                                                                title={asset.election_reason || "Select depreciation treatment"}
+                                                            >
+                                                                <option value="MACRS">MACRS</option>
+                                                                <option value="DeMinimis">De Minimis</option>
+                                                                <option value="Section179">§179</option>
+                                                                <option value="Bonus">Bonus</option>
+                                                                <option value="ADS">ADS</option>
+                                                            </select>
+                                                        ) : (
+                                                            <span className={cn(
+                                                                "bg-slate-50 text-slate-400 rounded",
+                                                                tableCompact ? "px-1 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-xs"
+                                                            )}>
+                                                                N/A
+                                                            </span>
+                                                        )}
                                                     </td>
                                                     <td className={cn(
                                                         "text-slate-600 max-w-[280px]",

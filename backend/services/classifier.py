@@ -137,7 +137,60 @@ class ClassifierService:
                     f"Low confidence ({trans_confidence:.0%}) for transaction type '{trans_type}' - manual review recommended"
                 )
 
+            # Suggest depreciation election for CY additions
+            if trans_type == "Current Year Addition":
+                self._suggest_depreciation_election(asset, tax_year)
+
         return assets
+
+    def _suggest_depreciation_election(self, asset: Asset, tax_year: int):
+        """
+        Suggest optimal depreciation election based on asset characteristics.
+
+        De Minimis Safe Harbor: Assets <= $2,500 can be expensed immediately
+        Section 179: Up to $1,160,000 (2024) can be expensed for qualifying property
+        Bonus: 60% (2024) of cost for qualifying property
+        MACRS: Standard depreciation
+
+        Note: These are SUGGESTIONS only. CPA makes final decision based on client income.
+        """
+        cost = asset.cost or 0
+        de_minimis_threshold = 2500  # IRS de minimis safe harbor for taxpayers with AFS
+
+        # Default to MACRS
+        election = "MACRS"
+        reason = "Standard MACRS depreciation"
+
+        # Existing assets don't get elections - they continue prior treatment
+        if asset.transaction_type != "Current Year Addition":
+            asset.depreciation_election = "MACRS"
+            asset.election_reason = "Existing asset - continuing prior depreciation"
+            return
+
+        # De Minimis Safe Harbor - assets under $2,500
+        if 0 < cost <= de_minimis_threshold:
+            election = "DeMinimis"
+            reason = f"Cost ${cost:,.0f} qualifies for de minimis safe harbor (≤$2,500)"
+
+        # Section 179 candidates - mid-range assets
+        elif de_minimis_threshold < cost <= 50000 and asset.is_bonus_eligible:
+            election = "Section179"
+            reason = f"Cost ${cost:,.0f} - consider Section 179 for immediate deduction"
+
+        # Bonus depreciation candidates - larger qualifying property
+        elif asset.is_bonus_eligible:
+            bonus_rate = 0.60 if tax_year >= 2024 else 0.80 if tax_year == 2023 else 1.0
+            bonus_pct = int(bonus_rate * 100)
+            election = "Bonus"
+            reason = f"Qualifying property - {bonus_pct}% bonus depreciation available"
+
+        # Real property - no bonus/179
+        elif asset.macrs_life and asset.macrs_life >= 27.5:
+            election = "MACRS"
+            reason = "Real property - standard straight-line MACRS"
+
+        asset.depreciation_election = election
+        asset.election_reason = reason
 
     def _apply_classification(self, asset: Asset, result: Dict, tax_year: int = None):
         """Applies classification result to Asset object and runs validation."""
