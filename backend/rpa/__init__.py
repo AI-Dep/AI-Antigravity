@@ -2,10 +2,16 @@
 """
 RPA Integration Module for FA CS Automator
 
-UiPath integration for Fixed Asset CS automation:
-- rpa_fa_cs: Core RPA functions for FA CS interaction
+Supports multiple automation backends:
+- Desktop (Windows): pywinauto/pyautogui for FA CS desktop application
+- Web (Cross-platform): Playwright for web-based accounting systems
+- Import: Excel import for bulk data entry (fastest method)
+
+Modules:
+- rpa_fa_cs: Desktop automation for FA CS (Windows only)
 - rpa_fa_cs_import: Import workflow automation
 - ai_rpa_orchestrator: AI-driven RPA orchestration
+- playwright_automation: Web-based automation (cross-platform)
 """
 
 # Explicit imports instead of wildcard imports for better clarity and IDE support
@@ -30,8 +36,17 @@ from .ai_rpa_orchestrator import (
     run_ai_to_rpa_workflow,
 )
 
+# Playwright-based web automation (cross-platform alternative)
+from .playwright_automation import (
+    PlaywrightConfig,
+    PlaywrightFAAutomation,
+    AutomationResult,
+    is_playwright_available,
+    run_automation_sync,
+)
+
 __all__ = [
-    # rpa_fa_cs
+    # rpa_fa_cs (Desktop - Windows)
     "RPAConfig",
     "FACSWindowManager",
     "FACSDataEntry",
@@ -46,4 +61,10 @@ __all__ = [
     # ai_rpa_orchestrator
     "AIRPAOrchestrator",
     "run_ai_to_rpa_workflow",
+    # playwright_automation (Web - Cross-platform)
+    "PlaywrightConfig",
+    "PlaywrightFAAutomation",
+    "AutomationResult",
+    "is_playwright_available",
+    "run_automation_sync",
 ]
