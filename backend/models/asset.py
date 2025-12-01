@@ -103,7 +103,7 @@ class Asset(BaseModel):
             import pandas as pd
             if pd.notna(v):
                 return pd.to_datetime(v).date()
-        except:
+        except (ValueError, TypeError, Exception):
             pass
         return None
 

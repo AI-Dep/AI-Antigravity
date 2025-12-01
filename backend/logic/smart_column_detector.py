@@ -70,7 +70,7 @@ def _is_currency_value(val: Any) -> bool:
         num = float(s.replace(',', '').replace('$', '').replace('(', '-').replace(')', ''))
         if abs(num) < 100 and not has_currency_sign and not has_decimal:
             return False
-    except:
+    except (ValueError, TypeError):
         pass
 
     # Matches: $1,234.56, 1234.56, (1,234.56), -1234.56
@@ -81,7 +81,7 @@ def _is_currency_value(val: Any) -> bool:
     try:
         num = float(s)
         return abs(num) >= 100
-    except:
+    except (ValueError, TypeError):
         return False
 
 
@@ -112,7 +112,7 @@ def _is_date_value(val: Any) -> bool:
     try:
         pd.to_datetime(s)
         return True
-    except:
+    except (ValueError, TypeError, pd.errors.ParserError):
         return False
 
 
@@ -133,7 +133,7 @@ def _is_percentage_value(val: Any) -> bool:
         if 0 < num < 1:
             return True
         return False
-    except:
+    except (ValueError, TypeError):
         return False
 
 
@@ -144,7 +144,7 @@ def _is_integer_id(val: Any) -> bool:
     try:
         num = float(val)
         return num == int(num) and num > 0 and num < 1000000
-    except:
+    except (ValueError, TypeError):
         return False
 
 
