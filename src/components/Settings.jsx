@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Info, Calendar, DollarSign } from 'lucide-react';
-import axios from 'axios';
+import { apiGet, apiPost } from '../lib/api.client';
 
 function Settings() {
     const [config, setConfig] = useState({
@@ -23,8 +23,8 @@ function Settings() {
 
     const fetchConfig = async () => {
         try {
-            const response = await axios.get('http://127.0.0.1:8000/config/tax');
-            setConfig(response.data);
+            const data = await apiGet('/config/tax');
+            setConfig(data);
         } catch (error) {
             console.error('Failed to fetch config:', error);
         } finally {
@@ -35,7 +35,7 @@ function Settings() {
     const saveConfig = async () => {
         setSaving(true);
         try {
-            const response = await axios.post('http://127.0.0.1:8000/config/tax', {
+            const data = await apiPost('/config/tax', {
                 tax_year: config.tax_year,
                 de_minimis_threshold: config.de_minimis_threshold,
                 has_afs: config.has_afs
@@ -44,7 +44,7 @@ function Settings() {
             // Refresh config after save
             await fetchConfig();
 
-            alert(`Configuration saved! ${response.data.assets_reclassified} assets reclassified.`);
+            alert(`Configuration saved! ${data.assets_reclassified} assets reclassified.`);
         } catch (error) {
             console.error('Failed to save config:', error);
             alert('Failed to save configuration');

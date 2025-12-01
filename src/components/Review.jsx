@@ -1,9 +1,14 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Filter, Download, Info, AlertOctagon, Car, Eye, EyeOff, FileText } from 'lucide-react';
+import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import axios from 'axios';
+
+// Import API types for consistent contract
+import { TRANSACTION_TYPES } from '../lib/api.types';
+
+// Import centralized API client
+import { apiGet, apiPost, apiDownload } from '../lib/api.client';
 
 function Review({ assets = [] }) {
     const [editingId, setEditingId] = useState(null);
@@ -14,20 +19,31 @@ function Review({ assets = [] }) {
     const [approvedIds, setApprovedIds] = useState(new Set());
     const [warnings, setWarnings] = useState({ critical: [], warnings: [], info: [], summary: {} });
     const [taxYear, setTaxYear] = useState(new Date().getFullYear());
+    const [taxYearLoading, setTaxYearLoading] = useState(false); // Loading state for tax year change
     const [tableCompact, setTableCompact] = useState(false); // Table density: false = comfortable, true = compact
+    const [exportStatus, setExportStatus] = useState({ ready: false, reason: null }); // Track export readiness
 
-    // Fetch warnings when assets change
+    // Fetch warnings and export status when assets change
     useEffect(() => {
         if (assets.length > 0) {
             fetchWarnings();
             fetchTaxConfig();
+            fetchExportStatus();
         }
     }, [assets]);
 
+    // Fetch export status whenever approvals change
+    // NOTE: Only fetch status, don't sync approvedIds here to avoid infinite loop
+    useEffect(() => {
+        if (localAssets.length > 0) {
+            fetchExportStatusOnly();
+        }
+    }, [approvedIds]);
+
     const fetchWarnings = async () => {
         try {
-            const response = await axios.get('http://127.0.0.1:8000/warnings');
-            setWarnings(response.data);
+            const data = await apiGet('/warnings');
+            setWarnings(data);
         } catch (error) {
             console.error('Failed to fetch warnings:', error);
         }
@@ -35,46 +51,75 @@ function Review({ assets = [] }) {
 
     const fetchTaxConfig = async () => {
         try {
-            const response = await axios.get('http://127.0.0.1:8000/config/tax');
-            setTaxYear(response.data.tax_year);
+            const data = await apiGet('/config/tax');
+            setTaxYear(data.tax_year);
         } catch (error) {
             console.error('Failed to fetch tax config:', error);
         }
     };
 
+    // Fetch export status only (without syncing approvedIds) - used by approvedIds useEffect
+    const fetchExportStatusOnly = async () => {
+        try {
+            const data = await apiGet('/export/status');
+            setExportStatus(data);
+            // Don't sync approvedIds here - it would cause infinite loop
+        } catch (error) {
+            console.error('Failed to fetch export status:', error);
+        }
+    };
+
+    // Fetch export status AND sync approvedIds from backend - used on initial load
+    const fetchExportStatus = async () => {
+        try {
+            const data = await apiGet('/export/status');
+            setExportStatus(data);
+            // Sync approved IDs from backend on initial load
+            if (data.approved_ids) {
+                setApprovedIds(new Set(data.approved_ids));
+            }
+        } catch (error) {
+            console.error('Failed to fetch export status:', error);
+        }
+    };
+
     const handleTaxYearChange = async (e) => {
         const newYear = parseInt(e.target.value, 10);
+        setTaxYearLoading(true);
         try {
-            const response = await axios.post('http://127.0.0.1:8000/config/tax', {
+            const data = await apiPost('/config/tax', {
                 tax_year: newYear
             });
             setTaxYear(newYear);
 
             // Update local assets with reclassified data from the backend
-            if (response.data.assets && Array.isArray(response.data.assets)) {
-                if (response.data.assets.length > 0) {
+            if (data.assets && Array.isArray(data.assets)) {
+                if (data.assets.length > 0) {
                     // Backend returned reclassified assets - use them
-                    setLocalAssets(response.data.assets);
+                    setLocalAssets(data.assets);
                     setApprovedIds(new Set()); // Clear approvals on reclassification
                 } else {
                     // Backend returned empty array - fetch fresh assets
                     console.warn('Tax year change returned no assets, fetching from server...');
-                    const assetsResponse = await axios.get('http://127.0.0.1:8000/assets');
-                    if (assetsResponse.data && assetsResponse.data.length > 0) {
-                        setLocalAssets(assetsResponse.data);
+                    const assetsData = await apiGet('/assets');
+                    if (assetsData && assetsData.length > 0) {
+                        setLocalAssets(assetsData);
                         setApprovedIds(new Set());
                     }
                 }
             }
-            // Refresh warnings for new tax year
+            // Refresh warnings and export status for new tax year
             fetchWarnings();
+            fetchExportStatus();
         } catch (error) {
             console.error('Failed to update tax year:', error);
+        } finally {
+            setTaxYearLoading(false);
         }
     };
 
     // Sync local assets when props change
-    React.useEffect(() => {
+    useEffect(() => {
         setLocalAssets(assets);
         setApprovedIds(new Set());
     }, [assets]);
@@ -93,16 +138,16 @@ function Review({ assets = [] }) {
 
         // Count by transaction type
         const additions = localAssets.filter(a =>
-            a.transaction_type === "Current Year Addition"
+            a.transaction_type === TRANSACTION_TYPES.ADDITION
         ).length;
         const disposals = localAssets.filter(a =>
-            a.transaction_type === "Disposal"
+            a.transaction_type === TRANSACTION_TYPES.DISPOSAL
         ).length;
         const transfers = localAssets.filter(a =>
-            a.transaction_type === "Transfer"
+            a.transaction_type === TRANSACTION_TYPES.TRANSFER
         ).length;
         const existing = localAssets.filter(a =>
-            a.transaction_type === "Existing Asset"
+            a.transaction_type === TRANSACTION_TYPES.EXISTING
         ).length;
         const actionable = additions + disposals + transfers;
 
@@ -128,7 +173,7 @@ function Review({ assets = [] }) {
         if (!showExistingAssets) {
             // Hide existing assets - only show actionable items (additions, disposals, transfers)
             baseAssets = localAssets.filter(a =>
-                a.transaction_type !== "Existing Asset"
+                a.transaction_type !== TRANSACTION_TYPES.EXISTING
             );
         }
 
@@ -208,68 +253,77 @@ function Review({ assets = [] }) {
             );
             setLocalAssets(updatedAssets);
             setEditingId(null);
-            setApprovedIds(prev => new Set([...prev, uniqueId]));
 
-            await axios.post(`http://127.0.0.1:8000/assets/${uniqueId}/update`, updateData);
+            // Update backend first
+            await apiPost(`/assets/${uniqueId}/update`, updateData);
+
+            // Then approve the asset (editing = implicit review/approval)
+            await apiPost(`/assets/${uniqueId}/approve`);
+            setApprovedIds(prev => new Set([...prev, uniqueId]));
         } catch (error) {
             console.error("Failed to save update:", error);
         }
     };
 
-    const handleApprove = (uniqueId) => {
-        // Use unique_id for approval tracking (unique across sheets)
-        setApprovedIds(prev => new Set([...prev, uniqueId]));
+    const handleApprove = async (uniqueId) => {
+        try {
+            // Call backend to record approval
+            await apiPost(`/assets/${uniqueId}/approve`);
+            setApprovedIds(prev => new Set([...prev, uniqueId]));
+        } catch (error) {
+            console.error("Failed to approve asset:", error);
+            alert(`Failed to approve: ${error.message || 'Unknown error'}`);
+        }
     };
 
-    const handleApproveAllHighConfidence = () => {
-        // Use unique_id for approval tracking (unique across sheets)
-        const highConfIds = localAssets
-            .filter(a => !a.validation_errors?.length && a.confidence_score > 0.8)
-            .map(a => a.unique_id);
-        setApprovedIds(prev => new Set([...prev, ...highConfIds]));
+    const handleApproveAllHighConfidence = async () => {
+        try {
+            // Get all high confidence asset IDs
+            const highConfIds = localAssets
+                .filter(a => !a.validation_errors?.length && a.confidence_score > 0.8)
+                .map(a => a.unique_id);
+
+            if (highConfIds.length === 0) return;
+
+            // Batch approve on backend
+            await apiPost('/assets/approve-batch', highConfIds);
+            setApprovedIds(prev => new Set([...prev, ...highConfIds]));
+        } catch (error) {
+            console.error("Failed to approve batch:", error);
+            alert(`Failed to approve: ${error.message || 'Unknown error'}`);
+        }
     };
 
     // Helper function to download file without opening new window (works in Electron)
-    const downloadFile = async (url, defaultFilename) => {
+    const downloadFile = async (endpoint, defaultFilename) => {
         try {
-            const response = await fetch(url);
-            if (!response.ok) {
-                const errorText = await response.text();
-                alert(`Download failed: ${errorText}`);
-                return;
-            }
+            const blob = await apiDownload(endpoint);
 
-            // Get filename from Content-Disposition header or use default
-            const disposition = response.headers.get('Content-Disposition');
-            let filename = defaultFilename;
-            if (disposition) {
-                const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-                if (match && match[1]) {
-                    filename = match[1].replace(/['"]/g, '');
-                }
-            }
-
-            // Download as blob and trigger save
-            const blob = await response.blob();
+            // Trigger browser download
             const blobUrl = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = blobUrl;
-            link.download = filename;
+            link.download = defaultFilename;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
             window.URL.revokeObjectURL(blobUrl);
         } catch (error) {
-            alert(`Download error: ${error.message}`);
+            alert(`Export blocked: ${error.message || 'Unknown error'}`);
         }
     };
 
     const handleExport = () => {
-        downloadFile('http://127.0.0.1:8000/export', 'FA_CS_Import.xlsx');
+        // Double-check export readiness before attempting
+        if (!exportStatus.ready) {
+            alert(`Cannot export: ${exportStatus.reason || 'Not all assets are approved'}`);
+            return;
+        }
+        downloadFile('/export', 'FA_CS_Import.xlsx');
     };
 
     const handleAuditReport = () => {
-        downloadFile('http://127.0.0.1:8000/export/audit', 'Audit_Report.xlsx');
+        downloadFile('/export/audit', 'Audit_Report.xlsx');
     };
 
     if (!localAssets || localAssets.length === 0) {
@@ -294,16 +348,24 @@ function Review({ assets = [] }) {
                             <select
                                 value={taxYear}
                                 onChange={handleTaxYearChange}
-                                className="px-3 py-1 text-sm font-semibold bg-blue-100 text-blue-800 rounded-full border border-blue-200 cursor-pointer hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none pr-8"
+                                disabled={taxYearLoading}
+                                className={cn(
+                                    "px-3 py-1 text-sm font-semibold bg-blue-100 text-blue-800 rounded-full border border-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none pr-8",
+                                    taxYearLoading ? "opacity-50 cursor-wait" : "cursor-pointer hover:bg-blue-200"
+                                )}
                             >
                                 {[2020, 2021, 2022, 2023, 2024, 2025, 2026].map(year => (
                                     <option key={year} value={year}>Tax Year {year}</option>
                                 ))}
                             </select>
                             <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2 text-blue-800">
-                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                </svg>
+                                {taxYearLoading ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -331,10 +393,11 @@ function Review({ assets = [] }) {
                     </Button>
                     <Button
                         onClick={handleExport}
-                        disabled={hasBlockingErrors}
+                        disabled={!exportStatus.ready}
+                        title={exportStatus.ready ? "Export approved assets to FA CS" : exportStatus.reason || "Not ready to export"}
                         className={cn(
                             "text-white",
-                            hasBlockingErrors
+                            !exportStatus.ready
                                 ? "bg-gray-400 cursor-not-allowed"
                                 : "bg-green-600 hover:bg-green-700"
                         )}
@@ -547,7 +610,7 @@ function Review({ assets = [] }) {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredAssets.map((asset, index) => {
+                                {filteredAssets.map((asset) => {
                                     // Use unique_id for approval tracking (unique across sheets)
                                     const isApproved = approvedIds.has(asset.unique_id);
                                     const hasErrors = asset.validation_errors?.length > 0;
@@ -555,7 +618,7 @@ function Review({ assets = [] }) {
 
                                     return (
                                         <tr
-                                            key={index}
+                                            key={asset.unique_id}
                                             className={cn(
                                                 "border-b hover:bg-slate-50 dark:border-slate-800",
                                                 hasErrors && "bg-red-50/50",
@@ -591,24 +654,24 @@ function Review({ assets = [] }) {
                                                 "text-slate-600",
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
                                             )}>
-                                                {asset.date_in_service ? (
-                                                    asset.date_in_service
+                                                {asset.in_service_date ? (
+                                                    asset.in_service_date
                                                 ) : asset.acquisition_date ? (
                                                     <span className="flex items-center gap-1" title="Using acquisition date (no in-service date provided)">
-                                                        <span className={asset.transaction_type === "Transfer" ? "text-amber-600" : ""}>
+                                                        <span className={asset.transaction_type === TRANSACTION_TYPES.TRANSFER ? "text-amber-600" : ""}>
                                                             {asset.acquisition_date}
                                                         </span>
-                                                        {asset.transaction_type === "Transfer" && (
+                                                        {asset.transaction_type === TRANSACTION_TYPES.TRANSFER && (
                                                             <Info className="w-3.5 h-3.5 text-amber-500" />
                                                         )}
                                                     </span>
                                                 ) : (
                                                     <span className={cn(
                                                         "flex items-center gap-1",
-                                                        asset.transaction_type === "Transfer" ? "text-slate-400" : "text-amber-600"
-                                                    )} title={asset.transaction_type === "Transfer" ? "No date - transfer of existing asset" : "Missing date - manual review required"}>
+                                                        asset.transaction_type === TRANSACTION_TYPES.TRANSFER ? "text-slate-400" : "text-amber-600"
+                                                    )} title={asset.transaction_type === TRANSACTION_TYPES.TRANSFER ? "No date - transfer of existing asset" : "Missing date - manual review required"}>
                                                         -
-                                                        {asset.transaction_type !== "Transfer" && (
+                                                        {asset.transaction_type !== TRANSACTION_TYPES.TRANSFER && (
                                                             <AlertTriangle className="w-3.5 h-3.5" />
                                                         )}
                                                     </span>
@@ -619,14 +682,14 @@ function Review({ assets = [] }) {
                                                 <span className={cn(
                                                     "rounded font-medium whitespace-nowrap",
                                                     tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs",
-                                                    asset.transaction_type === "Current Year Addition" && "bg-green-100 text-green-700",
-                                                    asset.transaction_type === "Existing Asset" && "bg-slate-100 text-slate-700",
-                                                    asset.transaction_type === "Disposal" && "bg-red-100 text-red-700",
-                                                    asset.transaction_type === "Transfer" && "bg-purple-100 text-purple-700",
+                                                    asset.transaction_type === TRANSACTION_TYPES.ADDITION && "bg-green-100 text-green-700",
+                                                    asset.transaction_type === TRANSACTION_TYPES.EXISTING && "bg-slate-100 text-slate-700",
+                                                    asset.transaction_type === TRANSACTION_TYPES.DISPOSAL && "bg-red-100 text-red-700",
+                                                    asset.transaction_type === TRANSACTION_TYPES.TRANSFER && "bg-purple-100 text-purple-700",
                                                     !asset.transaction_type && "bg-yellow-100 text-yellow-700"
                                                 )}>
-                                                    {asset.transaction_type === "Current Year Addition" ? "Addition" :
-                                                     asset.transaction_type === "Existing Asset" ? "Existing" :
+                                                    {asset.transaction_type === TRANSACTION_TYPES.ADDITION ? "Addition" :
+                                                     asset.transaction_type === TRANSACTION_TYPES.EXISTING ? "Existing" :
                                                      asset.transaction_type || "Unknown"}
                                                 </span>
                                             </td>

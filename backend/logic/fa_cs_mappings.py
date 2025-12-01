@@ -46,7 +46,7 @@ FA_CS_WIZARD_7_YEAR = {
     "machinery": "Machinery and equipment - manufacturing",
     "equipment": "Machinery and equipment - manufacturing",
     "tools": "Machinery and equipment - manufacturing",
-    "hvac": "Machinery and equipment - manufacturing",
+    # NOTE: HVAC removed - it is 15-year building equipment, not 7-year
     "generator": "Machinery and equipment - manufacturing",
 }
 
@@ -63,6 +63,10 @@ FA_CS_WIZARD_15_YEAR = {
     "tenant improvement": "Qualified improvement property (QIP) - 15 year",
     "build out": "Qualified improvement property (QIP) - 15 year",
     "buildout": "Qualified improvement property (QIP) - 15 year",
+    # Building equipment - 15-year per Pub 946
+    "hvac": "Land improvement (sidewalk, road, bridge, fence, landscaping)",  # FA CS maps HVAC to land improvement category
+    "air conditioning": "Land improvement (sidewalk, road, bridge, fence, landscaping)",
+    "heating system": "Land improvement (sidewalk, road, bridge, fence, landscaping)",
 }
 
 FA_CS_WIZARD_27_5_YEAR = {

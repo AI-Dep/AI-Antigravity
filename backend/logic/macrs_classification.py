@@ -11,6 +11,7 @@ Features:
 """
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -192,6 +193,57 @@ def _safe_get(d, keys: List[str], default=""):
     return default
 
 
+def _safe_float(value: Any, default: float = 0.7) -> float:
+    """
+    Safely convert value to float with fallback.
+
+    Handles:
+    - None → default
+    - Numeric values (int, float) → float
+    - Numeric strings → float
+    - Word confidence levels ("high", "medium", "low") → mapped float
+    - Invalid values → default
+
+    Args:
+        value: The value to convert
+        default: Fallback value (default 0.7)
+
+    Returns:
+        Float value
+    """
+    if value is None:
+        return default
+
+    # Already numeric
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    # String handling
+    if isinstance(value, str):
+        value_lower = value.strip().lower()
+
+        # Word confidence levels
+        confidence_map = {
+            "high": 0.9,
+            "very high": 0.95,
+            "medium": 0.7,
+            "moderate": 0.7,
+            "low": 0.5,
+            "very low": 0.3,
+        }
+        if value_lower in confidence_map:
+            return confidence_map[value_lower]
+
+        # Try numeric conversion
+        try:
+            return float(value)
+        except ValueError:
+            return default
+
+    # Any other type
+    return default
+
+
 def _rule_score(rule: Dict, desc: str, tokens: List[str], client_category: str = "") -> float:
     """
     Calculate match score for a rule
@@ -239,17 +291,27 @@ def _rule_score(rule: Dict, desc: str, tokens: List[str], client_category: str =
         cat_norm = _normalize(client_category)
         rule_class = _normalize(rule.get("class", ""))
 
-        if cat_norm and rule_class and cat_norm in rule_class or rule_class in cat_norm:
+        # Fixed: Added parentheses to fix operator precedence bug
+        # Without parens: (cat_norm and rule_class and cat_norm in rule_class) or (rule_class in cat_norm)
+        # Which incorrectly runs second condition even if cat_norm/rule_class is empty
+        if cat_norm and rule_class and (cat_norm in rule_class or rule_class in cat_norm):
             score += 2.0  # Bonus for matching client category
 
     return score
 
 
-def _match_rule(asset: Dict, rules: Dict) -> Optional[tuple[Dict, float]]:
+def _match_rule(asset: Dict, rules: Dict, return_top_n: int = 1) -> Optional[tuple[Dict, float]]:
     """
-    Find best matching rule for an asset
+    Find best matching rule(s) for an asset
 
-    Returns tuple of (rule dict, match_score) or None if no rule meets minimum score
+    Args:
+        asset: Asset dict with Description, Cost, etc.
+        rules: Rules dict from rules.json
+        return_top_n: Number of top matches to return (default 1 for backward compatibility)
+
+    Returns:
+        If return_top_n=1: tuple of (rule dict, match_score) or None
+        If return_top_n>1: list of (rule dict, match_score) tuples, sorted by score descending
     """
     desc_raw = _safe_get(asset, ["Description", "description", "desc"], "")
     desc = sanitize_description(desc_raw)
@@ -257,23 +319,24 @@ def _match_rule(asset: Dict, rules: Dict) -> Optional[tuple[Dict, float]]:
 
     client_category = _safe_get(asset, ["Client Category", "client_category", "category"], "")
 
-    best_rule = None
-    best_score = 0.0
-
     min_score = rules.get("minimum_rule_score", MIN_RULE_SCORE)
 
+    # Score all rules
+    scored_rules = []
     for rule in rules.get("rules", []):
         score = _rule_score(rule, desc, tokens, client_category)
+        if score >= min_score:
+            scored_rules.append((rule, score))
 
-        if score > best_score:
-            best_rule = rule
-            best_score = score
+    # Sort by score descending
+    scored_rules.sort(key=lambda x: x[1], reverse=True)
 
-    # Only return rule if it meets minimum score threshold
-    if best_score >= min_score:
-        return (best_rule, best_score)
-
-    return None
+    if return_top_n == 1:
+        # Backward compatible: return single best match or None
+        return scored_rules[0] if scored_rules else None
+    else:
+        # Return top N matches
+        return scored_rules[:return_top_n] if scored_rules else []
 
 
 # ===================================================================================
@@ -370,22 +433,211 @@ COMMON_CATEGORY_MAPPINGS = {
 
 
 def _match_client_category(client_category: str) -> Optional[Dict]:
-    """Try to match client-provided category to MACRS class"""
+    """
+    Try to match client-provided category to MACRS class.
+
+    Uses conservative matching to avoid false positives:
+    1. Exact match (highest priority)
+    2. Word-bounded partial match (e.g., "office furniture" matches "furniture")
+    3. Avoids substring matches that would cause misclassification
+       (e.g., "machine" in "vending machine" should NOT map to generic machinery)
+    """
     if not client_category:
         return None
 
     cat_norm = _normalize(client_category)
 
-    # Direct match
+    # Direct exact match (highest priority)
     if cat_norm in COMMON_CATEGORY_MAPPINGS:
         return COMMON_CATEGORY_MAPPINGS[cat_norm]
 
-    # Partial match
+    # Word-bounded partial match (safer than pure substring)
+    # Split category into words and check for exact word matches
+    cat_words = set(cat_norm.split())
+
+    best_match = None
+    best_match_score = 0
+
     for key, mapping in COMMON_CATEGORY_MAPPINGS.items():
-        if key in cat_norm or cat_norm in key:
-            return mapping
+        key_words = set(key.split())
+
+        # Check if any key word is a full word in category (not substring)
+        # e.g., "furniture" as word matches "office furniture" but not "furniturestore"
+        matching_words = cat_words & key_words
+
+        if matching_words:
+            # Score based on how many words match
+            score = len(matching_words)
+
+            # Bonus for exact multi-word key match
+            if key in cat_norm:
+                score += 2
+
+            if score > best_match_score:
+                best_match = mapping
+                best_match_score = score
+
+    # Only return if we have a meaningful match (at least 1 word)
+    if best_match and best_match_score >= 1:
+        return best_match
 
     return None
+
+
+# ===================================================================================
+# VALID MACRS CATEGORIES - For validating GPT responses
+# ===================================================================================
+
+# Official MACRS categories per IRS Pub 946 and IRC §168
+# GPT responses are validated against this list to prevent hallucinated categories
+VALID_MACRS_CATEGORIES = {
+    # 3-year property
+    "Software",
+
+    # 5-year property (IRC §168(e)(3)(B))
+    "Computer Equipment",
+    "Office Equipment",
+    "Passenger Automobile",
+    "Trucks & Trailers",
+    "Vehicles",
+
+    # 7-year property (IRC §168(e)(3)(C))
+    "Office Furniture",
+    "Machinery & Equipment",
+
+    # 15-year property (IRC §168(e)(3)(E))
+    "Land Improvement",
+    "Land Improvements",  # Allow plural
+    "QIP - Qualified Improvement Property",
+    "Building Equipment",
+
+    # 27.5-year property (IRC §168(c)(1))
+    "Residential Rental Property",
+
+    # 39-year property (IRC §168(c)(1))
+    "Nonresidential Real Property",
+    "Building Improvement",
+
+    # Non-depreciable
+    "Nondepreciable Land",
+}
+
+
+def _validate_gpt_category(gpt_result: Dict) -> Dict:
+    """
+    Validate GPT classification against approved MACRS categories.
+
+    If GPT returns a hallucinated category, map it to closest valid category
+    and lower confidence to flag for review.
+
+    SAFETY: Uses case-insensitive matching and word-boundary checks to prevent
+    false corrections (e.g., "Computer Equipment" won't match "equipment" rule).
+
+    Args:
+        gpt_result: Raw GPT classification result
+
+    Returns:
+        Validated result with corrected category if needed
+    """
+    category = gpt_result.get("class") or gpt_result.get("final_class")
+
+    if not category:
+        return gpt_result
+
+    # SAFETY FIX: Case-insensitive check against valid categories
+    # Build lowercase lookup set for case-insensitive matching
+    valid_categories_lower = {cat.lower(): cat for cat in VALID_MACRS_CATEGORIES}
+
+    # Check if category is valid (case-insensitive)
+    category_lower = category.lower().strip()
+    if category_lower in valid_categories_lower:
+        # Normalize to canonical case and return
+        result = gpt_result.copy()
+        canonical = valid_categories_lower[category_lower]
+        result["class"] = canonical
+        result["final_class"] = canonical
+        return result
+
+    # Category not in approved list - try to map to closest valid category
+    # SAFETY: Use EXACT phrase matching first, then word-boundary matching
+    # Order matters: more specific phrases MUST come before generic terms
+
+    # Exact phrase corrections (highest priority)
+    exact_corrections = {
+        "computer equipment": "Computer Equipment",
+        "it equipment": "Computer Equipment",
+        "office equipment": "Office Equipment",
+        "office furniture": "Office Furniture",
+        "office furniture and fixtures": "Office Furniture",
+        "machinery & equipment": "Machinery & Equipment",
+        "machinery and equipment": "Machinery & Equipment",
+        "passenger automobile": "Passenger Automobile",
+        "land improvement": "Land Improvement",
+        "land improvements": "Land Improvements",
+        "site improvement": "Land Improvement",
+        "qualified improvement property": "QIP - Qualified Improvement Property",
+        "leasehold improvement": "QIP - Qualified Improvement Property",
+        "tenant improvement": "QIP - Qualified Improvement Property",
+        "nonresidential real property": "Nonresidential Real Property",
+        "residential rental property": "Residential Rental Property",
+        "building improvement": "Building Improvement",
+        "building equipment": "Building Equipment",
+        "nondepreciable land": "Nondepreciable Land",
+        "trucks & trailers": "Trucks & Trailers",
+        "trucks and trailers": "Trucks & Trailers",
+    }
+
+    # Check exact phrase match first
+    if category_lower in exact_corrections:
+        result = gpt_result.copy()
+        result["class"] = exact_corrections[category_lower]
+        result["final_class"] = exact_corrections[category_lower]
+        # Exact phrase match = minor correction, keep confidence
+        result["notes"] = f"Normalized '{category}' to '{result['class']}'. {result.get('notes', '')}"
+        return result
+
+    # Word-boundary fallback corrections (lower priority)
+    # SAFETY: Only match if the KEY is a complete word/phrase in the category
+    # Uses word boundaries to prevent "Medical Equipment" matching "equipment"
+    word_corrections = [
+        # Order: most specific to least specific
+        (r"\bcomputer\b", "Computer Equipment"),
+        (r"\bfurniture\b", "Office Furniture"),
+        (r"\bvehicle\b", "Passenger Automobile"),
+        (r"\bautomobile\b", "Passenger Automobile"),
+        (r"\btruck\b", "Trucks & Trailers"),
+        (r"\bqip\b", "QIP - Qualified Improvement Property"),
+        (r"\bsoftware\b", "Software"),
+        # Generic terms LAST (catches "Medical Equipment", "Restaurant Equipment", etc.)
+        (r"\bequipment\b", "Machinery & Equipment"),
+        (r"\bmachinery\b", "Machinery & Equipment"),
+        (r"\bbuilding\b", "Nonresidential Real Property"),
+        (r"\bland\b", "Nondepreciable Land"),
+        (r"\bresidential\b", "Residential Rental Property"),
+    ]
+
+    for pattern, valid_cat in word_corrections:
+        if re.search(pattern, category_lower):
+            result = gpt_result.copy()
+            result["class"] = valid_cat
+            result["final_class"] = valid_cat
+            original_conf = result.get("confidence", 0.7)
+            result["confidence"] = min(original_conf, 0.70)  # Cap at 70% for word-boundary corrections
+            result["low_confidence"] = True
+            result["notes"] = f"GPT returned '{category}' (not in approved list), corrected to '{valid_cat}'. {result.get('notes', '')}"
+            return result
+
+    # No correction found - default to 7-year equipment with low confidence
+    result = gpt_result.copy()
+    result["class"] = "Machinery & Equipment"
+    result["final_class"] = "Machinery & Equipment"
+    result["final_life"] = 7
+    result["final_method"] = "200DB"
+    result["final_convention"] = "HY"
+    result["confidence"] = 0.50
+    result["low_confidence"] = True
+    result["notes"] = f"GPT returned unknown category '{category}' - defaulted to 7-year equipment. Manual review required."
+    return result
 
 
 # ===================================================================================
@@ -568,11 +820,11 @@ def _try_fast_classification(asset: Dict, rules: Dict, overrides: Dict) -> Optio
     Try to classify asset using rules/overrides/memory/keywords (no GPT needed).
     Returns None if GPT is needed.
 
-    Classification order:
+    Classification order (MUST match classify_asset for consistency):
     1. User overrides (100% confidence)
-    2. Quick keyword patterns (85% confidence)
-    3. Rule engine (80-98% confidence)
-    4. Memory engine (up to 90% confidence)
+    2. Rule engine (80-98% confidence) - BEFORE quick keywords for consistency
+    3. Memory engine (up to 90% confidence)
+    4. Quick keyword fallback (75% confidence) - Only if rules don't match
     Returns None → triggers GPT fallback
     """
     # Check override first
@@ -592,58 +844,13 @@ def _try_fast_classification(asset: Dict, rules: Dict, overrides: Dict) -> Optio
             "notes": "User override"
         }
 
-    # QUICK KEYWORD CHECK - catches 80% of common assets instantly
     desc = sanitize_description(_safe_get(asset, ["Description", "description"], "")).lower()
 
-    # Quick patterns (most common first)
-    quick_patterns = [
-        # Computers (5-year)
-        (["laptop", "computer", "desktop", "macbook", "dell ", "lenovo", "hp ", "thinkpad",
-          "imac", "server", "workstation", "monitor", "printer", "scanner"],
-         "Computer Equipment", 5, "200DB", "HY", True),
-        # Furniture (7-year)
-        (["desk", "chair", "table", "cabinet", "bookcase", "credenza", "cubicle",
-          "workstation", "filing", "shelving", "sofa", "couch"],
-         "Office Furniture", 7, "200DB", "HY", True),
-        # Vehicles (5-year)
-        (["truck", "van", "vehicle", "auto", "car ", "ford ", "chevy", "toyota", "honda",
-          "trailer", "forklift"],
-         "Vehicles", 5, "200DB", "HY", True),
-        # Software (3-year)
-        (["software", "license", "subscription", "microsoft", "adobe", "saas"],
-         "Software", 3, "SL", "HY", True),
-        # Machinery (7-year)
-        (["machine", "equipment", "tool", "pump", "motor", "generator", "compressor"],
-         "Machinery & Equipment", 7, "200DB", "HY", True),
-        # HVAC/Building (15-year)
-        (["hvac", "air condition", "heating", "furnace", "roof", "plumbing"],
-         "Building Equipment", 15, "150DB", "HY", True),
-        # Land Improvements (15-year)
-        (["parking", "paving", "sidewalk", "fence", "landscap", "signage"],
-         "Land Improvements", 15, "150DB", "HY", True),
-    ]
-
-    for keywords, cat, life, method, conv, bonus in quick_patterns:
-        for kw in keywords:
-            if kw in desc:
-                return {
-                    "final_class": cat,
-                    "final_life": life,
-                    "final_method": method,
-                    "final_convention": conv,
-                    "bonus": bonus,
-                    "qip": False,
-                    "source": "quick_rule",
-                    "confidence": 0.85,
-                    "low_confidence": False,
-                    "notes": f"Quick match: '{kw}' → {cat}"
-                }
-
-    # Check rule match (slower but more precise)
+    # TIER 2: Check rule match FIRST (for consistency with classify_asset)
     rule_match = _match_rule(asset, rules)
     if rule_match:
         rule, match_score = rule_match
-        if match_score >= 4:  # Lowered threshold for faster matching
+        if match_score >= 4:
             confidence = 0.95 if match_score >= 10 else (0.90 if match_score >= 6 else 0.80)
             return {
                 "final_class": rule.get("class"),
@@ -745,7 +952,9 @@ def _call_gpt_batch(assets: List[Dict], model: str = "gpt-4o-mini") -> List[Dict
         for i, asset in enumerate(assets):
             if i < len(gpt_results):
                 r = gpt_results[i]
-                results.append({
+                # Use _safe_float to handle non-numeric confidence values (e.g., "high", "medium")
+                conf = _safe_float(r.get("confidence"), 0.7)
+                raw_result = {
                     "final_class": r.get("class"),
                     "final_life": r.get("life"),
                     "final_method": r.get("method"),
@@ -753,10 +962,13 @@ def _call_gpt_batch(assets: List[Dict], model: str = "gpt-4o-mini") -> List[Dict
                     "bonus": r.get("bonus", False),
                     "qip": r.get("qip", False),
                     "source": "gpt_batch",
-                    "confidence": float(r.get("confidence", 0.7)),
-                    "low_confidence": float(r.get("confidence", 0.7)) < LOW_CONF_THRESHOLD,
+                    "confidence": conf,
+                    "low_confidence": conf < LOW_CONF_THRESHOLD,
                     "notes": r.get("reasoning", "GPT batch classification")
-                })
+                }
+                # Validate GPT category against approved list
+                validated_result = _validate_gpt_category(raw_result)
+                results.append(validated_result)
             else:
                 # Fallback for missing results
                 results.append(_keyword_fallback_classification(asset))
@@ -1124,11 +1336,15 @@ def classify_asset(
         }
 
     # ========================================================================
-    # TIER 2: Rule-based Pattern Matching
+    # TIER 2: Rule-based Pattern Matching with Top-2 Guesses
     # ========================================================================
-    rule_match = _match_rule(asset, rules)
-    if rule_match:
-        rule, match_score = rule_match
+    top_matches = _match_rule(asset, rules, return_top_n=2)
+    if top_matches:
+        # Handle both single match (backward compat) and list formats
+        if isinstance(top_matches, tuple):
+            top_matches = [top_matches]
+
+        rule, match_score = top_matches[0]
 
         # Calculate confidence based on match strength
         # Scores typically range from 2.0 (minimum) to 15+ (strong match)
@@ -1154,6 +1370,20 @@ def classify_asset(
             "low_confidence": False,
             "notes": f"Matched rule: {rule.get('name', 'unnamed')} (score: {match_score:.1f})"
         }
+
+        # Add secondary guess if available (Top-2 classification)
+        if len(top_matches) > 1:
+            second_rule, second_score = top_matches[1]
+            second_confidence = 0.95 if second_score >= 10 else (0.90 if second_score >= 6 else 0.80)
+            result["secondary_guess"] = {
+                "class": second_rule.get("class"),
+                "life": second_rule.get("life"),
+                "method": second_rule.get("method"),
+                "convention": second_rule.get("convention"),
+                "confidence": second_confidence,
+                "rule_name": second_rule.get("name", "unnamed"),
+                "score": second_score
+            }
 
         # CRITICAL: Verify QIP eligibility based on in-service date
         if result.get("qip"):
@@ -1295,19 +1525,22 @@ def classify_asset(
     # ========================================================================
     gpt_result = _call_gpt(asset, model=model)
 
+    # Validate GPT category against approved MACRS categories
+    gpt_result = _validate_gpt_category(gpt_result)
+
     is_low_conf = gpt_result.get("confidence", 0) < LOW_CONF_THRESHOLD
 
     result = {
-        "final_class": gpt_result.get("class"),
-        "final_life": gpt_result.get("life"),
-        "final_method": gpt_result.get("method"),
-        "final_convention": gpt_result.get("convention"),
+        "final_class": gpt_result.get("class") or gpt_result.get("final_class"),
+        "final_life": gpt_result.get("life") or gpt_result.get("final_life"),
+        "final_method": gpt_result.get("method") or gpt_result.get("final_method"),
+        "final_convention": gpt_result.get("convention") or gpt_result.get("final_convention"),
         "bonus": gpt_result.get("bonus", False),
         "qip": gpt_result.get("qip", False),
         "source": "gpt",
         "confidence": gpt_result.get("confidence", 0.5),
-        "low_confidence": is_low_conf,
-        "notes": gpt_result.get("reasoning", "GPT classification")
+        "low_confidence": is_low_conf or gpt_result.get("low_confidence", False),
+        "notes": gpt_result.get("notes") or gpt_result.get("reasoning", "GPT classification")
     }
 
     # CRITICAL: Verify QIP eligibility based on in-service date

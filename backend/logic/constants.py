@@ -192,7 +192,7 @@ class ErrorMessages:
     # Tax calculation warnings
     MID_QUARTER_REQUIRED = "Mid-quarter convention required (>40% Q4 basis)"
     QIP_DATE_WARNING = "QIP classification requires in-service date >= 2018-01-01"
-    LISTED_PROPERTY_ADS = "Listed property with <50% business use requires ADS"
+    LISTED_PROPERTY_ADS = "Listed property with ≤50% business use requires ADS"
 
     # AI classification
     GPT_UNAVAILABLE = "GPT classification unavailable - using fallback rules"

@@ -240,8 +240,23 @@ def parse_date_with_warning(v, context: str = "") -> DateParseResult:
     if isinstance(v, (datetime, date, pd.Timestamp)):
         return DateParseResult(pd.Timestamp(v), True, None, original)
 
+    # Check for ambiguous date format (MM/DD vs DD/MM when both values <= 12)
+    def _is_ambiguous_date(date_str: str) -> bool:
+        """Check if date string is ambiguous (could be MM/DD or DD/MM)."""
+        match = re.match(r'^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$', str(date_str).strip())
+        if match:
+            first, second = int(match.group(1)), int(match.group(2))
+            # Ambiguous if both could be month (1-12) and they're different
+            if first <= 12 and second <= 12 and first != second:
+                return True
+        return False
+
     # String parsing
     try:
+        # Warn about ambiguous dates before parsing
+        if isinstance(v, str) and _is_ambiguous_date(v):
+            logger.warning(f"Ambiguous date format '{v}' - could be MM/DD/YYYY or DD/MM/YYYY. Using US format (MM/DD).")
+
         dt = pd.to_datetime(v)
 
         # Future date check
@@ -267,15 +282,19 @@ def parse_date_with_warning(v, context: str = "") -> DateParseResult:
     # Try to extract date from text (e.g., "Acquired on 03/14/2023")
     m = re.search(r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}", str(v))
     if m:
+        extracted = m.group(0)
+        if _is_ambiguous_date(extracted):
+            logger.warning(f"Extracted ambiguous date '{extracted}' from '{v}' - using US format (MM/DD).")
         try:
-            dt = pd.to_datetime(m.group(0))
+            dt = pd.to_datetime(extracted)
             return DateParseResult(dt, True, None, original)
         except (ValueError, TypeError, pd.errors.OutOfBoundsDatetime):
             pass
 
-    # Try European format (day first)
+    # Try European format (day first) as fallback
     try:
         dt = pd.to_datetime(v, dayfirst=True)
+        logger.debug(f"Parsed '{v}' using European format (DD/MM)")
         return DateParseResult(dt, True, None, original)
     except (ValueError, TypeError, pd.errors.OutOfBoundsDatetime):
         pass

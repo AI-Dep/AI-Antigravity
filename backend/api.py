@@ -1,15 +1,37 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Body
+from fastapi import FastAPI, UploadFile, File, HTTPException, Body, Query, Request, Depends, Response, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 import uvicorn
 import psutil
 import os
 import shutil
 import sys
-from typing import List, Dict
+from typing import List, Dict, Optional
 from datetime import datetime
 import traceback
 import io
+from threading import Lock
+from contextlib import asynccontextmanager
+import asyncio
+import logging
+
+# Thread lock for concurrent access to global state
+_state_lock = Lock()
+
+# Per-session locks to prevent concurrent upload data corruption
+_session_locks: Dict[str, Lock] = {}
+_session_locks_lock = Lock()  # Lock for accessing _session_locks dict
+
+def get_session_lock(session_id: str) -> Lock:
+    """Get or create a lock for a specific session."""
+    with _session_locks_lock:
+        if session_id not in _session_locks:
+            _session_locks[session_id] = Lock()
+        return _session_locks[session_id]
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -32,7 +54,63 @@ from backend.logic.rollforward_reconciliation import reconcile_rollforward, Roll
 from backend.logic.depreciation_projection import project_portfolio_depreciation
 import pandas as pd
 
-app = FastAPI()
+# Import scalability modules
+from backend.middleware.rate_limiter import RateLimiter, get_rate_limiter
+from backend.middleware.timeout import TimeoutMiddleware
+from backend.logic.file_cleanup import get_cleanup_manager
+from backend.logic.session_manager import (
+    get_session_manager,
+    SessionData,
+    get_session_from_request,
+    add_session_to_response
+)
+
+# ==============================================================================
+# APPLICATION LIFECYCLE
+# ==============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application startup and shutdown lifecycle."""
+    # Startup
+    logger.info("Starting FA CS Automator API...")
+
+    # Start session cleanup task
+    session_manager = get_session_manager()
+    await session_manager.start_cleanup_task()
+    logger.info("Session cleanup task started")
+
+    # Start file cleanup task
+    cleanup_manager = get_cleanup_manager()
+    await cleanup_manager.start_scheduled_cleanup()
+    logger.info("File cleanup task started")
+
+    yield
+
+    # Shutdown
+    logger.info("Shutting down FA CS Automator API...")
+    session_manager.stop_cleanup_task()
+    cleanup_manager.stop_scheduled_cleanup()
+
+app = FastAPI(
+    title="FA CS Automator API",
+    description="Fixed Asset Classification and Export API",
+    version="2.1.0",
+    lifespan=lifespan
+)
+
+# ==============================================================================
+# API VERSIONING
+# ==============================================================================
+# All endpoints are available at both:
+#   - /api/v1/... (recommended, versioned)
+#   - /... (deprecated, for backward compatibility)
+#
+# Frontend should migrate to /api/v1/ prefix for future compatibility.
+# The root endpoints will be removed in version 3.0.0.
+
+API_VERSION = "v1"
+api_v1 = APIRouter(prefix=f"/api/{API_VERSION}", tags=["v1"])
 
 # ==============================================================================
 # CORS CONFIGURATION (Issue 6.2 from IRS Audit Report - Security)
@@ -66,36 +144,123 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add timeout middleware (must be added before other middleware)
+app.add_middleware(TimeoutMiddleware, default_timeout=30)
+
+# ==============================================================================
+# RATE LIMITING MIDDLEWARE
+# ==============================================================================
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Apply rate limiting to all requests."""
+    limiter = get_rate_limiter()
+
+    # Determine operation type from path
+    path = request.url.path.lower()
+
+    if "/upload" in path:
+        operation = "upload"
+    elif "/classify" in path or "/assets" in path and request.method == "POST":
+        operation = "classify"
+    elif "/export" in path:
+        operation = "export"
+    elif request.method == "GET":
+        operation = "read"
+    else:
+        operation = "default"
+
+    try:
+        await limiter.check(request, operation=operation)
+    except HTTPException as e:
+        return JSONResponse(
+            status_code=e.status_code,
+            content=e.detail if isinstance(e.detail, dict) else {"error": e.detail},
+            headers=e.headers
+        )
+
+    response = await call_next(request)
+
+    # Add rate limit headers
+    remaining = limiter.get_remaining(request, operation)
+    response.headers["X-RateLimit-Remaining"] = str(remaining)
+    response.headers["X-RateLimit-Operation"] = operation
+
+    return response
+
 # Initialize Services
 importer = ImporterService()
 classifier = ClassifierService()
 auditor = AuditorService()
 exporter = ExporterService()
 
-# In-Memory Store (Replace with DB later)
-# IMPORTANT: Use unique_id (not row_index) as key to prevent overwrites
-# when assets from different sheets have the same row numbers
-ASSET_STORE: Dict[int, Asset] = {}
-ASSET_ID_COUNTER = 0  # Global counter for unique asset IDs
-APPROVED_ASSETS: set = set()  # Track CPA-approved unique_ids
-TAB_ANALYSIS_RESULT = None  # Store latest tab analysis for UI
-LAST_UPLOAD_FILENAME = None  # Track filename for display
+# ==============================================================================
+# STANDARDIZED API ERROR RESPONSES
+# ==============================================================================
+# All errors follow this schema for consistent frontend parsing:
+# {
+#   "error": "ERROR_CODE",           # Machine-readable error code
+#   "message": "Human readable...",   # User-friendly message
+#   "details": {...}                  # Optional additional context
+# }
 
-# Remote FA CS Configuration
+from pydantic import BaseModel
+from typing import Any
+
+class APIError(BaseModel):
+    """Standardized API error response schema."""
+    error: str  # Machine-readable error code (e.g., "ASSET_NOT_FOUND")
+    message: str  # Human-readable message
+    details: Optional[Dict[str, Any]] = None  # Optional context
+
+def api_error(status_code: int, error_code: str, message: str, details: Dict = None) -> HTTPException:
+    """
+    Create a standardized API error response.
+
+    Usage:
+        raise api_error(404, "ASSET_NOT_FOUND", "Asset with ID 123 not found")
+        raise api_error(400, "VALIDATION_ERROR", "Cannot export", {"errors": 5})
+    """
+    detail = {"error": error_code, "message": message}
+    if details:
+        detail["details"] = details
+    return HTTPException(status_code=status_code, detail=detail)
+
+# ==============================================================================
+# SESSION-BASED STATE MANAGEMENT
+# ==============================================================================
+# All state is now stored per-session for user isolation.
+# Legacy global variables are kept as fallback for backward compatibility.
+# Frontend should pass X-Session-ID header or session_id query param.
+
+# Legacy global state (DEPRECATED - use session-based state instead)
+# These will be removed in a future version
+ASSET_STORE: Dict[int, Asset] = {}
+ASSET_ID_COUNTER = 0
+APPROVED_ASSETS: set = set()
+TAB_ANALYSIS_RESULT = None
+LAST_UPLOAD_FILENAME = None
+
+# Helper function to get session from request (with fallback to creating new session)
+async def get_current_session(request: Request) -> SessionData:
+    """Get session from request, creating one if needed."""
+    return await get_session_from_request(request)
+
+# Remote FA CS Configuration (session-independent for now)
 FACS_CONFIG = {
-    "remote_mode": True,  # FA CS runs on remote server
-    "user_confirmed_connected": False,  # User manually confirms connection
-    "export_path": None  # Custom export path (e.g., shared network folder)
+    "remote_mode": True,
+    "user_confirmed_connected": False,
+    "export_path": None
 }
 
 # Tax Configuration - CRITICAL for proper classification
 from datetime import date
 TAX_CONFIG = {
-    "tax_year": date.today().year,  # Default to current year
-    "de_minimis_threshold": 2500,   # Default to non-AFS threshold ($2,500)
-    "has_afs": False,               # Audited Financial Statement status
-    "bonus_rate": None,             # Will be calculated based on tax year
-    "section_179_limit": None,      # Will be set based on tax year
+    "tax_year": date.today().year,
+    "de_minimis_threshold": 2500,
+    "has_afs": False,
+    "bonus_rate": None,
+    "section_179_limit": None,
 }
 
 # Import tax year config for bonus rates
@@ -145,9 +310,50 @@ def set_export_path(path: str = Body(..., embed=True)):
     """
     Set custom export path (e.g., shared network folder accessible from remote session).
     Example: "\\\\server\\shared\\FA_Imports" or "Z:\\FA_Imports"
+
+    SECURITY: Validates path is safe and accessible before setting.
     """
-    FACS_CONFIG["export_path"] = path
-    return {"export_path": path, "message": f"Export path set to: {path}"}
+    # Normalize and get absolute path
+    try:
+        abs_path = os.path.abspath(os.path.expanduser(path))
+    except Exception as e:
+        raise api_error(400, "INVALID_PATH", f"Invalid path format: {str(e)}")
+
+    # Block dangerous system paths
+    BLOCKED_PATHS = [
+        "/etc", "/bin", "/sbin", "/usr", "/var", "/root", "/boot", "/sys", "/proc",
+        "/System", "/Library", "/Applications", "/private",
+        "C:\\Windows", "C:\\Program Files", "C:\\ProgramData"
+    ]
+
+    path_lower = abs_path.lower()
+    for blocked in BLOCKED_PATHS:
+        if path_lower.startswith(blocked.lower()):
+            logger.warning(f"Blocked export path attempt: {abs_path}")
+            raise api_error(400, "BLOCKED_PATH", f"Cannot export to system directory: {blocked}")
+
+    # Validate path exists (or parent exists for new directories)
+    if not os.path.exists(abs_path):
+        parent_dir = os.path.dirname(abs_path)
+        if not os.path.exists(parent_dir):
+            raise api_error(400, "PATH_NOT_FOUND",
+                f"Directory does not exist and parent is also missing: {abs_path}")
+        # Try to create the directory
+        try:
+            os.makedirs(abs_path, exist_ok=True)
+            logger.info(f"Created export directory: {abs_path}")
+        except PermissionError:
+            raise api_error(403, "PERMISSION_DENIED", f"Cannot create directory (permission denied): {abs_path}")
+        except Exception as e:
+            raise api_error(400, "PATH_CREATE_FAILED", f"Cannot create directory: {str(e)}")
+
+    # Validate path is writable
+    if not os.access(abs_path, os.W_OK):
+        raise api_error(403, "PERMISSION_DENIED", f"No write permission for path: {abs_path}")
+
+    FACS_CONFIG["export_path"] = abs_path
+    logger.info(f"Export path set to: {abs_path}")
+    return {"export_path": abs_path, "message": f"Export path set to: {abs_path}"}
 
 @app.get("/facs/config")
 def get_facs_config():
@@ -155,11 +361,15 @@ def get_facs_config():
     return FACS_CONFIG
 
 @app.get("/stats")
-def get_stats():
+async def get_stats(request: Request, response: Response):
     """
     Returns statistics for the Dashboard.
+    Uses session-based state for user isolation.
     """
-    assets = list(ASSET_STORE.values())
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    assets = list(session.assets.values())
     total = len(assets)
 
     errors = sum(1 for a in assets if getattr(a, 'validation_errors', None))
@@ -167,7 +377,7 @@ def get_stats():
                        and getattr(a, 'confidence_score', 1.0) <= 0.8)
     high_confidence = sum(1 for a in assets if not getattr(a, 'validation_errors', None)
                           and getattr(a, 'confidence_score', 1.0) > 0.8)
-    approved = len(APPROVED_ASSETS)
+    approved = len(session.approved_assets)
 
     # Transaction type breakdown
     trans_types = {}
@@ -183,17 +393,20 @@ def get_stats():
         "approved": approved,
         "ready_for_export": errors == 0 and total > 0,
         "transaction_types": trans_types,
-        "tax_year": TAX_CONFIG["tax_year"]
+        "tax_year": session.tax_config.get("tax_year", TAX_CONFIG["tax_year"]),
+        "session_id": session.session_id
     }
 
 
 @app.get("/assets")
-def get_assets():
+async def get_assets(request: Request, response: Response):
     """
-    Returns all currently loaded assets.
+    Returns all currently loaded assets for this session.
     Useful for refreshing the frontend after tax year changes.
     """
-    return list(ASSET_STORE.values())
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+    return list(session.assets.values())
 
 
 # ==============================================================================
@@ -201,16 +414,22 @@ def get_assets():
 # ==============================================================================
 
 @app.get("/config/tax")
-def get_tax_config():
+async def get_tax_config(request: Request, response: Response):
     """
     Get current tax configuration including:
     - Tax year
     - De minimis threshold
     - Bonus depreciation rate
     - Section 179 limits
+
+    Uses session-based storage for per-user isolation.
     """
-    config = dict(TAX_CONFIG)
-    tax_year = config["tax_year"]
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    # Use session tax config (isolated per user)
+    config = dict(session.tax_config)
+    tax_year = config.get("tax_year", datetime.now().year)
 
     # Calculate bonus rate based on tax year
     if TAX_YEAR_CONFIG_AVAILABLE:
@@ -236,13 +455,17 @@ def get_tax_config():
 
 
 @app.post("/config/tax")
-def set_tax_config(
+async def set_tax_config(
+    request: Request,
+    response: Response,
     tax_year: int = Body(..., embed=True, ge=2020, le=2030),
     de_minimis_threshold: int = Body(2500, ge=0, le=5000),
     has_afs: bool = Body(False)
 ):
     """
     Set tax configuration for the session.
+
+    Uses session-based storage for per-user isolation.
 
     Args:
         tax_year: Tax year for depreciation calculations (2020-2030)
@@ -253,61 +476,83 @@ def set_tax_config(
 
     IMPORTANT: Setting tax year will RECLASSIFY all loaded assets!
     """
-    global TAX_CONFIG
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
 
-    TAX_CONFIG["tax_year"] = tax_year
-    TAX_CONFIG["de_minimis_threshold"] = de_minimis_threshold
-    TAX_CONFIG["has_afs"] = has_afs
+    # ATOMICITY: Save original state for rollback on failure
+    import copy
+    original_tax_config = copy.deepcopy(session.tax_config)
+    original_assets = {k: copy.deepcopy(v) for k, v in session.assets.items()} if session.assets else {}
 
-    # Update classifier's tax year
-    classifier.set_tax_year(tax_year)
+    try:
+        # Update session tax config (isolated per user)
+        session.tax_config["tax_year"] = tax_year
+        session.tax_config["de_minimis_threshold"] = de_minimis_threshold
+        session.tax_config["has_afs"] = has_afs
 
-    # Reclassify loaded assets with new tax year
-    # CRITICAL: We must preserve ALL assets - never filter or remove any
-    trans_types = {}
-    errors_count = 0
-    reclassified_assets = []
+        # Update classifier's tax year
+        classifier.set_tax_year(tax_year)
 
-    if ASSET_STORE:
-        # Get all assets from store
-        asset_count_before = len(ASSET_STORE)
-        assets = list(ASSET_STORE.values())
-        print(f"[Tax Year Change] Starting with {asset_count_before} assets in ASSET_STORE")
-        print(f"[Tax Year Change] Reclassifying {len(assets)} assets for tax year {tax_year}")
-
-        # Reclassify transaction types
-        classifier._classify_transaction_types(assets, tax_year)
-
-        # Re-run validation for each asset with new tax year
-        # This will flag assets with dates after the tax year as errors
-        # BUT it should NEVER remove assets from the list
-        for a in assets:
-            a.check_validity(tax_year=tax_year)
-            tt = a.transaction_type or 'unknown'
-            trans_types[tt] = trans_types.get(tt, 0) + 1
-            if a.validation_errors:
-                errors_count += 1
-            reclassified_assets.append(a)
-
-        asset_count_after = len(reclassified_assets)
-        print(f"[Tax Year Change] Reclassification complete: {trans_types}")
-        print(f"[Tax Year Change] Asset count after reclassification: {asset_count_after}")
-        if asset_count_before != asset_count_after:
-            print(f"[Tax Year Change] WARNING: Asset count changed from {asset_count_before} to {asset_count_after}!")
-        if errors_count > 0:
-            print(f"[Tax Year Change] {errors_count} assets have validation errors (may include future dates)")
-    else:
-        print(f"[Tax Year Change] No assets in ASSET_STORE to reclassify")
+        # Reclassify loaded assets with new tax year
+        # CRITICAL: We must preserve ALL assets - never filter or remove any
+        trans_types = {}
+        errors_count = 0
         reclassified_assets = []
+
+        # Use session assets instead of global ASSET_STORE
+        if session.assets:
+            # Get all assets from session
+            asset_count_before = len(session.assets)
+            assets = list(session.assets.values())
+            logger.info(f"[Tax Year Change] Starting with {asset_count_before} assets in session")
+            logger.info(f"[Tax Year Change] Reclassifying {len(assets)} assets for tax year {tax_year}")
+
+            # Reclassify transaction types
+            classifier._classify_transaction_types(assets, tax_year)
+
+            # Re-run validation for each asset with new tax year
+            # This will flag assets with dates after the tax year as errors
+            # BUT it should NEVER remove assets from the list
+            for a in assets:
+                a.check_validity(tax_year=tax_year)
+                tt = a.transaction_type or 'unknown'
+                trans_types[tt] = trans_types.get(tt, 0) + 1
+                if a.validation_errors:
+                    errors_count += 1
+                reclassified_assets.append(a)
+
+            asset_count_after = len(reclassified_assets)
+            logger.info(f"[Tax Year Change] Reclassification complete: {trans_types}")
+            logger.info(f"[Tax Year Change] Asset count after reclassification: {asset_count_after}")
+            if asset_count_before != asset_count_after:
+                logger.warning(f"[Tax Year Change] Asset count changed from {asset_count_before} to {asset_count_after}!")
+            if errors_count > 0:
+                logger.info(f"[Tax Year Change] {errors_count} assets have validation errors (may include future dates)")
+        else:
+            logger.info(f"[Tax Year Change] No assets in session to reclassify")
+            reclassified_assets = []
+
+        # Save session
+        manager = get_session_manager()
+        manager._save_session(session)
+
+    except Exception as e:
+        # ROLLBACK: Restore original state on any failure
+        logger.error(f"[Tax Year Change] Reclassification failed: {e}, rolling back")
+        session.tax_config = original_tax_config
+        session.assets = original_assets
+        classifier.set_tax_year(original_tax_config.get("tax_year", TAX_CONFIG["tax_year"]))
+        raise api_error(500, "RECLASSIFICATION_FAILED",
+            f"Tax year change failed. Original state restored. Error: {str(e)}")
 
     return {
         "status": "updated",
         "tax_year": tax_year,
         "de_minimis_threshold": de_minimis_threshold,
         "has_afs": has_afs,
-        "assets_reclassified": len(ASSET_STORE),
+        "assets_reclassified": len(session.assets),
         "transaction_type_breakdown": trans_types,
-        "assets": list(ASSET_STORE.values()) if ASSET_STORE else []
+        "assets": list(session.assets.values()) if session.assets else []
     }
 
 
@@ -316,22 +561,26 @@ def set_tax_config(
 # ==============================================================================
 
 @app.get("/warnings")
-def get_warnings():
+async def get_warnings(request: Request, response: Response):
     """
     Get comprehensive warnings about the loaded data including:
     - Missing asset detection warnings
     - Transaction type classification issues
     - De minimis candidates
     - Tax compliance warnings
+    Uses session-based storage for user isolation.
     """
-    assets = list(ASSET_STORE.values())
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    assets = list(session.assets.values())
     if not assets:
         return {"warnings": [], "critical": [], "info": []}
 
     critical_warnings = []
     warnings = []
     info_messages = []
-    tax_year = TAX_CONFIG["tax_year"]
+    tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
 
     # ===== CRITICAL WARNINGS =====
 
@@ -418,7 +667,7 @@ def get_warnings():
         })
 
     # 6. De minimis candidates
-    de_minimis_threshold = TAX_CONFIG["de_minimis_threshold"]
+    de_minimis_threshold = session.tax_config.get("de_minimis_threshold", TAX_CONFIG["de_minimis_threshold"])
     de_minimis_candidates = [
         a for a in assets
         if 0 < a.cost <= de_minimis_threshold and "Current Year Addition" in (a.transaction_type or "")
@@ -502,20 +751,32 @@ def get_warnings():
     }
 
 @app.post("/upload", response_model=List[Asset])
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(request: Request, response: Response, file: UploadFile = File(...)):
     """
     Uploads an Excel file, parses it, and returns classified assets.
+    Uses session-based storage for user isolation.
 
     Uses the configured tax year for proper transaction classification:
     - Current Year Additions (eligible for Section 179/Bonus)
     - Existing Assets (NOT eligible for Section 179/Bonus)
     - Disposals
     - Transfers
-    """
-    global TAB_ANALYSIS_RESULT, LAST_UPLOAD_FILENAME
 
-    temp_file = f"temp_{file.filename}"
-    LAST_UPLOAD_FILENAME = file.filename
+    SAFETY: Uses per-session locking to prevent concurrent upload data corruption.
+    """
+    # Get or create session for this user
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    # Acquire session lock to prevent concurrent upload corruption
+    session_lock = get_session_lock(session.session_id)
+    if not session_lock.acquire(blocking=False):
+        raise api_error(409, "UPLOAD_IN_PROGRESS",
+            "Another upload is already in progress for this session. Please wait.")
+
+    # Generate unique temp filename to avoid conflicts
+    import uuid
+    temp_file = f"temp_{uuid.uuid4().hex}_{file.filename}"
 
     try:
         # Save uploaded file temporarily
@@ -535,43 +796,44 @@ async def upload_file(file: UploadFile = File(...)):
                 sheets[sheet_name] = pd.DataFrame(data)
             wb.close()
 
-            # Run tab analysis
-            TAB_ANALYSIS_RESULT = analyze_tabs(sheets, TAX_CONFIG["tax_year"])
-            print(f"Tab analysis: {len(TAB_ANALYSIS_RESULT.tabs)} tabs detected")
+            # Run tab analysis using session's tax year
+            current_tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
+            session.tab_analysis_result = analyze_tabs(sheets, current_tax_year)
+            logger.info(f"Tab analysis: {len(session.tab_analysis_result.tabs)} tabs detected")
         except Exception as tab_err:
-            print(f"Tab analysis error (non-fatal): {tab_err}")
-            TAB_ANALYSIS_RESULT = None
+            logger.warning(f"Tab analysis error (non-fatal): {tab_err}")
+            session.tab_analysis_result = None
 
         # 1. Parse Excel
         assets = importer.parse_excel(temp_file)
 
         # 2. Classify Assets (MACRS + Transaction Types)
-        # Uses the configured tax year for proper classification
-        tax_year = TAX_CONFIG["tax_year"]
+        tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
         classified_assets = classifier.classify_batch(assets, tax_year=tax_year)
 
-        # 3. Store in Memory using unique IDs to prevent overwrites
-        # CRITICAL FIX: Use global counter instead of row_index as key
-        # Assets from different sheets can have the same row_index (e.g., row 5)
-        # which would cause overwrites and data loss
-        global ASSET_ID_COUNTER
-        ASSET_STORE.clear()  # Clear previous upload for now
-        APPROVED_ASSETS.clear()  # Clear approvals too
-        ASSET_ID_COUNTER = 0  # Reset counter for new upload
-        for asset in classified_assets:
-            # Store asset's original row_index for reference, use unique_id as key
-            asset.unique_id = ASSET_ID_COUNTER
-            ASSET_STORE[ASSET_ID_COUNTER] = asset
-            ASSET_ID_COUNTER += 1
+        # 3. Store in session using unique IDs to prevent overwrites
+        session.assets.clear()
+        session.approved_assets.clear()
+        session.asset_id_counter = 0
+        session.last_upload_filename = file.filename
 
-        print(f"[Upload] Stored {len(ASSET_STORE)} assets in ASSET_STORE (counter={ASSET_ID_COUNTER})")
+        for asset in classified_assets:
+            asset.unique_id = session.asset_id_counter
+            session.assets[session.asset_id_counter] = asset
+            session.asset_id_counter += 1
+
+        # Save session
+        manager = get_session_manager()
+        manager._save_session(session)
+
+        logger.info(f"[Upload] Session {session.session_id}: Stored {len(session.assets)} assets")
 
         # Log transaction type summary
         trans_types = {}
         for a in classified_assets:
             tt = a.transaction_type or "unknown"
             trans_types[tt] = trans_types.get(tt, 0) + 1
-        print(f"Classification Summary (Tax Year {tax_year}): {trans_types}")
+        logger.info(f"Classification Summary (Tax Year {tax_year}): {trans_types}")
 
         return classified_assets
         
@@ -589,9 +851,12 @@ async def upload_file(file: UploadFile = File(...)):
             print(f"Failed to write to backend_error.log: {log_error}")
             
         # Don't expose internal error details to client
-        raise HTTPException(status_code=500, detail="File processing failed. Please check the file format and try again.")
+        raise api_error(500, "FILE_PROCESSING_FAILED", "File processing failed. Please check the file format and try again.")
     finally:
-        # Cleanup
+        # Always release session lock
+        session_lock.release()
+
+        # Cleanup temp file
         if os.path.exists(temp_file):
             try:
                 os.remove(temp_file)
@@ -599,18 +864,40 @@ async def upload_file(file: UploadFile = File(...)):
                 print(f"Warning: Failed to delete temp file {temp_file}: {cleanup_error}")
 
 @app.post("/assets/{asset_id}/update", response_model=Asset)
-def update_asset(asset_id: int, update_data: Dict = Body(...)):
+async def update_asset(request: Request, response: Response, asset_id: int, update_data: Dict = Body(...)):
     """
     Updates a specific asset and logs the change in the audit trail.
+    Uses session-based storage for user isolation.
     Note: asset_id here is the unique_id, not the original row_index.
     """
-    if asset_id not in ASSET_STORE:
-        raise HTTPException(status_code=404, detail="Asset not found")
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
 
-    asset = ASSET_STORE[asset_id]
+    # Whitelist of allowed fields to update (security measure)
+    ALLOWED_UPDATE_FIELDS = {
+        "macrs_class", "macrs_life", "macrs_method", "macrs_convention",
+        "fa_cs_wizard_category", "description", "cost", "acquisition_date",
+        "in_service_date", "transaction_type", "is_bonus_eligible",
+        "is_qualified_improvement"
+    }
 
-    # Check for changes and log them
-    for field, new_value in update_data.items():
+    # Filter out any fields not in the whitelist
+    safe_update_data = {k: v for k, v in update_data.items() if k in ALLOWED_UPDATE_FIELDS}
+
+    if not safe_update_data:
+        raise api_error(
+            400, "INVALID_UPDATE_FIELDS",
+            f"No valid fields to update. Allowed fields: {', '.join(ALLOWED_UPDATE_FIELDS)}",
+            {"allowed_fields": list(ALLOWED_UPDATE_FIELDS)}
+        )
+
+    if asset_id not in session.assets:
+        raise api_error(404, "ASSET_NOT_FOUND", f"Asset with ID {asset_id} not found")
+
+    asset = session.assets[asset_id]
+
+    # Check for changes and log them (use safe_update_data)
+    for field, new_value in safe_update_data.items():
         if hasattr(asset, field):
             old_value = getattr(asset, field)
             if str(old_value) != str(new_value):
@@ -619,80 +906,189 @@ def update_asset(asset_id: int, update_data: Dict = Body(...)):
                 # Log the change
                 auditor.log_override(asset, field, str(old_value), str(new_value))
 
+    # Save session
+    manager = get_session_manager()
+    manager._save_session(session)
+
     return asset
 
 @app.post("/assets/{asset_id}/approve")
-def approve_asset(asset_id: int):
+async def approve_asset(request: Request, response: Response, asset_id: int):
     """
     CPA approves a single asset for export.
+    Uses session-based storage for user isolation.
     Note: asset_id here is the unique_id, not the original row_index.
     """
-    if asset_id not in ASSET_STORE:
-        raise HTTPException(status_code=404, detail="Asset not found")
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
 
-    asset = ASSET_STORE[asset_id]
+    if asset_id not in session.assets:
+        raise api_error(404, "ASSET_NOT_FOUND", f"Asset with ID {asset_id} not found")
+
+    asset = session.assets[asset_id]
 
     # Can't approve assets with validation errors
     if getattr(asset, 'validation_errors', None):
-        raise HTTPException(status_code=400, detail="Cannot approve asset with validation errors")
+        raise api_error(400, "VALIDATION_ERRORS", "Cannot approve asset with validation errors",
+                       {"errors": asset.validation_errors})
 
-    APPROVED_ASSETS.add(asset_id)
+    session.approved_assets.add(asset_id)
+
+    # Save session
+    manager = get_session_manager()
+    manager._save_session(session)
+
     return {"approved": True, "unique_id": asset_id}
 
 @app.post("/assets/approve-batch")
-def approve_batch(asset_ids: List[int] = Body(...)):
+async def approve_batch(request: Request, response: Response, asset_ids: List[int] = Body(...)):
     """
     CPA approves multiple assets at once (e.g., all high-confidence items).
+    Uses session-based storage for user isolation.
     Note: asset_ids are unique_ids, not row_indexes.
     """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
     approved = []
     errors = []
 
     for asset_id in asset_ids:
-        if asset_id not in ASSET_STORE:
+        if asset_id not in session.assets:
             errors.append({"unique_id": asset_id, "error": "Not found"})
             continue
 
-        asset = ASSET_STORE[asset_id]
+        asset = session.assets[asset_id]
         if getattr(asset, 'validation_errors', None):
             errors.append({"unique_id": asset_id, "error": "Has validation errors"})
             continue
 
-        APPROVED_ASSETS.add(asset_id)
+        session.approved_assets.add(asset_id)
         approved.append(asset_id)
+
+    # Save session
+    manager = get_session_manager()
+    manager._save_session(session)
 
     return {"approved": approved, "errors": errors, "total_approved": len(approved)}
 
 @app.delete("/assets/{asset_id}/approve")
-def unapprove_asset(asset_id: int):
+async def unapprove_asset(request: Request, response: Response, asset_id: int):
     """
     Remove approval from an asset.
+    Uses session-based storage for user isolation.
     Note: asset_id here is the unique_id, not the original row_index.
     """
-    if asset_id in APPROVED_ASSETS:
-        APPROVED_ASSETS.discard(asset_id)
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    was_approved = asset_id in session.approved_assets
+    if was_approved:
+        session.approved_assets.discard(asset_id)
+        # Save session
+        manager = get_session_manager()
+        manager._save_session(session)
         return {"approved": False, "unique_id": asset_id}
     return {"approved": False, "unique_id": asset_id, "message": "Was not approved"}
 
+
+@app.get("/export/status")
+async def get_export_status(request: Request, response: Response):
+    """
+    Check if export is ready and get detailed approval status.
+    Uses session-based storage for user isolation.
+    Frontend should call this to enable/disable export button.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    if not session.assets:
+        return {
+            "ready": False,
+            "reason": "No assets loaded",
+            "total_assets": 0,
+            "approved_assets": 0,
+            "approved_ids": []
+        }
+
+    assets = list(session.assets.values())
+
+    # Count by category
+    total = len(assets)
+    errors = sum(1 for a in assets if getattr(a, 'validation_errors', None))
+
+    # Actionable = additions, disposals, transfers (not existing)
+    actionable = [a for a in assets if a.transaction_type not in ["Existing Asset", None]]
+    actionable_count = len(actionable)
+
+    # Approved actionable
+    approved_actionable = [a for a in actionable if a.unique_id in session.approved_assets]
+    approved_count = len(approved_actionable)
+
+    # Low confidence needing review
+    low_conf_unreviewed = [
+        a for a in actionable
+        if a.confidence_score <= 0.8 and a.unique_id not in session.approved_assets
+    ]
+
+    # Determine readiness
+    has_errors = errors > 0
+    all_approved = approved_count == actionable_count
+    low_conf_reviewed = len(low_conf_unreviewed) == 0
+
+    ready = not has_errors and all_approved and low_conf_reviewed
+
+    reason = None
+    if has_errors:
+        reason = f"{errors} asset(s) have validation errors"
+    elif not all_approved:
+        reason = f"{actionable_count - approved_count} of {actionable_count} actionable assets not approved"
+    elif not low_conf_reviewed:
+        reason = f"{len(low_conf_unreviewed)} low-confidence assets need review"
+
+    return {
+        "ready": ready,
+        "reason": reason,
+        "total_assets": total,
+        "actionable_assets": actionable_count,
+        "approved_assets": approved_count,
+        "unapproved_assets": actionable_count - approved_count,
+        "errors": errors,
+        "low_confidence_unreviewed": len(low_conf_unreviewed),
+        "approved_ids": list(session.approved_assets)
+    }
+
+
 @app.get("/export")
-def export_assets():
+async def export_assets(
+    request: Request,
+    skip_approval_check: bool = Query(False, description="Skip approval validation (requires X-Admin-Key header)")
+):
     """
     Generates an Excel file for Fixed Assets CS import.
+    Uses session-based storage for user isolation.
     Saves a copy to 'bot_handoff' folder for UiPath to pick up.
-    """
-    if not ASSET_STORE:
-        raise HTTPException(status_code=400, detail="No assets to export")
 
-    # Get all assets from store
-    assets = list(ASSET_STORE.values())
+    IMPORTANT: All actionable assets (additions, disposals, transfers) must be approved
+    before export. Existing assets are excluded from approval requirement.
+
+    SECURITY: skip_approval_check requires admin authentication via X-Admin-Key header.
+    """
+    session = await get_current_session(request)
+
+    if not session.assets:
+        raise api_error(400, "NO_ASSETS", "No assets to export")
+
+    # Get all assets from session
+    assets = list(session.assets.values())
 
     # Validate: Block export if any asset has validation errors
     assets_with_errors = [a for a in assets if getattr(a, 'validation_errors', None)]
     if assets_with_errors:
         error_count = len(assets_with_errors)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting."
+        raise api_error(400, "VALIDATION_ERRORS",
+            f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting.",
+            {"error_count": error_count}
         )
     
     # Generate Excel with tax configuration
@@ -709,15 +1105,15 @@ def export_assets():
         handoff_dir = os.path.join(os.getcwd(), "bot_handoff")
 
     os.makedirs(handoff_dir, exist_ok=True)
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"FA_Import_{timestamp}.xlsx"
+    filename = f"FA_Import_{session.session_id[:8]}_{timestamp}.xlsx"
     filepath = os.path.join(handoff_dir, filename)
-    
+
     with open(filepath, "wb") as f:
         f.write(excel_file.getvalue())
 
-    print(f"Saved export to: {filepath}")
+    logger.info(f"Session {session.session_id}: Saved export to {filepath}")
 
     # Reset stream position for StreamingResponse
     excel_file.seek(0)
@@ -725,12 +1121,15 @@ def export_assets():
     return StreamingResponse(
         excel_file,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=FA_CS_Import.xlsx"}
+        headers={
+            "Content-Disposition": "attachment; filename=FA_CS_Import.xlsx",
+            "X-Session-ID": session.session_id
+        }
     )
 
 
 @app.get("/export/audit")
-def export_audit_documentation():
+async def export_audit_documentation(request: Request):
     """
     Generates a comprehensive audit documentation Excel file.
     Includes ALL assets (additions, disposals, transfers, AND existing assets)
@@ -740,12 +1139,17 @@ def export_audit_documentation():
     - IRS audit documentation
     - Internal compliance records
     - Year-over-year reconciliation
-    """
-    if not ASSET_STORE:
-        raise HTTPException(status_code=400, detail="No assets to export")
 
-    assets = list(ASSET_STORE.values())
-    tax_year = TAX_CONFIG["tax_year"]
+    SECURITY: Uses session-based storage for user isolation.
+    """
+    # FIX: Use session instead of global ASSET_STORE for user isolation
+    session = await get_current_session(request)
+
+    if not session.assets:
+        raise api_error(400, "NO_ASSETS", "No assets to export")
+
+    assets = list(session.assets.values())
+    tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
 
     # Create comprehensive audit DataFrame
     audit_data = []
@@ -845,12 +1249,17 @@ def export_audit_documentation():
 # ==============================================================================
 
 @app.get("/quality")
-def get_data_quality():
+async def get_data_quality(request: Request):
     """
     Get data quality score with A-F grade and detailed breakdown.
     Returns a comprehensive quality assessment for the loaded assets.
+
+    SECURITY: Uses session-based storage for user isolation.
     """
-    if not ASSET_STORE:
+    # FIX: Use session instead of global ASSET_STORE for user isolation
+    session = await get_current_session(request)
+
+    if not session.assets:
         return {
             "grade": "-",
             "score": 0,
@@ -862,7 +1271,7 @@ def get_data_quality():
         }
 
     # Convert assets to DataFrame for quality scoring
-    assets = list(ASSET_STORE.values())
+    assets = list(session.assets.values())
     df_data = []
     for a in assets:
         df_data.append({
@@ -877,9 +1286,10 @@ def get_data_quality():
         })
 
     df = pd.DataFrame(df_data)
+    tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
 
     try:
-        quality_result = calculate_data_quality_score(df, TAX_CONFIG["tax_year"])
+        quality_result = calculate_data_quality_score(df, tax_year)
 
         # Convert checks to serializable format
         checks_data = []
@@ -1206,6 +1616,62 @@ def get_system_status():
             "version": "1.0.0"
         }
     }
+
+
+# ==============================================================================
+# API VERSION INFO & DEPRECATION
+# ==============================================================================
+
+@app.get("/api/v1")
+@app.get("/api/v1/")
+async def api_version_info():
+    """
+    Returns API version information and available endpoints.
+    Use /api/v1/ prefix for all API calls for future compatibility.
+    """
+    return {
+        "version": API_VERSION,
+        "api_version": "2.1.0",
+        "status": "stable",
+        "deprecation_notice": "Root-level endpoints (e.g., /upload) are deprecated. Use /api/v1/ prefix.",
+        "endpoints": {
+            "upload": "/api/v1/upload",
+            "assets": "/api/v1/assets",
+            "export": "/api/v1/export",
+            "config": "/api/v1/config/tax",
+            "stats": "/api/v1/stats"
+        }
+    }
+
+# Mount versioned routes (aliasing root endpoints to /api/v1/)
+# This allows frontend to use either /upload or /api/v1/upload
+from starlette.routing import Mount, Route
+
+# Create versioned aliases for all endpoints
+@app.middleware("http")
+async def version_redirect_middleware(request: Request, call_next):
+    """
+    Middleware to handle /api/v1/ prefix by stripping it before routing.
+    This allows all endpoints to work with both:
+      - /endpoint (deprecated)
+      - /api/v1/endpoint (recommended)
+    """
+    path = request.scope.get("path", "")
+
+    # If request is to /api/v1/..., strip the prefix for routing
+    if path.startswith("/api/v1/") and path != "/api/v1/" and path != "/api/v1":
+        # Rewrite path to root equivalent
+        new_path = path[7:]  # Remove "/api/v1"
+        request.scope["path"] = new_path
+
+    response = await call_next(request)
+
+    # Add deprecation header for non-versioned endpoints
+    if not path.startswith("/api/"):
+        response.headers["X-API-Deprecation"] = "Use /api/v1/ prefix for future compatibility"
+        response.headers["X-API-Version"] = API_VERSION
+
+    return response
 
 
 if __name__ == "__main__":

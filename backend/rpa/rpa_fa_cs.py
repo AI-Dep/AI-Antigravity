@@ -208,20 +208,23 @@ class FACSDataEntry:
                     self._type_field(asset_id_str)  # Try anyway, will likely fail
                 self._tab()
 
-            # Description
-            if "Property Description" in asset:
-                self._type_field(str(asset["Property Description"]))
+            # Description - handle multiple field name variations from exporter
+            desc_field = next((f for f in ["Description", "Property Description"] if f in asset), None)
+            if desc_field:
+                self._type_field(str(asset[desc_field]))
                 self._tab()
 
-            # Date In Service
-            if "Date In Service" in asset and pd.notna(asset["Date In Service"]):
-                date_str = self._format_date(asset["Date In Service"])
+            # Date In Service - handle case variations from exporter
+            date_field = next((f for f in ["Date In Service", "Date in Service", "In Service Date"] if f in asset and pd.notna(asset[f])), None)
+            if date_field:
+                date_str = self._format_date(asset[date_field])
                 self._type_field(date_str)
                 self._tab()
 
-            # Cost/Basis
-            if "Cost/Basis" in asset:
-                cost_str = self._format_currency(asset["Cost/Basis"])
+            # Cost/Basis - handle multiple field names from exporter
+            cost_field = next((f for f in ["Cost", "Tax Cost", "Cost/Basis"] if f in asset), None)
+            if cost_field:
+                cost_str = self._format_currency(asset[cost_field])
                 self._type_field(cost_str)
                 self._tab()
 
@@ -240,9 +243,10 @@ class FACSDataEntry:
                 self._type_field(str(asset["Convention"]))
                 self._tab()
 
-            # Section 179
-            if "Section 179 Amount" in asset and asset["Section 179 Amount"]:
-                sec179 = float(asset["Section 179 Amount"])
+            # Section 179 - handle multiple field names from exporter
+            sec179_field = next((f for f in ["Tax Sec 179 Expensed", "Section 179 Amount", "Sec 179"] if f in asset and asset[f]), None)
+            if sec179_field:
+                sec179 = float(asset[sec179_field])
                 if sec179 > 0:
                     self._type_field(self._format_currency(sec179))
                 self._tab()
@@ -258,7 +262,7 @@ class FACSDataEntry:
             self._save_asset()
 
             self.stats["succeeded"] += 1
-            logger.info(f"Successfully processed asset: {asset_id}")
+            logger.info(f"Successfully processed asset: {asset_num}")
             return True
 
         except Exception as e:

@@ -55,11 +55,11 @@ class Asset(BaseModel):
     is_transfer: bool = Field(False, description="Flag indicating asset is a transfer")
 
     # Audit Trail
-    audit_trail: List['AuditEvent'] = []
+    audit_trail: List['AuditEvent'] = Field(default_factory=list)
 
     # Validation Errors and Warnings (For UI Display - advisory only)
-    validation_errors: List[str] = []
-    validation_warnings: List[str] = []
+    validation_errors: List[str] = Field(default_factory=list)
+    validation_warnings: List[str] = Field(default_factory=list)
 
     @validator('acquisition_date', 'in_service_date', 'disposal_date', 'transfer_date', pre=True)
     def parse_date(cls, v):
