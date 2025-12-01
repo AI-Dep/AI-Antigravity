@@ -32,6 +32,7 @@ const RETRYABLE_STATUS_CODES = [408, 429, 500, 502, 503, 504];
 export const apiClient = axios.create({
     baseURL: API_BASE,
     timeout: DEFAULT_TIMEOUT,
+    withCredentials: true, // CRITICAL: Include session cookies in requests
     headers: {
         'Content-Type': 'application/json'
     }
