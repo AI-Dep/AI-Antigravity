@@ -28,9 +28,17 @@
  * @property {number} confidence_score - Classification confidence (0.0-1.0)
  * @property {boolean} is_qualified_improvement - QIP flag
  * @property {boolean} is_bonus_eligible - Bonus depreciation eligible
+ * @property {string} [depreciation_election] - CPA election: MACRS, Section179, Bonus, DeMinimis, ADS
+ * @property {string} [election_reason] - Reason for election choice
  * @property {string} [source_sheet] - Source Excel sheet name
  * @property {string} [transaction_type] - "Current Year Addition" | "Existing Asset" | "Disposal" | "Transfer"
  * @property {string} [classification_reason] - Reason for transaction type
+ * @property {string} [disposal_date] - Date asset was disposed/sold (ISO format, for Disposal transactions)
+ * @property {number} [proceeds] - Sale proceeds from disposal
+ * @property {number} [accumulated_depreciation] - Accumulated depreciation at disposal
+ * @property {string} [transfer_date] - Date of transfer (ISO format, for Transfer transactions)
+ * @property {string} [from_location] - Original location before transfer
+ * @property {string} [to_location] - New location after transfer
  * @property {AuditEvent[]} audit_trail - Change history
  * @property {string[]} validation_errors - Critical errors (block export)
  * @property {string[]} validation_warnings - Non-critical warnings

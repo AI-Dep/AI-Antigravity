@@ -1295,12 +1295,34 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
         except (ValueError, TypeError, KeyError) as e:
             logger.debug(f"Error parsing disposal date: {e}")
 
+    # Transfer Date (for transfers)
+    transfer_date = None
+    if col_map.get("transfer_date"):
+        try:
+            transfer_date = parse_date(row[col_map["transfer_date"]])
+        except (ValueError, TypeError, KeyError) as e:
+            logger.debug(f"Error parsing transfer date: {e}")
+
     # Location
     location = ""
     if col_map.get("location"):
         loc_val = row.get(col_map["location"], "")
         if pd.notna(loc_val):
             location = str(loc_val).strip()
+
+    # From Location (for transfers)
+    from_location = ""
+    if col_map.get("from_location"):
+        from_val = row.get(col_map["from_location"], "")
+        if pd.notna(from_val):
+            from_location = str(from_val).strip()
+
+    # To Location (for transfers)
+    to_location = ""
+    if col_map.get("to_location"):
+        to_val = row.get(col_map["to_location"], "")
+        if pd.notna(to_val):
+            to_location = str(to_val).strip()
 
     # Department (NEW - was missing from output!)
     department = ""
@@ -1420,8 +1442,13 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
         "acquisition_date": acq_date,
         "in_service_date": pis_date,
         "disposal_date": disposal_date,
+        # Transfer fields
+        "transfer_date": transfer_date,
+        "from_location": from_location,
+        "to_location": to_location,
+        # Location/Department
         "location": location,
-        "department": department,  # NOW INCLUDED!
+        "department": department,
         "business_use_pct": business_use_pct,
         "proceeds": proceeds,
         "accumulated_depreciation": accumulated_depreciation,
