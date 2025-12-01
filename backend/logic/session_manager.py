@@ -280,18 +280,28 @@ class SessionManager:
     - Per-user session isolation
     - Automatic expiration
     - LRU eviction when memory limit reached
-    - Optional Redis backend for scaling
+    - Optional SQLite backend for persistence (single-server)
+    - Optional Redis backend for scaling (multi-server)
+
+    Storage priority: Redis > SQLite > Memory
     """
 
-    def __init__(self, use_redis: bool = None):
+    def __init__(self, use_redis: bool = None, use_sqlite: bool = None):
         self._use_redis = use_redis if use_redis is not None else bool(REDIS_URL)
         self._local_cache = LRUCache[SessionData](MAX_SESSIONS)
         self._redis_client = None
+        self._sqlite_store = None
+        self._use_sqlite = False
         self._cleanup_task = None
         self._last_cleanup = time.time()
 
+        # Initialize Redis first (highest priority)
         if self._use_redis:
             self._init_redis()
+
+        # Initialize SQLite if Redis not available and SQLite configured
+        if not self._use_redis:
+            self._init_sqlite(use_sqlite)
 
     def _init_redis(self):
         """Initialize Redis connection."""
@@ -306,6 +316,25 @@ class SessionManager:
         except Exception as e:
             logger.warning(f"Failed to connect to Redis: {e}, falling back to local storage")
             self._use_redis = False
+
+    def _init_sqlite(self, use_sqlite: bool = None):
+        """Initialize SQLite session storage."""
+        from backend.logic.session_sqlite import is_sqlite_enabled, get_sqlite_store
+
+        # Check if SQLite is enabled via env var or explicit parameter
+        should_use = use_sqlite if use_sqlite is not None else is_sqlite_enabled()
+
+        if not should_use:
+            return
+
+        try:
+            self._sqlite_store = get_sqlite_store()
+            if self._sqlite_store:
+                self._use_sqlite = True
+                logger.info(f"SQLite session storage enabled: {self._sqlite_store.db_path}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize SQLite session storage: {e}")
+            self._use_sqlite = False
 
     def _generate_session_id(self, user_id: Optional[str] = None) -> str:
         """Generate unique session ID."""
@@ -358,19 +387,29 @@ class SessionManager:
         return self.create_session(user_id)
 
     def delete_session(self, session_id: str) -> bool:
-        """Delete a session."""
+        """Delete a session from all storage backends."""
+        # Delete from Redis
         if self._use_redis and self._redis_client:
             try:
                 self._redis_client.delete(f"session:{session_id}")
             except Exception as e:
                 logger.error(f"Failed to delete session from Redis: {e}")
 
+        # Delete from SQLite
+        if self._use_sqlite and self._sqlite_store:
+            try:
+                self._sqlite_store.delete(session_id)
+            except Exception as e:
+                logger.error(f"Failed to delete session from SQLite: {e}")
+
         return self._local_cache.delete(session_id)
 
     def _save_session(self, session: SessionData) -> None:
-        """Save session to storage."""
+        """Save session to storage (memory + persistent backend)."""
+        # Always cache in memory for fast access
         self._local_cache.set(session.session_id, session)
 
+        # Persist to Redis if available
         if self._use_redis and self._redis_client:
             try:
                 ttl = int((session.expires_at - datetime.utcnow()).total_seconds())
@@ -385,14 +424,22 @@ class SessionManager:
             except Exception as e:
                 logger.error(f"Failed to save session to Redis: {e}")
 
+        # Persist to SQLite if available (and Redis not in use)
+        elif self._use_sqlite and self._sqlite_store:
+            try:
+                data = serialize_session(session)
+                self._sqlite_store.set(session.session_id, data, session.expires_at)
+            except Exception as e:
+                logger.error(f"Failed to save session to SQLite: {e}")
+
     def _load_session(self, session_id: str) -> Optional[SessionData]:
-        """Load session from storage."""
-        # Try local cache first
+        """Load session from storage (cache -> persistent backend)."""
+        # Try local cache first (fastest)
         session = self._local_cache.get(session_id)
         if session:
             return session
 
-        # Try Redis
+        # Try Redis (if available)
         if self._use_redis and self._redis_client:
             try:
                 data = self._redis_client.get(f"session:{session_id}")
@@ -406,17 +453,37 @@ class SessionManager:
             except Exception as e:
                 logger.error(f"Failed to load session from Redis: {e}")
 
+        # Try SQLite (if available and Redis not in use)
+        if self._use_sqlite and self._sqlite_store:
+            try:
+                data = self._sqlite_store.get(session_id)
+                if data:
+                    session = deserialize_session(data)
+                    self._local_cache.set(session_id, session)
+                    return session
+            except Exception as e:
+                logger.error(f"Failed to load session from SQLite: {e}")
+
         return None
 
     async def cleanup_expired(self) -> int:
         """Remove expired sessions. Returns count of removed sessions."""
         removed = 0
 
+        # Clean memory cache
         for session_id in self._local_cache.keys():
             session = self._local_cache.get(session_id)
             if session and session.is_expired():
                 self.delete_session(session_id)
                 removed += 1
+
+        # Clean SQLite (has its own expiration logic)
+        if self._use_sqlite and self._sqlite_store:
+            try:
+                sqlite_removed = self._sqlite_store.cleanup_expired()
+                removed += sqlite_removed
+            except Exception as e:
+                logger.error(f"SQLite cleanup error: {e}")
 
         if removed > 0:
             logger.info(f"Cleaned up {removed} expired sessions")
@@ -445,13 +512,25 @@ class SessionManager:
         sessions = self._local_cache.values()
         total_assets = sum(len(s.assets) for s in sessions)
 
-        return {
+        stats = {
             "total_sessions": len(sessions),
             "total_assets": total_assets,
             "max_sessions": MAX_SESSIONS,
             "session_ttl_hours": SESSION_TTL_HOURS,
             "using_redis": self._use_redis,
+            "using_sqlite": self._use_sqlite,
+            "storage_backend": "redis" if self._use_redis else ("sqlite" if self._use_sqlite else "memory"),
         }
+
+        # Include SQLite-specific stats if enabled
+        if self._use_sqlite and self._sqlite_store:
+            try:
+                sqlite_stats = self._sqlite_store.get_stats()
+                stats["sqlite"] = sqlite_stats
+            except Exception as e:
+                logger.debug(f"Failed to get SQLite stats: {e}")
+
+        return stats
 
 
 # ==============================================================================

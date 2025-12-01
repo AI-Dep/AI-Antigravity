@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import {
     Activity, FileText, CheckCircle, AlertCircle, RefreshCw, Monitor, MonitorOff,
@@ -8,7 +9,8 @@ import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
 import { apiGet, apiPost } from '../lib/api.client';
 
-function Dashboard({ setActiveTab }) {
+function Dashboard() {
+    const navigate = useNavigate();
     const [systemStatus, setSystemStatus] = useState("Checking...");
     const [isOnline, setIsOnline] = useState(false);
     const [initialLoading, setInitialLoading] = useState(true); // Show loading on first render
@@ -197,7 +199,7 @@ function Dashboard({ setActiveTab }) {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Card
                     className="cursor-pointer hover:bg-accent/50 transition-colors"
-                    onClick={() => setActiveTab && setActiveTab('review')}
+                    onClick={() => navigate('/review')}
                 >
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Total Assets</CardTitle>
@@ -212,7 +214,7 @@ function Dashboard({ setActiveTab }) {
                 </Card>
                 <Card
                     className="cursor-pointer hover:bg-accent/50 transition-colors"
-                    onClick={() => setActiveTab && setActiveTab('review')}
+                    onClick={() => navigate('/review')}
                 >
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Needs Review</CardTitle>
@@ -495,14 +497,14 @@ function Dashboard({ setActiveTab }) {
                     <CardContent className="grid gap-2">
                         <div
                             className="p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
-                            onClick={() => setActiveTab && setActiveTab('import')}
+                            onClick={() => navigate('/import')}
                         >
                             <p className="font-medium">Import New Schedule</p>
                             <p className="text-sm text-muted-foreground">Upload Excel file for AI classification</p>
                         </div>
                         <div
                             className="p-4 border rounded-lg hover:bg-accent cursor-pointer transition-colors"
-                            onClick={() => setActiveTab && setActiveTab('review')}
+                            onClick={() => navigate('/review')}
                         >
                             <p className="font-medium">Review Pending Items</p>
                             <p className="text-sm text-muted-foreground">
@@ -514,7 +516,7 @@ function Dashboard({ setActiveTab }) {
                                 ? 'bg-green-50 border-green-200 hover:bg-green-100 cursor-pointer'
                                 : 'bg-gray-50 border-gray-200 cursor-not-allowed opacity-60'
                             }`}
-                            onClick={() => stats.ready_for_export && setActiveTab && setActiveTab('review')}
+                            onClick={() => stats.ready_for_export && navigate('/review')}
                         >
                             <p className="font-medium">
                                 {stats.ready_for_export ? 'Export to FA CS' : 'Export Not Ready'}

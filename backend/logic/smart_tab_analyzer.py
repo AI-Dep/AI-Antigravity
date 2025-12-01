@@ -386,7 +386,7 @@ def _count_data_rows(df: pd.DataFrame) -> Tuple[int, bool, bool]:
                         try:
                             pd.to_datetime(val, errors='raise')
                             has_date = True
-                        except:
+                        except (ValueError, TypeError, Exception):
                             pass
 
     return data_rows, has_cost, has_date

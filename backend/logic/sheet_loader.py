@@ -1617,7 +1617,7 @@ def _map_columns_with_validation(
                                 try:
                                     pd.to_datetime(val)
                                     date_count += 1
-                                except:
+                                except (ValueError, TypeError, Exception):
                                     pass
                     # If most values are dates, use this column
                     if date_count >= len(sample_values) * 0.5:
@@ -1800,7 +1800,7 @@ def _map_columns_with_validation(
                             num = float(s.replace(',', ''))
                             if abs(num) >= 100:  # Large numbers likely cost
                                 currency_count += 1
-                        except:
+                        except (ValueError, TypeError):
                             pass
 
             if currency_count >= len(sample) * 0.5:

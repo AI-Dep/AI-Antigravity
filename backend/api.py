@@ -88,6 +88,50 @@ from backend.logic.session_manager import (
     add_session_to_response
 )
 
+# Import authentication module
+from backend.middleware.auth import (
+    require_auth,
+    get_current_user,
+    User as AuthUser
+)
+
+# Import tempfile for secure temporary file handling
+import tempfile
+
+# ==============================================================================
+# SECURITY CONFIGURATION
+# ==============================================================================
+# Authentication can be enabled/disabled via environment variable.
+# In production (ENVIRONMENT=production), authentication is REQUIRED.
+# In development, it's optional for easier testing.
+
+AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "").lower() in ("true", "1", "yes")
+IS_PRODUCTION = os.environ.get("ENVIRONMENT", "").lower() == "production"
+
+if IS_PRODUCTION and not AUTH_ENABLED:
+    logger.warning(
+        "⚠️ SECURITY WARNING: Running in production without authentication! "
+        "Set AUTH_ENABLED=true to require authentication on all endpoints."
+    )
+
+# Dependency for optional authentication
+async def optional_auth(user: AuthUser = Depends(get_current_user)) -> AuthUser:
+    """
+    Optional authentication dependency.
+
+    - If AUTH_ENABLED=true: Requires valid authentication
+    - If AUTH_ENABLED=false: Returns None (allows anonymous access)
+
+    This allows gradual rollout of authentication.
+    """
+    if AUTH_ENABLED and not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Set Authorization header with Bearer token.",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+    return user
+
 # ==============================================================================
 # APPLICATION LIFECYCLE
 # ==============================================================================
@@ -172,6 +216,38 @@ app.add_middleware(
 
 # Add timeout middleware (must be added before other middleware)
 app.add_middleware(TimeoutMiddleware, default_timeout=30)
+
+# ==============================================================================
+# SECURITY HEADERS MIDDLEWARE
+# ==============================================================================
+# Adds HTTP security headers to all responses to protect against common attacks.
+# Reference: OWASP Secure Headers Project
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Add security headers to all responses."""
+    response = await call_next(request)
+
+    # Prevent MIME type sniffing
+    response.headers["X-Content-Type-Options"] = "nosniff"
+
+    # Prevent clickjacking
+    response.headers["X-Frame-Options"] = "DENY"
+
+    # Enable XSS filtering (legacy browsers)
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+
+    # Referrer policy - don't leak URLs
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+    # Permissions policy - restrict browser features
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+
+    # In production, enable HSTS (requires HTTPS)
+    if IS_PRODUCTION:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+    return response
 
 # ==============================================================================
 # RATE LIMITING MIDDLEWARE
@@ -521,10 +597,13 @@ async def set_tax_config(
     response: Response,
     tax_year: int = Body(..., embed=True, ge=2020, le=2030),
     de_minimis_threshold: int = Body(2500, ge=0, le=5000),
-    has_afs: bool = Body(False)
+    has_afs: bool = Body(False),
+    user: AuthUser = Depends(optional_auth)
 ):
     """
     Set tax configuration for the session.
+
+    Authentication: Required when AUTH_ENABLED=true
 
     Uses session-based storage for per-user isolation.
 
@@ -833,10 +912,17 @@ MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 
 @app.post("/upload", response_model=List[Asset])
-async def upload_file(request: Request, response: Response, file: UploadFile = File(...)):
+async def upload_file(
+    request: Request,
+    response: Response,
+    file: UploadFile = File(...),
+    user: AuthUser = Depends(optional_auth)
+):
     """
     Uploads an Excel file, parses it, and returns classified assets.
     Uses session-based storage for user isolation.
+
+    Authentication: Required when AUTH_ENABLED=true
 
     Uses the configured tax year for proper transaction classification:
     - Current Year Additions (eligible for Section 179/Bonus)
@@ -871,13 +957,14 @@ async def upload_file(request: Request, response: Response, file: UploadFile = F
         raise api_error(409, "UPLOAD_IN_PROGRESS",
             "Another upload is already in progress for this session. Please wait.")
 
-    # Generate unique temp filename to avoid conflicts
-    import uuid
-    temp_file = f"temp_{uuid.uuid4().hex}_{file.filename}"
+    # SECURITY: Use secure temporary file in system temp directory
+    # This prevents arbitrary file write vulnerabilities from CWD manipulation
+    # The file is created with restrictive permissions (0600) by default
+    temp_fd, temp_file = tempfile.mkstemp(suffix='.xlsx', prefix='facs_upload_')
 
     try:
-        # Save uploaded file temporarily
-        with open(temp_file, "wb") as buffer:
+        # Save uploaded file to secure temp location
+        with os.fdopen(temp_fd, 'wb') as buffer:
             buffer.write(file_content)  # Use already-read content
 
         # Perform tab analysis before processing
@@ -935,18 +1022,9 @@ async def upload_file(request: Request, response: Response, file: UploadFile = F
         return classified_assets
         
     except Exception as e:
-        # Print to console for debugging
-        print(f"Upload Error: {e}")
-        traceback.print_exc()
-        
-        try:
-            with open("backend_error.log", "w") as f:
-                f.write(str(e))
-                f.write("\n")
-                f.write(traceback.format_exc())
-        except Exception as log_error:
-            print(f"Failed to write to backend_error.log: {log_error}")
-            
+        # Log error with full traceback for debugging
+        logger.error(f"Upload Error: {e}", exc_info=True)
+
         # Don't expose internal error details to client
         raise api_error(500, "FILE_PROCESSING_FAILED", "File processing failed. Please check the file format and try again.")
     finally:
@@ -958,14 +1036,240 @@ async def upload_file(request: Request, response: Response, file: UploadFile = F
             try:
                 os.remove(temp_file)
             except Exception as cleanup_error:
-                print(f"Warning: Failed to delete temp file {temp_file}: {cleanup_error}")
+                logger.warning(f"Failed to delete temp file {temp_file}: {cleanup_error}")
+
+
+# ==============================================================================
+# BACKGROUND JOB API
+# ==============================================================================
+
+from backend.logic.job_processor import (
+    get_job_processor,
+    init_job_handlers,
+    JobType,
+    JobStatus
+)
+
+# Initialize job handlers on import
+init_job_handlers()
+
+
+@app.post("/jobs/upload")
+async def submit_upload_job(
+    request: Request,
+    response: Response,
+    file: UploadFile = File(...),
+    user: AuthUser = Depends(optional_auth)
+):
+    """
+    Submit a file upload for async background processing.
+
+    Returns a job_id immediately. Client polls /jobs/{job_id} for status.
+
+    This prevents HTTP timeouts for large files with many assets.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    # Validate file
+    if not file.filename:
+        raise api_error(400, "NO_FILE", "No file provided")
+
+    if not file.filename.lower().endswith(('.xlsx', '.xls')):
+        raise api_error(400, "INVALID_FILE_TYPE", "Only Excel files (.xlsx, .xls) are supported")
+
+    # Save to temp file
+    temp_fd, temp_file = tempfile.mkstemp(suffix='.xlsx', prefix='facs_job_')
+    try:
+        content = await file.read()
+
+        # Size check
+        max_size = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "50")) * 1024 * 1024
+        if len(content) > max_size:
+            os.close(temp_fd)
+            os.remove(temp_file)
+            raise api_error(413, "FILE_TOO_LARGE", f"File exceeds maximum size of {max_size // (1024*1024)}MB")
+
+        os.write(temp_fd, content)
+        os.close(temp_fd)
+
+        # Submit job
+        processor = get_job_processor()
+        job = processor.submit(
+            job_type=JobType.UPLOAD,
+            params={
+                "file_path": temp_file,
+                "filename": file.filename,
+                "tax_year": session.tax_config.get("tax_year"),
+            },
+            session_id=session.session_id,
+            user_id=user.user_id if user else None
+        )
+
+        logger.info(f"Submitted upload job {job.job_id} for file {file.filename}")
+
+        return {
+            "job_id": job.job_id,
+            "status": job.status.value,
+            "message": "Upload job submitted. Poll /jobs/{job_id} for status.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Clean up on error
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except Exception:
+                pass
+        logger.error(f"Error submitting upload job: {e}", exc_info=True)
+        raise api_error(500, "JOB_SUBMIT_FAILED", "Failed to submit upload job")
+
+
+@app.get("/jobs/{job_id}")
+async def get_job_status(
+    request: Request,
+    response: Response,
+    job_id: str
+):
+    """
+    Get the status of a background job.
+
+    Client should poll this endpoint until status is 'completed' or 'failed'.
+    Recommended polling interval: 1-2 seconds.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    processor = get_job_processor()
+    status = processor.get_job_status(job_id)
+
+    if not status:
+        raise api_error(404, "JOB_NOT_FOUND", f"Job {job_id} not found")
+
+    return status
+
+
+@app.get("/jobs/{job_id}/result")
+async def get_job_result(
+    request: Request,
+    response: Response,
+    job_id: str
+):
+    """
+    Get the result of a completed job.
+
+    For upload jobs, this returns the list of classified assets.
+    Assets are automatically stored in the session.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    processor = get_job_processor()
+    job = processor.get_job(job_id)
+
+    if not job:
+        raise api_error(404, "JOB_NOT_FOUND", f"Job {job_id} not found")
+
+    if job.status != JobStatus.COMPLETED:
+        raise api_error(400, "JOB_NOT_COMPLETED",
+            f"Job is not completed. Current status: {job.status.value}")
+
+    result = job.result
+
+    # For upload jobs, store assets in session
+    if job.job_type == JobType.UPLOAD and result and "assets" in result:
+        from backend.models.asset import Asset
+
+        # Clear existing and store new
+        session.assets.clear()
+        session.approved_assets.clear()
+
+        for asset_data in result["assets"]:
+            asset = Asset(**asset_data)
+            session.assets[asset.unique_id] = asset
+
+        session.last_upload_filename = job.metadata.get("filename", "unknown")
+
+        # Save session
+        manager = get_session_manager()
+        manager._save_session(session)
+
+        logger.info(f"Stored {len(session.assets)} assets from job {job_id} to session {session.session_id}")
+
+    return result
+
+
+@app.delete("/jobs/{job_id}")
+async def cancel_job(
+    request: Request,
+    response: Response,
+    job_id: str
+):
+    """
+    Cancel a pending job.
+
+    Only pending jobs can be cancelled. Running jobs will complete.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    processor = get_job_processor()
+
+    if not processor.get_job(job_id):
+        raise api_error(404, "JOB_NOT_FOUND", f"Job {job_id} not found")
+
+    if processor.cancel_job(job_id):
+        return {"status": "cancelled", "job_id": job_id}
+    else:
+        raise api_error(400, "CANNOT_CANCEL",
+            "Job cannot be cancelled. It may already be running or completed.")
+
+
+@app.get("/jobs")
+async def list_session_jobs(
+    request: Request,
+    response: Response
+):
+    """
+    List all jobs for the current session.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    processor = get_job_processor()
+    jobs = processor.get_jobs_by_session(session.session_id)
+
+    return {
+        "jobs": [j.to_dict() for j in jobs],
+        "count": len(jobs),
+    }
+
+
+@app.get("/jobs/stats")
+async def get_job_stats():
+    """
+    Get job processor statistics.
+    """
+    processor = get_job_processor()
+    return processor.get_stats()
+
 
 @app.post("/assets/{asset_id}/update", response_model=Asset)
-async def update_asset(request: Request, response: Response, asset_id: int, update_data: Dict = Body(...)):
+async def update_asset(
+    request: Request,
+    response: Response,
+    asset_id: int,
+    update_data: Dict = Body(...),
+    user: AuthUser = Depends(optional_auth)
+):
     """
     Updates a specific asset and logs the change in the audit trail.
     Uses session-based storage for user isolation.
     Note: asset_id here is the unique_id, not the original row_index.
+
+    Authentication: Required when AUTH_ENABLED=true
     """
     session = await get_current_session(request)
     add_session_to_response(response, session.session_id)
@@ -1033,11 +1337,18 @@ async def update_asset(request: Request, response: Response, asset_id: int, upda
     return asset
 
 @app.post("/assets/{asset_id}/approve")
-async def approve_asset(request: Request, response: Response, asset_id: int):
+async def approve_asset(
+    request: Request,
+    response: Response,
+    asset_id: int,
+    user: AuthUser = Depends(optional_auth)
+):
     """
     CPA approves a single asset for export.
     Uses session-based storage for user isolation.
     Note: asset_id here is the unique_id, not the original row_index.
+
+    Authentication: Required when AUTH_ENABLED=true
     """
     session = await get_current_session(request)
     add_session_to_response(response, session.session_id)
@@ -1109,11 +1420,18 @@ async def update_asset_election(
 
 
 @app.post("/assets/approve-batch")
-async def approve_batch(request: Request, response: Response, asset_ids: List[int] = Body(...)):
+async def approve_batch(
+    request: Request,
+    response: Response,
+    asset_ids: List[int] = Body(...),
+    user: AuthUser = Depends(optional_auth)
+):
     """
     CPA approves multiple assets at once (e.g., all high-confidence items).
     Uses session-based storage for user isolation.
     Note: asset_ids are unique_ids, not row_indexes.
+
+    Authentication: Required when AUTH_ENABLED=true
     """
     session = await get_current_session(request)
     add_session_to_response(response, session.session_id)
@@ -1538,9 +1856,15 @@ async def get_depreciation_preview(request: Request, response: Response):
 
 
 @app.post("/export/auto-fix")
-async def auto_fix_compatibility_issues(request: Request, response: Response):
+async def auto_fix_compatibility_issues(
+    request: Request,
+    response: Response,
+    user: AuthUser = Depends(optional_auth)
+):
     """
     Auto-fix common FA CS compatibility issues.
+
+    Authentication: Required when AUTH_ENABLED=true
 
     Fixes:
     - Missing method: Default to 200DB for 3-7yr, 150DB for 15-20yr, SL for others
@@ -1606,7 +1930,36 @@ async def export_assets(
             f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting.",
             {"error_count": error_count}
         )
-    
+
+    # Validate: All actionable assets must be approved before export
+    # Existing assets don't require approval (they're just being carried forward)
+    if not skip_approval_check:
+        actionable_types = {"Addition", "Disposal", "Transfer"}
+        actionable_assets = [
+            a for a in assets
+            if getattr(a, 'transaction_type', None) in actionable_types
+        ]
+        unapproved = [
+            a for a in actionable_assets
+            if a.unique_id not in session.approved_assets
+        ]
+
+        if unapproved:
+            unapproved_count = len(unapproved)
+            total_actionable = len(actionable_assets)
+            raise api_error(400, "UNAPPROVED_ASSETS",
+                f"Cannot export: {unapproved_count} of {total_actionable} actionable assets not approved. "
+                f"Review and approve all additions, disposals, and transfers before exporting.",
+                {
+                    "unapproved_count": unapproved_count,
+                    "total_actionable": total_actionable,
+                    "unapproved_ids": [a.unique_id for a in unapproved[:10]]  # First 10 for debugging
+                }
+            )
+    else:
+        # skip_approval_check requires admin - log a warning for audit trail
+        logger.warning(f"Session {session.session_id}: Export with skip_approval_check=True")
+
     # Generate Excel with tax configuration
     excel_file = exporter.generate_fa_cs_export(
         assets,
@@ -1645,7 +1998,10 @@ async def export_assets(
 
 
 @app.get("/export/audit")
-async def export_audit_documentation(request: Request):
+async def export_audit_documentation(
+    request: Request,
+    skip_approval_check: bool = Query(False, description="Skip approval validation for draft reports")
+):
     """
     Generates a comprehensive audit documentation Excel file.
     Includes ALL assets (additions, disposals, transfers, AND existing assets)
@@ -1656,6 +2012,9 @@ async def export_audit_documentation(request: Request):
     - Internal compliance records
     - Year-over-year reconciliation
 
+    IMPORTANT: All actionable assets must be approved before generating
+    official audit documentation. Use skip_approval_check=true for draft reports.
+
     SECURITY: Uses session-based storage for user isolation.
     """
     # FIX: Use session instead of global ASSET_STORE for user isolation
@@ -1665,6 +2024,32 @@ async def export_audit_documentation(request: Request):
         raise api_error(400, "NO_ASSETS", "No assets to export")
 
     assets = list(session.assets.values())
+
+    # Validate: All actionable assets must be approved for official audit documentation
+    if not skip_approval_check:
+        actionable_types = {"Addition", "Disposal", "Transfer"}
+        actionable_assets = [
+            a for a in assets
+            if getattr(a, 'transaction_type', None) in actionable_types
+        ]
+        unapproved = [
+            a for a in actionable_assets
+            if a.unique_id not in session.approved_assets
+        ]
+
+        if unapproved:
+            unapproved_count = len(unapproved)
+            total_actionable = len(actionable_assets)
+            raise api_error(400, "UNAPPROVED_ASSETS",
+                f"Cannot generate audit report: {unapproved_count} of {total_actionable} actionable assets not approved. "
+                f"Review and approve all items before generating official audit documentation. "
+                f"Use skip_approval_check=true for draft reports.",
+                {
+                    "unapproved_count": unapproved_count,
+                    "total_actionable": total_actionable
+                }
+            )
+
     tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
 
     # Create comprehensive audit DataFrame
