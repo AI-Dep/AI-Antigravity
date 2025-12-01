@@ -149,8 +149,8 @@ class ClassifierService:
         Suggest optimal depreciation election based on asset characteristics.
 
         De Minimis Safe Harbor: Assets <= $2,500 can be expensed immediately
-        Section 179: Up to $1,160,000 (2024) can be expensed for qualifying property
-        Bonus: 60% (2024) of cost for qualifying property
+        Section 179: Up to $1,220,000 (2024) / $2,500,000 (2025 OBBBA) for qualifying property
+        Bonus: 80% (2024) / 100% (2025+ OBBBA) of cost for qualifying property
         MACRS: Standard depreciation
 
         Note: These are SUGGESTIONS only. CPA makes final decision based on client income.

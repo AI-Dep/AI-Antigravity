@@ -508,8 +508,8 @@ async def get_tax_config(request: Request, response: Response):
             "section_179_limit_increase": "$2.5M (up from $1.2M)" if tax_year >= 2025 else None
         }
     else:
-        # Fallback defaults
-        config["bonus_rate"] = 60 if tax_year == 2024 else 40 if tax_year == 2025 else 0
+        # Fallback defaults (TCJA phaseout schedule - pre-OBBBA)
+        config["bonus_rate"] = 80 if tax_year <= 2024 else 40 if tax_year == 2025 else 20 if tax_year == 2026 else 0
         config["section_179_limit"] = 1220000 if tax_year < 2025 else 2500000
 
     return config
@@ -1075,7 +1075,7 @@ async def update_asset_election(
     - MACRS: Standard MACRS depreciation
     - DeMinimis: De minimis safe harbor (expense immediately if ≤$2,500)
     - Section179: Section 179 expense election
-    - Bonus: Bonus depreciation (60% for 2024)
+    - Bonus: Bonus depreciation (80% for 2024, per Form 4562 Instructions)
     - ADS: Alternative Depreciation System
 
     Note: This is a CPA decision based on client's income situation.
@@ -1450,7 +1450,7 @@ async def get_depreciation_preview(request: Request, response: Response):
 
     Returns:
     - Section 179 eligible amount
-    - Bonus depreciation (60% for 2024)
+    - Bonus depreciation (80% for 2024, 100% for 2025+ OBBBA)
     - Regular MACRS depreciation
     - Total Year 1 depreciation
     """

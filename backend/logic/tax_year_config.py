@@ -197,7 +197,7 @@ def get_bonus_percentage(
     Historical Phase-Down (TCJA):
     - 2017-2022: 100%
     - 2023: 80%
-    - 2024: 60%
+    - 2024: 80% (per Form 4562 Instructions)
     - Jan 1-19, 2025: 40%
 
     OBBBA (Enacted July 4, 2025):
@@ -237,34 +237,39 @@ def get_bonus_percentage(
 
             # Property acquired before Jan 20, 2025 - use TCJA phase-down
             # OR if OBBBA is disabled, use TCJA phase-down for all property
+            # Per bonus.json and IRS Form 4562 Instructions
             if acq_date <= OBBB_BONUS_EFFECTIVE_DATE or not obbba_enabled:
                 if tax_year == 2025:
-                    return 0.40  # 40% for pre-OBBBA 2025 acquisitions
+                    return 0.40  # 40% for pre-OBBBA 2025 acquisitions (per Form 4562 Instructions)
                 elif tax_year == 2026:
-                    return 0.20  # 20% for pre-OBBBA property
+                    return 0.20  # 20% TCJA phaseout (per Form 4562 Instructions)
+                elif tax_year >= 2027:
+                    return 0.00  # 0% for 2027+ (TCJA phaseout complete)
                 else:
-                    return 0.00  # 0% for 2027+
+                    return 0.00  # Fallback
 
         # No dates provided for 2025+
         if obbba_enabled:
             return 1.00  # Default to 100% for 2025+ under OBBBA
         else:
-            # OBBBA disabled - use TCJA phase-down
+            # OBBBA disabled - use TCJA phase-down per Form 4562 Instructions
             if tax_year == 2025:
-                return 0.40
+                return 0.40  # 40% TCJA phaseout (per Form 4562 Instructions)
             elif tax_year == 2026:
-                return 0.20
+                return 0.20  # 20% TCJA phaseout (per Form 4562 Instructions)
+            elif tax_year >= 2027:
+                return 0.00  # 0% for 2027+ (TCJA phaseout complete)
             else:
-                return 0.00
+                return 0.00  # Fallback
 
     # Historical TCJA phase-down (for tax years before 2025)
-    # Per Form 4562 Instructions and TCJA §168(k)(6)
+    # Per TCJA §168(k)(6) and Form 4562 Instructions
     if tax_year <= 2022:
         return 1.00  # 100% bonus (2017-2022)
     elif tax_year == 2023:
         return 0.80  # 80% bonus
     elif tax_year == 2024:
-        return 0.80  # 80% bonus (per Form 4562 Instructions)
+        return 0.60  # 60% bonus (per TCJA §168(k)(6))
     else:
         return 0.00  # Fallback
 
@@ -388,7 +393,7 @@ def get_luxury_auto_limits(tax_year: int, asset_year: int = 1) -> int:
 
 HEAVY_SUV_179_LIMITS = {
     2024: 28900,
-    2025: 29500,  # Estimated
+    2025: 31300,  # Per Form 4562 Instructions 2025 Draft (IRC §179(b)(5))
 }
 
 

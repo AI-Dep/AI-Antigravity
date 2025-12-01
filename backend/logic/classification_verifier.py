@@ -335,15 +335,9 @@ def _verify_section_179_eligibility(df: pd.DataFrame, tax_year: int) -> List[Cla
     """Verify Section 179 eligibility."""
     issues = []
 
-    # 2024 Section 179 limit (adjust for tax year)
-    sec179_limits = {
-        2024: 1_220_000,
-        2023: 1_160_000,
-        2022: 1_080_000,
-        2021: 1_050_000,
-        2020: 1_040_000,
-    }
-    annual_limit = sec179_limits.get(tax_year, 1_220_000)
+    # Get Section 179 limit from centralized config (OBBBA/TCJA compliant)
+    sec179_config = tax_year_config.get_section_179_limits(tax_year)
+    annual_limit = sec179_config.get("max_deduction", 1_220_000)
 
     total_sec179 = 0
 

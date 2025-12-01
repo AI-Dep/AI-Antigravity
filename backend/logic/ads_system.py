@@ -132,15 +132,17 @@ ADS_RECOVERY_PERIODS = {
 # Class life to ADS recovery period mapping
 # If we know the MACRS class, we can determine ADS life
 MACRS_TO_ADS = {
-    # MACRS Life → ADS Life
+    # MACRS Life → ADS Life (per IRS Pub 946, Table B-1)
     3: 4,
     5: 6,
     7: 12,
     10: 16,
     15: 20,
     20: 25,
-    27.5: 30,   # Residential
-    39: 40,     # Nonresidential
+    25: 35,     # Water utility property (Pub 946)
+    27.5: 30,   # Residential rental property
+    31.5: 40,   # Pre-May 1993 nonresidential real property
+    39: 40,     # Nonresidential real property (post-May 1993)
 }
 
 
