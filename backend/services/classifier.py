@@ -111,7 +111,8 @@ class ClassifierService:
                 "Sheet Role": asset.source_sheet or "",
                 "In Service Date": asset.in_service_date,
                 "Acquisition Date": asset.acquisition_date,
-                "Disposal Date": None,  # Asset model doesn't have this yet
+                "Disposal Date": asset.disposal_date,  # Pass actual disposal date for prior/current year check
+                "Transfer Date": asset.transfer_date,  # Pass actual transfer date for prior/current year check
                 "Description": asset.description,
             }
             row = pd.Series(row_dict)
