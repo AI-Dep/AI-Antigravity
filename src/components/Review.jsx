@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2, Shield, Wand2, DollarSign, Calculator } from 'lucide-react';
@@ -26,6 +26,10 @@ function Review({ assets = [] }) {
     const [showCompatDialog, setShowCompatDialog] = useState(false); // Show compatibility dialog
     const [depreciationPreview, setDepreciationPreview] = useState(null); // 179/Bonus preview
     const [checkingCompatibility, setCheckingCompatibility] = useState(false);
+
+    // FA CS # editing: Track pending values and debounce timers
+    const [pendingFacsNumbers, setPendingFacsNumbers] = useState({}); // { uniqueId: pendingValue }
+    const facsDebounceTimers = useRef({}); // { uniqueId: timerId }
 
     // Fetch warnings and export status when assets change
     useEffect(() => {
@@ -333,6 +337,69 @@ function Review({ assets = [] }) {
             console.error("Failed to update election:", error);
         }
     };
+
+    // Generic asset field update (for FA CS #, etc.)
+    const handleAssetUpdate = async (uniqueId, updateData) => {
+        try {
+            // Update local state immediately for responsive UI
+            setLocalAssets(prev => prev.map(a =>
+                a.unique_id === uniqueId
+                    ? { ...a, ...updateData }
+                    : a
+            ));
+            // Call backend to persist the update
+            await apiPost(`/assets/${uniqueId}/update`, updateData);
+        } catch (error) {
+            console.error("Failed to update asset:", error);
+        }
+    };
+
+    // Debounced FA CS # update handler (500ms delay to prevent API flood)
+    const handleFacsNumberChange = useCallback((uniqueId, inputValue) => {
+        // Parse the input value
+        const parsedValue = inputValue === "" ? null : parseInt(inputValue, 10);
+
+        // Validate: must be null (empty) or positive integer >= 1
+        const isValid = parsedValue === null || (Number.isInteger(parsedValue) && parsedValue >= 1);
+
+        if (!isValid) {
+            // Invalid input (NaN, 0, negative) - don't update
+            return;
+        }
+
+        // Store pending value for immediate UI feedback
+        setPendingFacsNumbers(prev => ({
+            ...prev,
+            [uniqueId]: parsedValue
+        }));
+
+        // Clear any existing debounce timer for this asset
+        if (facsDebounceTimers.current[uniqueId]) {
+            clearTimeout(facsDebounceTimers.current[uniqueId]);
+        }
+
+        // Set new debounce timer (500ms)
+        facsDebounceTimers.current[uniqueId] = setTimeout(async () => {
+            try {
+                // Update local assets state
+                setLocalAssets(prev => prev.map(a =>
+                    a.unique_id === uniqueId
+                        ? { ...a, fa_cs_asset_number: parsedValue }
+                        : a
+                ));
+                // Clear pending state
+                setPendingFacsNumbers(prev => {
+                    const updated = { ...prev };
+                    delete updated[uniqueId];
+                    return updated;
+                });
+                // Call backend to persist
+                await apiPost(`/assets/${uniqueId}/update`, { fa_cs_asset_number: parsedValue });
+            } catch (error) {
+                console.error("Failed to update FA CS #:", error);
+            }
+        }, 500);
+    }, []);
 
     const handleApprove = async (uniqueId) => {
         try {
@@ -679,6 +746,12 @@ function Review({ assets = [] }) {
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '90px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Status</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '55px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Conf.</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Asset ID</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '70px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>
+                                        <span className="flex items-center gap-1 cursor-help" title="FA CS Asset # (numeric). Edit to resolve collisions with client Asset IDs.">
+                                            FA CS #
+                                            <Info className="w-3 h-3 text-slate-400" />
+                                        </span>
+                                    </th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '220px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}>Description</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Cost</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '110px', minWidth: '90px', resize: 'horizontal', overflow: 'hidden' }}>
@@ -799,12 +872,52 @@ function Review({ assets = [] }) {
                                                     </div>
                                                 </div>
                                             </td>
-                                            {/* Asset ID */}
+                                            {/* Asset ID (Client's ID) */}
                                             <td className={cn(
                                                 "font-medium text-slate-900 dark:text-white",
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
                                             )}>
                                                 {asset.asset_id || "-"}
+                                            </td>
+                                            {/* FA CS # (Editable - maps to FA CS numeric Asset #) */}
+                                            <td className={cn(
+                                                "text-slate-600",
+                                                tableCompact ? "px-1 py-1" : "px-2 py-1.5"
+                                            )}>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    className={cn(
+                                                        "w-full border rounded text-center font-mono",
+                                                        tableCompact ? "px-1 py-0.5 text-[10px]" : "px-2 py-1 text-xs",
+                                                        // Show pending state while debouncing
+                                                        pendingFacsNumbers[asset.unique_id] !== undefined
+                                                            ? "border-yellow-300 bg-yellow-50"
+                                                            : asset.fa_cs_asset_number
+                                                                ? "border-blue-300 bg-blue-50"
+                                                                : "border-slate-200 bg-white",
+                                                        "focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                    )}
+                                                    placeholder={(() => {
+                                                        // Calculate auto-generated FA CS # (same logic as backend)
+                                                        if (asset.asset_id) {
+                                                            const match = String(asset.asset_id).match(/(\d+)/);
+                                                            return match ? match[1] : String(asset.row_index);
+                                                        }
+                                                        return String(asset.row_index);
+                                                    })()}
+                                                    value={
+                                                        // Show pending value if debouncing, else actual value
+                                                        pendingFacsNumbers[asset.unique_id] !== undefined
+                                                            ? (pendingFacsNumbers[asset.unique_id] ?? "")
+                                                            : (asset.fa_cs_asset_number ?? "")
+                                                    }
+                                                    onChange={(e) => handleFacsNumberChange(asset.unique_id, e.target.value)}
+                                                    title={asset.fa_cs_asset_number
+                                                        ? `Explicit FA CS #: ${asset.fa_cs_asset_number}`
+                                                        : `Auto-generated from "${asset.asset_id || 'row ' + asset.row_index}". Click to override.`
+                                                    }
+                                                />
                                             </td>
                                             {/* Description */}
                                             <td className={cn(

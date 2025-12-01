@@ -758,9 +758,25 @@ async def get_warnings(request: Request, response: Response):
             "affected_count": len(unclassified)
         })
 
+    # 8. Asset ID Collision Detection (FA CS requires unique numeric Asset #)
+    from backend.services.exporter import ExporterService
+    exporter = ExporterService()
+    collision_result = exporter.detect_asset_number_collisions(assets)
+
+    if collision_result["has_collisions"]:
+        warnings.append({
+            "type": "FA_CS_ASSET_NUMBER_COLLISION",
+            "message": f"{collision_result['collision_count']} FA CS Asset # collisions detected - {collision_result['affected_assets']} assets affected",
+            "impact": "FA CS requires unique Asset # for each asset. Duplicate numbers will cause import errors.",
+            "action": "Assign unique FA CS # in the Review table for colliding assets",
+            "affected_count": collision_result["affected_assets"],
+            "collisions": collision_result["collisions"][:5],  # Show first 5
+            "details": collision_result["warnings"][:5]  # Show first 5 warning messages
+        })
+
     # ===== INFO MESSAGES =====
 
-    # 8. Transfer assets info (they don't require cost)
+    # 9. Transfer assets info (they don't require cost)
     transfer_assets = [
         a for a in assets
         if a.transaction_type and a.transaction_type.lower() == "transfer"
@@ -811,6 +827,11 @@ async def get_warnings(request: Request, response: Response):
         }
     }
 
+# Maximum upload file size (50MB) - prevents DoS via large files
+MAX_UPLOAD_SIZE_MB = 50
+MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+
 @app.post("/upload", response_model=List[Asset])
 async def upload_file(request: Request, response: Response, file: UploadFile = File(...)):
     """
@@ -823,11 +844,26 @@ async def upload_file(request: Request, response: Response, file: UploadFile = F
     - Disposals
     - Transfers
 
-    SAFETY: Uses per-session locking to prevent concurrent upload data corruption.
+    SAFETY:
+    - Uses per-session locking to prevent concurrent upload data corruption.
+    - Enforces file size limit to prevent DoS attacks.
     """
     # Get or create session for this user
     session = await get_current_session(request)
     add_session_to_response(response, session.session_id)
+
+    # Check file size limit (security: prevent DoS via large files)
+    # Read file content to check size (UploadFile.size may not be available)
+    file_content = await file.read()
+    file_size = len(file_content)
+    await file.seek(0)  # Reset file position for later reading
+
+    if file_size > MAX_UPLOAD_SIZE_BYTES:
+        raise api_error(
+            413, "FILE_TOO_LARGE",
+            f"File size ({file_size / 1024 / 1024:.1f}MB) exceeds maximum allowed size ({MAX_UPLOAD_SIZE_MB}MB)",
+            {"max_size_mb": MAX_UPLOAD_SIZE_MB, "file_size_mb": round(file_size / 1024 / 1024, 1)}
+        )
 
     # Acquire session lock to prevent concurrent upload corruption
     session_lock = get_session_lock(session.session_id)
@@ -842,7 +878,7 @@ async def upload_file(request: Request, response: Response, file: UploadFile = F
     try:
         # Save uploaded file temporarily
         with open(temp_file, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            buffer.write(file_content)  # Use already-read content
 
         # Perform tab analysis before processing
         try:
@@ -939,7 +975,7 @@ async def update_asset(request: Request, response: Response, asset_id: int, upda
         "macrs_class", "macrs_life", "macrs_method", "macrs_convention",
         "fa_cs_wizard_category", "description", "cost", "acquisition_date",
         "in_service_date", "transaction_type", "is_bonus_eligible",
-        "is_qualified_improvement"
+        "is_qualified_improvement", "fa_cs_asset_number"  # FA CS cross-reference
     }
 
     # Filter out any fields not in the whitelist
@@ -951,6 +987,29 @@ async def update_asset(request: Request, response: Response, asset_id: int, upda
             f"No valid fields to update. Allowed fields: {', '.join(ALLOWED_UPDATE_FIELDS)}",
             {"allowed_fields": list(ALLOWED_UPDATE_FIELDS)}
         )
+
+    # Validate fa_cs_asset_number if provided (must be positive integer >= 1 or None)
+    if "fa_cs_asset_number" in safe_update_data:
+        fa_cs_num = safe_update_data["fa_cs_asset_number"]
+        if fa_cs_num is not None:
+            # Ensure it's an integer
+            if not isinstance(fa_cs_num, int):
+                try:
+                    fa_cs_num = int(fa_cs_num)
+                    safe_update_data["fa_cs_asset_number"] = fa_cs_num
+                except (ValueError, TypeError):
+                    raise api_error(
+                        400, "INVALID_FA_CS_NUMBER",
+                        "FA CS Asset # must be a positive integer",
+                        {"value": fa_cs_num}
+                    )
+            # Ensure it's >= 1
+            if fa_cs_num < 1:
+                raise api_error(
+                    400, "INVALID_FA_CS_NUMBER",
+                    "FA CS Asset # must be >= 1 (FA CS requires positive asset numbers)",
+                    {"value": fa_cs_num}
+                )
 
     if asset_id not in session.assets:
         raise api_error(404, "ASSET_NOT_FOUND", f"Asset with ID {asset_id} not found")
@@ -1080,6 +1139,110 @@ async def approve_batch(request: Request, response: Response, asset_ids: List[in
     manager._save_session(session)
 
     return {"approved": approved, "errors": errors, "total_approved": len(approved)}
+
+@app.post("/assets/auto-generate-fa-cs-numbers")
+async def auto_generate_fa_cs_numbers(request: Request, response: Response, mode: str = "sequential"):
+    """
+    Auto-generate unique FA CS Asset # for all assets to resolve collisions.
+
+    Modes:
+    - "sequential": Assign sequential numbers starting from max existing + 1
+    - "preserve": Keep existing numbers where unique, only fix collisions
+    - "row_based": Use row_index as FA CS # (guarantees uniqueness)
+
+    Returns updated assets with new fa_cs_asset_number assignments.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    assets = list(session.assets.values())
+    if not assets:
+        return {"message": "No assets to update", "updated": 0}
+
+    # First, detect collisions using exporter logic
+    from backend.services.exporter import ExporterService
+    exporter = ExporterService()
+
+    updated_count = 0
+
+    if mode == "row_based":
+        # Simple: use row_index as FA CS # (always unique)
+        for asset in assets:
+            if asset.fa_cs_asset_number != asset.row_index:
+                asset.fa_cs_asset_number = asset.row_index
+                updated_count += 1
+
+    elif mode == "sequential":
+        # Find max existing FA CS # and assign sequential from there
+        existing_numbers = set()
+        for asset in assets:
+            if asset.fa_cs_asset_number is not None:
+                existing_numbers.add(asset.fa_cs_asset_number)
+            else:
+                # Also consider auto-generated numbers
+                auto_num = exporter._format_asset_number(asset)
+                existing_numbers.add(auto_num)
+
+        # Start from max + 1 (or 1 if no existing)
+        next_num = max(existing_numbers) + 1 if existing_numbers else 1
+
+        # Detect collision groups
+        collision_result = exporter.detect_asset_number_collisions(assets)
+
+        if collision_result["has_collisions"]:
+            # Get all unique_ids involved in collisions
+            collision_asset_ids = set()
+            for collision in collision_result["collisions"]:
+                for asset_info in collision["assets"]:
+                    collision_asset_ids.add(asset_info["unique_id"])
+
+            # Assign new numbers to colliding assets (skip first in each group to preserve one)
+            for collision in collision_result["collisions"]:
+                # Skip first asset (it keeps its number), reassign the rest
+                for asset_info in collision["assets"][1:]:
+                    asset = session.assets.get(asset_info["unique_id"])
+                    if asset:
+                        asset.fa_cs_asset_number = next_num
+                        next_num += 1
+                        updated_count += 1
+
+    elif mode == "preserve":
+        # Only fix collisions, preserve existing assignments
+        collision_result = exporter.detect_asset_number_collisions(assets)
+
+        if collision_result["has_collisions"]:
+            # Find all used numbers (both explicit and auto-generated)
+            used_numbers = set()
+            for asset in assets:
+                used_numbers.add(exporter._format_asset_number(asset))
+
+            next_num = max(used_numbers) + 1
+
+            # Fix collisions
+            for collision in collision_result["collisions"]:
+                # Keep first asset, reassign rest
+                for asset_info in collision["assets"][1:]:
+                    asset = session.assets.get(asset_info["unique_id"])
+                    if asset:
+                        asset.fa_cs_asset_number = next_num
+                        used_numbers.add(next_num)
+                        next_num += 1
+                        updated_count += 1
+
+    # Save session
+    manager = get_session_manager()
+    manager._save_session(session)
+
+    # Re-check for collisions after fix
+    new_collision_result = exporter.detect_asset_number_collisions(list(session.assets.values()))
+
+    return {
+        "message": f"Updated {updated_count} assets",
+        "updated": updated_count,
+        "mode": mode,
+        "remaining_collisions": new_collision_result["collision_count"],
+        "assets": list(session.assets.values())
+    }
 
 @app.delete("/assets/{asset_id}/approve")
 async def unapprove_asset(request: Request, response: Response, asset_id: int):

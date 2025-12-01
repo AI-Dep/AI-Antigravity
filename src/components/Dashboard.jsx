@@ -128,15 +128,12 @@ function Dashboard({ setActiveTab }) {
     useEffect(() => {
         mountedRef.current = true;
 
-        // Initial data load - CRITICAL: checkStatus must complete first to establish session
-        // Then parallel requests will use the same session ID
+        // Initial data load - Session ID is generated client-side in api.client.js
+        // so all requests automatically use the same session (no race condition)
         const loadInitialData = async () => {
-            // First, establish session via checkStatus (returns X-Session-ID header)
-            await checkStatus();
-            // Small delay to ensure session ID is stored from response
-            await new Promise(resolve => setTimeout(resolve, 50));
-            // Now make parallel requests - they'll all use the same session
+            // Load all data in parallel - session ID is already available client-side
             await Promise.all([
+                checkStatus(),
                 fetchStats(),
                 fetchQuality(),
                 fetchRollforward(),

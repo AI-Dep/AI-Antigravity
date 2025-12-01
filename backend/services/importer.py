@@ -229,6 +229,32 @@ class ImporterService:
         sheet_name = row.get('sheet_name', 'Unknown')
         transaction_type = row.get('transaction_type', 'addition')
 
+        # Get disposal fields (for disposed assets)
+        disposal_date = row.get('disposal_date')
+        if pd.isna(disposal_date):
+            disposal_date = None
+        proceeds = row.get('proceeds')
+        if pd.isna(proceeds) or not self._is_valid_number(proceeds):
+            proceeds = None
+        else:
+            proceeds = float(proceeds)
+        accumulated_depreciation = row.get('accumulated_depreciation')
+        if pd.isna(accumulated_depreciation) or not self._is_valid_number(accumulated_depreciation):
+            accumulated_depreciation = None
+        else:
+            accumulated_depreciation = float(accumulated_depreciation)
+
+        # Get transfer fields (for transferred assets)
+        transfer_date = row.get('transfer_date')
+        if pd.isna(transfer_date):
+            transfer_date = None
+        from_location = row.get('from_location', '')
+        if pd.isna(from_location):
+            from_location = None
+        to_location = row.get('to_location', '')
+        if pd.isna(to_location):
+            to_location = None
+
         # Create Asset Object
         asset = Asset(
             row_index=int(source_row) if not pd.isna(source_row) else idx + 2,
@@ -239,6 +265,14 @@ class ImporterService:
             in_service_date=in_service_date,
             macrs_life=tax_life,
             macrs_method=tax_method,
+            # Disposal fields
+            disposal_date=disposal_date,
+            proceeds=proceeds,
+            accumulated_depreciation=accumulated_depreciation,
+            # Transfer fields
+            transfer_date=transfer_date,
+            from_location=from_location,
+            to_location=to_location,
             # Store additional metadata
             source_sheet=sheet_name,
             transaction_type=transaction_type
