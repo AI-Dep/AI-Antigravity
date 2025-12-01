@@ -144,11 +144,15 @@ class SQLiteSessionStore:
         now = datetime.utcnow()
 
         with self._get_connection() as conn:
+            # Use INSERT ... ON CONFLICT to preserve created_at on updates
             conn.execute(
                 """
-                INSERT OR REPLACE INTO sessions
-                (session_id, data, created_at, last_accessed, expires_at)
+                INSERT INTO sessions (session_id, data, created_at, last_accessed, expires_at)
                 VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    data = excluded.data,
+                    last_accessed = excluded.last_accessed,
+                    expires_at = excluded.expires_at
                 """,
                 (
                     session_id,
