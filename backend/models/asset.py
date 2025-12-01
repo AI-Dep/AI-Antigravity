@@ -135,7 +135,8 @@ class Asset(BaseModel):
 
         # 1. Cost Validation - Must have valid cost (except for Transfers)
         # Transfers don't require cost as they're just moving assets between locations/departments
-        is_transfer = self.transaction_type and self.transaction_type.lower() == "transfer"
+        # Check for all transfer types: "Transfer", "Current Year Transfer", "Prior Year Transfer"
+        is_transfer = self.transaction_type and "transfer" in self.transaction_type.lower()
         if self.cost <= 0 and not is_transfer:
             self.validation_errors.append("Cost must be positive.")
 

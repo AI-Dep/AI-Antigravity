@@ -1278,9 +1278,10 @@ async def get_warnings(request: Request, response: Response):
 
     # 2. Check for assets missing cost (exclude transfers - they don't require cost)
     # Transfers just move assets between departments/locations, cost is already recorded
+    # Check for all transfer types: "Transfer", "Current Year Transfer", "Prior Year Transfer"
     zero_cost = [
         a for a in assets
-        if a.cost <= 0 and not (a.transaction_type and a.transaction_type.lower() == "transfer")
+        if a.cost <= 0 and not (a.transaction_type and "transfer" in a.transaction_type.lower())
     ]
     if zero_cost:
         critical_warnings.append({
@@ -1352,10 +1353,11 @@ async def get_warnings(request: Request, response: Response):
         })
 
     # 7. Unclassified assets (exclude transfers - they don't need classification)
+    # Check for all transfer types: "Transfer", "Current Year Transfer", "Prior Year Transfer"
     unclassified = [
         a for a in assets
         if a.macrs_class in ["Unclassified", "Unknown", None, ""]
-        and not (a.transaction_type and a.transaction_type.lower() == "transfer")
+        and not (a.transaction_type and "transfer" in a.transaction_type.lower())
     ]
     if unclassified:
         warnings.append({
@@ -1385,9 +1387,10 @@ async def get_warnings(request: Request, response: Response):
     # ===== INFO MESSAGES =====
 
     # 9. Transfer assets info (they don't require cost)
+    # Check for all transfer types: "Transfer", "Current Year Transfer", "Prior Year Transfer"
     transfer_assets = [
         a for a in assets
-        if a.transaction_type and a.transaction_type.lower() == "transfer"
+        if a.transaction_type and "transfer" in a.transaction_type.lower()
     ]
     if transfer_assets:
         transfer_with_cost = [a for a in transfer_assets if a.cost > 0]
