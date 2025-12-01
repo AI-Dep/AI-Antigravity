@@ -5,7 +5,9 @@ const { contextBridge } = require('electron');
  * Only exposes safe, read-only configuration to the renderer.
  */
 
-const BACKEND_URL = 'http://127.0.0.1:8000';
+// CRITICAL: Use localhost (not 127.0.0.1) to match frontend origin for cookie sharing
+// Frontend is at localhost:5173, so backend must also be localhost for same-origin cookies
+const BACKEND_URL = 'http://localhost:8000';
 
 contextBridge.exposeInMainWorld('electronAPI', {
     /**
