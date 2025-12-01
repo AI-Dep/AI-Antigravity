@@ -5,7 +5,7 @@ import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye,
 import { cn } from '../lib/utils';
 
 // Import API types for consistent contract
-import { TRANSACTION_TYPES } from '../lib/api.types';
+import { TRANSACTION_TYPES, isDisposal, isTransfer, isActionable } from '../lib/api.types';
 
 // Import centralized API client
 import { apiGet, apiPost, apiDownload } from '../lib/api.client';
@@ -195,16 +195,35 @@ function Review({ assets = [] }) {
         const deMinimisTotal = deMinimisItems.reduce((sum, a) => sum + (a.cost || 0), 0);
         const capitalAdditions = additions - deMinimisCount;
 
-        const disposals = localAssets.filter(a =>
-            a.transaction_type === TRANSACTION_TYPES.DISPOSAL
+        // Disposals - all types (for display count)
+        const disposals = localAssets.filter(a => isDisposal(a.transaction_type)).length;
+        // Current year disposals (actionable)
+        const currentYearDisposals = localAssets.filter(a =>
+            a.transaction_type === TRANSACTION_TYPES.CURRENT_YEAR_DISPOSAL ||
+            a.transaction_type === TRANSACTION_TYPES.DISPOSAL  // No date - needs review
         ).length;
-        const transfers = localAssets.filter(a =>
-            a.transaction_type === TRANSACTION_TYPES.TRANSFER
+        // Prior year disposals (not actionable - already processed)
+        const priorYearDisposals = localAssets.filter(a =>
+            a.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_DISPOSAL
         ).length;
+
+        // Transfers - all types (for display count)
+        const transfers = localAssets.filter(a => isTransfer(a.transaction_type)).length;
+        // Current year transfers (actionable)
+        const currentYearTransfers = localAssets.filter(a =>
+            a.transaction_type === TRANSACTION_TYPES.CURRENT_YEAR_TRANSFER ||
+            a.transaction_type === TRANSACTION_TYPES.TRANSFER  // No date - needs review
+        ).length;
+        // Prior year transfers (not actionable - already processed)
+        const priorYearTransfers = localAssets.filter(a =>
+            a.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_TRANSFER
+        ).length;
+
         const existing = localAssets.filter(a =>
             a.transaction_type === TRANSACTION_TYPES.EXISTING
         ).length;
-        const actionable = additions + disposals + transfers;
+        // Actionable = current year items only (additions + current year disposals/transfers)
+        const actionable = additions + currentYearDisposals + currentYearTransfers;
 
         return {
             total: localAssets.length,
@@ -218,7 +237,11 @@ function Review({ assets = [] }) {
             deMinimisCount,
             deMinimisTotal,
             disposals,
+            currentYearDisposals,
+            priorYearDisposals,
             transfers,
+            currentYearTransfers,
+            priorYearTransfers,
             existing,
             actionable
         };
@@ -229,9 +252,12 @@ function Review({ assets = [] }) {
         // First apply the showExistingAssets filter
         let baseAssets = localAssets;
         if (!showExistingAssets) {
-            // Hide existing assets - only show actionable items (additions, disposals, transfers)
+            // Hide existing assets and prior year disposals/transfers
+            // Only show actionable items (additions, current year disposals/transfers)
             baseAssets = localAssets.filter(a =>
-                a.transaction_type !== TRANSACTION_TYPES.EXISTING
+                a.transaction_type !== TRANSACTION_TYPES.EXISTING &&
+                a.transaction_type !== TRANSACTION_TYPES.PRIOR_YEAR_DISPOSAL &&
+                a.transaction_type !== TRANSACTION_TYPES.PRIOR_YEAR_TRANSFER
             );
         }
 
@@ -681,11 +707,27 @@ function Review({ assets = [] }) {
                                 {stats.deMinimisCount} Expensed
                             </span>
                         )}
-                        <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded">
-                            {stats.disposals} Disposals
+                        <span
+                            className="bg-red-100 text-red-700 px-2 py-0.5 rounded cursor-help"
+                            title={stats.priorYearDisposals > 0
+                                ? `${stats.currentYearDisposals} current year (actionable) + ${stats.priorYearDisposals} prior year (already processed)`
+                                : `${stats.currentYearDisposals} disposals in current tax year`}
+                        >
+                            {stats.currentYearDisposals} Disposals
+                            {stats.priorYearDisposals > 0 && (
+                                <span className="text-red-400 ml-1">(+{stats.priorYearDisposals} prior)</span>
+                            )}
                         </span>
-                        <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
-                            {stats.transfers} Transfers
+                        <span
+                            className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded cursor-help"
+                            title={stats.priorYearTransfers > 0
+                                ? `${stats.currentYearTransfers} current year (actionable) + ${stats.priorYearTransfers} prior year (already processed)`
+                                : `${stats.currentYearTransfers} transfers in current tax year`}
+                        >
+                            {stats.currentYearTransfers} Transfers
+                            {stats.priorYearTransfers > 0 && (
+                                <span className="text-purple-400 ml-1">(+{stats.priorYearTransfers} prior)</span>
+                            )}
                         </span>
                         {showExistingAssets && (
                             <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
@@ -942,18 +984,19 @@ function Review({ assets = [] }) {
                                             )}>
                                                 {(() => {
                                                     // Determine which date to display based on transaction type
-                                                    if (asset.transaction_type === TRANSACTION_TYPES.DISPOSAL) {
+                                                    if (isDisposal(asset.transaction_type)) {
                                                         // Disposals: Show disposal date, with tooltip for original in-service
                                                         const disposalDate = asset.disposal_date || asset.disposed_date;
+                                                        const isPriorYear = asset.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_DISPOSAL;
                                                         if (disposalDate) {
                                                             return (
                                                                 <span
                                                                     className="group relative flex items-center gap-1 cursor-help"
                                                                     title={asset.in_service_date ? `Originally in service: ${asset.in_service_date}` : ""}
                                                                 >
-                                                                    <span className="text-red-600">{disposalDate}</span>
+                                                                    <span className={isPriorYear ? "text-red-400" : "text-red-600"}>{disposalDate}</span>
                                                                     {asset.in_service_date && (
-                                                                        <Info className="w-3 h-3 text-red-400" />
+                                                                        <Info className={cn("w-3 h-3", isPriorYear ? "text-red-300" : "text-red-400")} />
                                                                     )}
                                                                 </span>
                                                             );
@@ -965,18 +1008,19 @@ function Review({ assets = [] }) {
                                                                 <AlertTriangle className="w-3.5 h-3.5" />
                                                             </span>
                                                         );
-                                                    } else if (asset.transaction_type === TRANSACTION_TYPES.TRANSFER) {
+                                                    } else if (isTransfer(asset.transaction_type)) {
                                                         // Transfers: Show transfer date, with tooltip for original in-service
                                                         const transferDate = asset.transfer_date || asset.transferred_date;
+                                                        const isPriorYear = asset.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_TRANSFER;
                                                         if (transferDate) {
                                                             return (
                                                                 <span
                                                                     className="group relative flex items-center gap-1 cursor-help"
                                                                     title={asset.in_service_date ? `Originally in service: ${asset.in_service_date}` : ""}
                                                                 >
-                                                                    <span className="text-purple-600">{transferDate}</span>
+                                                                    <span className={isPriorYear ? "text-purple-400" : "text-purple-600"}>{transferDate}</span>
                                                                     {asset.in_service_date && (
-                                                                        <Info className="w-3 h-3 text-purple-400" />
+                                                                        <Info className={cn("w-3 h-3", isPriorYear ? "text-purple-300" : "text-purple-400")} />
                                                                     )}
                                                                 </span>
                                                             );
@@ -1022,15 +1066,31 @@ function Review({ assets = [] }) {
                                                     asset.transaction_type === TRANSACTION_TYPES.ADDITION && !isDeMinimis && "bg-green-100 text-green-700",
                                                     asset.transaction_type === TRANSACTION_TYPES.ADDITION && isDeMinimis && "bg-emerald-100 text-emerald-700",
                                                     asset.transaction_type === TRANSACTION_TYPES.EXISTING && "bg-slate-100 text-slate-700",
-                                                    asset.transaction_type === TRANSACTION_TYPES.DISPOSAL && "bg-red-100 text-red-700",
-                                                    asset.transaction_type === TRANSACTION_TYPES.TRANSFER && "bg-purple-100 text-purple-700",
+                                                    // Current year disposals (actionable) - bold red
+                                                    (asset.transaction_type === TRANSACTION_TYPES.CURRENT_YEAR_DISPOSAL ||
+                                                     asset.transaction_type === TRANSACTION_TYPES.DISPOSAL) && "bg-red-100 text-red-700",
+                                                    // Prior year disposals (not actionable) - muted red
+                                                    asset.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_DISPOSAL && "bg-red-50 text-red-400",
+                                                    // Current year transfers (actionable) - bold purple
+                                                    (asset.transaction_type === TRANSACTION_TYPES.CURRENT_YEAR_TRANSFER ||
+                                                     asset.transaction_type === TRANSACTION_TYPES.TRANSFER) && "bg-purple-100 text-purple-700",
+                                                    // Prior year transfers (not actionable) - muted purple
+                                                    asset.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_TRANSFER && "bg-purple-50 text-purple-400",
                                                     !asset.transaction_type && "bg-yellow-100 text-yellow-700"
                                                 )}>
                                                     {asset.transaction_type === TRANSACTION_TYPES.ADDITION
                                                         ? (isDeMinimis ? "Expensed" : "Addition")
                                                         : asset.transaction_type === TRANSACTION_TYPES.EXISTING
                                                             ? "Existing"
-                                                            : asset.transaction_type || "Unknown"}
+                                                            : asset.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_DISPOSAL
+                                                                ? "Prior Disposal"
+                                                                : asset.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_TRANSFER
+                                                                    ? "Prior Transfer"
+                                                                    : asset.transaction_type === TRANSACTION_TYPES.CURRENT_YEAR_DISPOSAL
+                                                                        ? "Disposal"
+                                                                        : asset.transaction_type === TRANSACTION_TYPES.CURRENT_YEAR_TRANSFER
+                                                                            ? "Transfer"
+                                                                            : asset.transaction_type || "Unknown"}
                                                 </span>
                                             </td>
 

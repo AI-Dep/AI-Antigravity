@@ -30,6 +30,21 @@ from .parse_utils import parse_date
 
 
 # ==============================================================================
+# HELPER FUNCTIONS
+# ==============================================================================
+
+def _get_year_from_date(date_value) -> Optional[int]:
+    """Extract year from a date value, handling various types."""
+    if date_value is None or pd.isna(date_value):
+        return None
+    if isinstance(date_value, (date, datetime)):
+        return date_value.year
+    if hasattr(date_value, 'year'):
+        return date_value.year
+    return None
+
+
+# ==============================================================================
 # TRANSACTION TYPE CLASSIFICATION
 # ==============================================================================
 
@@ -44,8 +59,10 @@ def classify_transaction_type(
     CRITICAL FIX: This function properly distinguishes between:
     - Current year additions (in-service date = tax year)
     - Existing assets (in-service date < tax year)
-    - Disposals (disposal indicators)
-    - Transfers (transfer indicators)
+    - Current year disposals (disposal date = tax year) - ACTIONABLE
+    - Prior year disposals (disposal date < tax year) - NOT ACTIONABLE (already processed)
+    - Current year transfers (transfer date = tax year) - ACTIONABLE
+    - Prior year transfers (transfer date < tax year) - NOT ACTIONABLE (already processed)
     - Unknown (missing date) - requires manual review
 
     Date Priority:
@@ -60,7 +77,8 @@ def classify_transaction_type(
 
     Returns:
         Tuple of (transaction_type, classification_reason, confidence)
-        - transaction_type: "Current Year Addition", "Existing Asset", "Disposal", "Transfer", "Unknown (Missing Date)"
+        - transaction_type: "Current Year Addition", "Existing Asset", "Current Year Disposal",
+          "Prior Year Disposal", "Current Year Transfer", "Prior Year Transfer", "Unknown (Missing Date)"
         - classification_reason: Explanation for classification
         - confidence: 0.0-1.0 confidence score for the classification
     """
@@ -70,6 +88,7 @@ def classify_transaction_type(
     in_service_date = row.get("In Service Date")
     acquisition_date = row.get("Acquisition Date")
     disposal_date = row.get("Disposal Date")
+    transfer_date = row.get("Transfer Date")
     description = str(row.get("Description", "")).lower()
 
     # Parse in-service date
@@ -85,6 +104,18 @@ def classify_transaction_type(
     # Convert pandas Timestamp to datetime
     if hasattr(acquisition_date, 'to_pydatetime'):
         acquisition_date = acquisition_date.to_pydatetime()
+
+    # Parse disposal date
+    if isinstance(disposal_date, str):
+        disposal_date = parse_date(disposal_date)
+    if hasattr(disposal_date, 'to_pydatetime'):
+        disposal_date = disposal_date.to_pydatetime()
+
+    # Parse transfer date
+    if isinstance(transfer_date, str):
+        transfer_date = parse_date(transfer_date)
+    if hasattr(transfer_date, 'to_pydatetime'):
+        transfer_date = transfer_date.to_pydatetime()
 
     # ===================================================================
     # STEP 1: Check for DISPOSAL (highest priority)
@@ -103,29 +134,44 @@ def classify_transaction_type(
         "no longer in use", "fully depreciated and removed", "taken out of service"
     ]
 
+    # Helper function to determine disposal type based on date
+    def _get_disposal_type(disp_date, reason: str, confidence: float) -> Tuple[str, str, float]:
+        """Classify as current year or prior year disposal based on disposal date."""
+        disp_year = _get_year_from_date(disp_date)
+        if disp_year is not None:
+            if disp_year == tax_year:
+                return "Current Year Disposal", f"{reason} (disposed in {tax_year})", confidence
+            elif disp_year < tax_year:
+                return "Prior Year Disposal", f"{reason} (disposed in {disp_year}, prior to tax year {tax_year})", confidence
+            else:
+                return "Future Disposal (Data Error)", f"{reason} (disposal date {disp_year} is after tax year {tax_year})", 0.50
+        # No disposal date available - can't determine year, mark as current year disposal
+        # (conservative approach - requires review)
+        return "Disposal", f"{reason} (disposal date not available for year check)", confidence * 0.9
+
     # Check transaction type column (HIGH confidence - explicit user input)
     if any(indicator in trans_type_raw for indicator in disposal_indicators):
-        return "Disposal", f"Transaction type indicates disposal: '{trans_type_raw}'", 0.95
+        return _get_disposal_type(disposal_date, f"Transaction type indicates disposal: '{trans_type_raw}'", 0.95)
 
     # "sold" in transaction type is more specific (user explicitly set it)
     if "sold" in trans_type_raw:
-        return "Disposal", f"Transaction type indicates disposal: '{trans_type_raw}'", 0.95
+        return _get_disposal_type(disposal_date, f"Transaction type indicates disposal: '{trans_type_raw}'", 0.95)
 
     # Check sheet role (HIGH confidence - sheet is dedicated to disposals)
     if "disposal" in sheet_role or "retired" in sheet_role:
-        return "Disposal", f"Sheet role indicates disposal: '{sheet_role}'", 0.90
+        return _get_disposal_type(disposal_date, f"Sheet role indicates disposal: '{sheet_role}'", 0.90)
 
     # Check for disposal date - this is a strong, specific indicator
     if disposal_date and not pd.isna(disposal_date):
-        return "Disposal", "Disposal date is populated", 0.95
+        return _get_disposal_type(disposal_date, "Disposal date is populated", 0.95)
 
     # Check description for disposal indicators (MEDIUM confidence - could be contextual)
     if any(indicator in description for indicator in disposal_indicators):
-        return "Disposal", f"Description indicates disposal: '{description[:50]}...'", 0.80
+        return _get_disposal_type(disposal_date, f"Description indicates disposal: '{description[:50]}...'", 0.80)
 
     # Check for disposal phrases (MEDIUM confidence)
     if any(phrase in description for phrase in disposal_phrases):
-        return "Disposal", f"Description indicates disposal: '{description[:50]}...'", 0.80
+        return _get_disposal_type(disposal_date, f"Description indicates disposal: '{description[:50]}...'", 0.80)
 
     # ===================================================================
     # STEP 2: Check for TRANSFER (second priority)
@@ -144,21 +190,36 @@ def classify_transaction_type(
         "change of department", "interdepartmental", "intercompany transfer"
     ]
 
+    # Helper function to determine transfer type based on date
+    def _get_transfer_type(xfer_date, reason: str, confidence: float) -> Tuple[str, str, float]:
+        """Classify as current year or prior year transfer based on transfer date."""
+        xfer_year = _get_year_from_date(xfer_date)
+        if xfer_year is not None:
+            if xfer_year == tax_year:
+                return "Current Year Transfer", f"{reason} (transferred in {tax_year})", confidence
+            elif xfer_year < tax_year:
+                return "Prior Year Transfer", f"{reason} (transferred in {xfer_year}, prior to tax year {tax_year})", confidence
+            else:
+                return "Future Transfer (Data Error)", f"{reason} (transfer date {xfer_year} is after tax year {tax_year})", 0.50
+        # No transfer date available - can't determine year, mark as current year transfer
+        # (conservative approach - requires review)
+        return "Transfer", f"{reason} (transfer date not available for year check)", confidence * 0.9
+
     # Check transaction type column (HIGH confidence - explicit user input)
     if any(indicator in trans_type_raw for indicator in transfer_indicators):
-        return "Transfer", f"Transaction type indicates transfer: '{trans_type_raw}'", 0.95
+        return _get_transfer_type(transfer_date, f"Transaction type indicates transfer: '{trans_type_raw}'", 0.95)
 
     # Check sheet role (HIGH confidence - sheet is dedicated to transfers)
     if "transfer" in sheet_role or "reclass" in sheet_role:
-        return "Transfer", f"Sheet role indicates transfer: '{sheet_role}'", 0.90
+        return _get_transfer_type(transfer_date, f"Sheet role indicates transfer: '{sheet_role}'", 0.90)
 
     # Check description - only use specific transfer terms (MEDIUM confidence)
     if any(indicator in description for indicator in transfer_indicators):
-        return "Transfer", f"Description indicates transfer: '{description[:50]}...'", 0.80
+        return _get_transfer_type(transfer_date, f"Description indicates transfer: '{description[:50]}...'", 0.80)
 
     # Check for transfer phrases (MEDIUM confidence)
     if any(phrase in description for phrase in transfer_phrases):
-        return "Transfer", f"Description indicates transfer: '{description[:50]}...'", 0.80
+        return _get_transfer_type(transfer_date, f"Description indicates transfer: '{description[:50]}...'", 0.80)
 
     # ===================================================================
     # STEP 3: Distinguish CURRENT YEAR ADDITION vs EXISTING ASSET
@@ -292,16 +353,36 @@ def classify_all_transactions(
 
         # Check for data errors
         future_count = counts.get("Future Asset (Data Error)", 0)
+        future_disposal_count = counts.get("Future Disposal (Data Error)", 0)
+        future_transfer_count = counts.get("Future Transfer (Data Error)", 0)
         if future_count > 0:
             print(f"  [!!] {future_count} assets with FUTURE in-service dates (data errors!)")
+        if future_disposal_count > 0:
+            print(f"  [!!] {future_disposal_count} disposals with FUTURE disposal dates (data errors!)")
+        if future_transfer_count > 0:
+            print(f"  [!!] {future_transfer_count} transfers with FUTURE transfer dates (data errors!)")
 
-        # Check for transfers and disposals
-        transfer_count = counts.get("Transfer", 0)
-        disposal_count = counts.get("Disposal", 0)
-        if transfer_count > 0:
-            print(f"  [OK] {transfer_count} transfers detected")
+        # Check for current year and prior year disposals
+        current_disposal_count = counts.get("Current Year Disposal", 0)
+        prior_disposal_count = counts.get("Prior Year Disposal", 0)
+        disposal_count = counts.get("Disposal", 0)  # No date available
+        if current_disposal_count > 0:
+            print(f"  [OK] {current_disposal_count} current year disposals detected (ACTIONABLE)")
+        if prior_disposal_count > 0:
+            print(f"  [INFO] {prior_disposal_count} prior year disposals detected (already processed, not actionable)")
         if disposal_count > 0:
-            print(f"  [OK] {disposal_count} disposals detected")
+            print(f"  [!!] {disposal_count} disposals without date - manual review recommended")
+
+        # Check for current year and prior year transfers
+        current_transfer_count = counts.get("Current Year Transfer", 0)
+        prior_transfer_count = counts.get("Prior Year Transfer", 0)
+        transfer_count = counts.get("Transfer", 0)  # No date available
+        if current_transfer_count > 0:
+            print(f"  [OK] {current_transfer_count} current year transfers detected (ACTIONABLE)")
+        if prior_transfer_count > 0:
+            print(f"  [INFO] {prior_transfer_count} prior year transfers detected (already processed, not actionable)")
+        if transfer_count > 0:
+            print(f"  [!!] {transfer_count} transfers without date - manual review recommended")
 
         print("=" * 80 + "\n")
 

@@ -148,9 +148,47 @@
 export const TRANSACTION_TYPES = {
   ADDITION: "Current Year Addition",
   EXISTING: "Existing Asset",
-  DISPOSAL: "Disposal",
-  TRANSFER: "Transfer"
+  // Disposal types (current year is actionable, prior year is not)
+  DISPOSAL: "Disposal",  // Legacy - no date available
+  CURRENT_YEAR_DISPOSAL: "Current Year Disposal",
+  PRIOR_YEAR_DISPOSAL: "Prior Year Disposal",
+  // Transfer types (current year is actionable, prior year is not)
+  TRANSFER: "Transfer",  // Legacy - no date available
+  CURRENT_YEAR_TRANSFER: "Current Year Transfer",
+  PRIOR_YEAR_TRANSFER: "Prior Year Transfer",
 };
+
+/**
+ * Helper to check if a transaction type is a disposal (any type)
+ * @param {string} type - Transaction type
+ * @returns {boolean}
+ */
+export const isDisposal = (type) =>
+  type === TRANSACTION_TYPES.DISPOSAL ||
+  type === TRANSACTION_TYPES.CURRENT_YEAR_DISPOSAL ||
+  type === TRANSACTION_TYPES.PRIOR_YEAR_DISPOSAL;
+
+/**
+ * Helper to check if a transaction type is a transfer (any type)
+ * @param {string} type - Transaction type
+ * @returns {boolean}
+ */
+export const isTransfer = (type) =>
+  type === TRANSACTION_TYPES.TRANSFER ||
+  type === TRANSACTION_TYPES.CURRENT_YEAR_TRANSFER ||
+  type === TRANSACTION_TYPES.PRIOR_YEAR_TRANSFER;
+
+/**
+ * Helper to check if a transaction type is actionable (requires FA CS update)
+ * @param {string} type - Transaction type
+ * @returns {boolean}
+ */
+export const isActionable = (type) =>
+  type === TRANSACTION_TYPES.ADDITION ||
+  type === TRANSACTION_TYPES.CURRENT_YEAR_DISPOSAL ||
+  type === TRANSACTION_TYPES.CURRENT_YEAR_TRANSFER ||
+  type === TRANSACTION_TYPES.DISPOSAL ||  // No date - needs review
+  type === TRANSACTION_TYPES.TRANSFER;     // No date - needs review
 
 /**
  * API error codes - USE THESE for error handling
