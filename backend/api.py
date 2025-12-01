@@ -18,6 +18,17 @@ import logging
 # Thread lock for concurrent access to global state
 _state_lock = Lock()
 
+# Per-session locks to prevent concurrent upload data corruption
+_session_locks: Dict[str, Lock] = {}
+_session_locks_lock = Lock()  # Lock for accessing _session_locks dict
+
+def get_session_lock(session_id: str) -> Lock:
+    """Get or create a lock for a specific session."""
+    with _session_locks_lock:
+        if session_id not in _session_locks:
+            _session_locks[session_id] = Lock()
+        return _session_locks[session_id]
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -299,9 +310,50 @@ def set_export_path(path: str = Body(..., embed=True)):
     """
     Set custom export path (e.g., shared network folder accessible from remote session).
     Example: "\\\\server\\shared\\FA_Imports" or "Z:\\FA_Imports"
+
+    SECURITY: Validates path is safe and accessible before setting.
     """
-    FACS_CONFIG["export_path"] = path
-    return {"export_path": path, "message": f"Export path set to: {path}"}
+    # Normalize and get absolute path
+    try:
+        abs_path = os.path.abspath(os.path.expanduser(path))
+    except Exception as e:
+        raise api_error(400, "INVALID_PATH", f"Invalid path format: {str(e)}")
+
+    # Block dangerous system paths
+    BLOCKED_PATHS = [
+        "/etc", "/bin", "/sbin", "/usr", "/var", "/root", "/boot", "/sys", "/proc",
+        "/System", "/Library", "/Applications", "/private",
+        "C:\\Windows", "C:\\Program Files", "C:\\ProgramData"
+    ]
+
+    path_lower = abs_path.lower()
+    for blocked in BLOCKED_PATHS:
+        if path_lower.startswith(blocked.lower()):
+            logger.warning(f"Blocked export path attempt: {abs_path}")
+            raise api_error(400, "BLOCKED_PATH", f"Cannot export to system directory: {blocked}")
+
+    # Validate path exists (or parent exists for new directories)
+    if not os.path.exists(abs_path):
+        parent_dir = os.path.dirname(abs_path)
+        if not os.path.exists(parent_dir):
+            raise api_error(400, "PATH_NOT_FOUND",
+                f"Directory does not exist and parent is also missing: {abs_path}")
+        # Try to create the directory
+        try:
+            os.makedirs(abs_path, exist_ok=True)
+            logger.info(f"Created export directory: {abs_path}")
+        except PermissionError:
+            raise api_error(403, "PERMISSION_DENIED", f"Cannot create directory (permission denied): {abs_path}")
+        except Exception as e:
+            raise api_error(400, "PATH_CREATE_FAILED", f"Cannot create directory: {str(e)}")
+
+    # Validate path is writable
+    if not os.access(abs_path, os.W_OK):
+        raise api_error(403, "PERMISSION_DENIED", f"No write permission for path: {abs_path}")
+
+    FACS_CONFIG["export_path"] = abs_path
+    logger.info(f"Export path set to: {abs_path}")
+    return {"export_path": abs_path, "message": f"Export path set to: {abs_path}"}
 
 @app.get("/facs/config")
 def get_facs_config():
@@ -424,56 +476,71 @@ async def set_tax_config(
     session = await get_current_session(request)
     add_session_to_response(response, session.session_id)
 
-    # Update session tax config (isolated per user)
-    session.tax_config["tax_year"] = tax_year
-    session.tax_config["de_minimis_threshold"] = de_minimis_threshold
-    session.tax_config["has_afs"] = has_afs
+    # ATOMICITY: Save original state for rollback on failure
+    import copy
+    original_tax_config = copy.deepcopy(session.tax_config)
+    original_assets = {k: copy.deepcopy(v) for k, v in session.assets.items()} if session.assets else {}
 
-    # Update classifier's tax year
-    classifier.set_tax_year(tax_year)
+    try:
+        # Update session tax config (isolated per user)
+        session.tax_config["tax_year"] = tax_year
+        session.tax_config["de_minimis_threshold"] = de_minimis_threshold
+        session.tax_config["has_afs"] = has_afs
 
-    # Reclassify loaded assets with new tax year
-    # CRITICAL: We must preserve ALL assets - never filter or remove any
-    trans_types = {}
-    errors_count = 0
-    reclassified_assets = []
+        # Update classifier's tax year
+        classifier.set_tax_year(tax_year)
 
-    # Use session assets instead of global ASSET_STORE
-    if session.assets:
-        # Get all assets from session
-        asset_count_before = len(session.assets)
-        assets = list(session.assets.values())
-        logger.info(f"[Tax Year Change] Starting with {asset_count_before} assets in session")
-        logger.info(f"[Tax Year Change] Reclassifying {len(assets)} assets for tax year {tax_year}")
-
-        # Reclassify transaction types
-        classifier._classify_transaction_types(assets, tax_year)
-
-        # Re-run validation for each asset with new tax year
-        # This will flag assets with dates after the tax year as errors
-        # BUT it should NEVER remove assets from the list
-        for a in assets:
-            a.check_validity(tax_year=tax_year)
-            tt = a.transaction_type or 'unknown'
-            trans_types[tt] = trans_types.get(tt, 0) + 1
-            if a.validation_errors:
-                errors_count += 1
-            reclassified_assets.append(a)
-
-        asset_count_after = len(reclassified_assets)
-        logger.info(f"[Tax Year Change] Reclassification complete: {trans_types}")
-        logger.info(f"[Tax Year Change] Asset count after reclassification: {asset_count_after}")
-        if asset_count_before != asset_count_after:
-            logger.warning(f"[Tax Year Change] Asset count changed from {asset_count_before} to {asset_count_after}!")
-        if errors_count > 0:
-            logger.info(f"[Tax Year Change] {errors_count} assets have validation errors (may include future dates)")
-    else:
-        logger.info(f"[Tax Year Change] No assets in session to reclassify")
+        # Reclassify loaded assets with new tax year
+        # CRITICAL: We must preserve ALL assets - never filter or remove any
+        trans_types = {}
+        errors_count = 0
         reclassified_assets = []
 
-    # Save session
-    manager = get_session_manager()
-    manager._save_session(session)
+        # Use session assets instead of global ASSET_STORE
+        if session.assets:
+            # Get all assets from session
+            asset_count_before = len(session.assets)
+            assets = list(session.assets.values())
+            logger.info(f"[Tax Year Change] Starting with {asset_count_before} assets in session")
+            logger.info(f"[Tax Year Change] Reclassifying {len(assets)} assets for tax year {tax_year}")
+
+            # Reclassify transaction types
+            classifier._classify_transaction_types(assets, tax_year)
+
+            # Re-run validation for each asset with new tax year
+            # This will flag assets with dates after the tax year as errors
+            # BUT it should NEVER remove assets from the list
+            for a in assets:
+                a.check_validity(tax_year=tax_year)
+                tt = a.transaction_type or 'unknown'
+                trans_types[tt] = trans_types.get(tt, 0) + 1
+                if a.validation_errors:
+                    errors_count += 1
+                reclassified_assets.append(a)
+
+            asset_count_after = len(reclassified_assets)
+            logger.info(f"[Tax Year Change] Reclassification complete: {trans_types}")
+            logger.info(f"[Tax Year Change] Asset count after reclassification: {asset_count_after}")
+            if asset_count_before != asset_count_after:
+                logger.warning(f"[Tax Year Change] Asset count changed from {asset_count_before} to {asset_count_after}!")
+            if errors_count > 0:
+                logger.info(f"[Tax Year Change] {errors_count} assets have validation errors (may include future dates)")
+        else:
+            logger.info(f"[Tax Year Change] No assets in session to reclassify")
+            reclassified_assets = []
+
+        # Save session
+        manager = get_session_manager()
+        manager._save_session(session)
+
+    except Exception as e:
+        # ROLLBACK: Restore original state on any failure
+        logger.error(f"[Tax Year Change] Reclassification failed: {e}, rolling back")
+        session.tax_config = original_tax_config
+        session.assets = original_assets
+        classifier.set_tax_year(original_tax_config.get("tax_year", TAX_CONFIG["tax_year"]))
+        raise api_error(500, "RECLASSIFICATION_FAILED",
+            f"Tax year change failed. Original state restored. Error: {str(e)}")
 
     return {
         "status": "updated",
@@ -691,10 +758,18 @@ async def upload_file(request: Request, response: Response, file: UploadFile = F
     - Existing Assets (NOT eligible for Section 179/Bonus)
     - Disposals
     - Transfers
+
+    SAFETY: Uses per-session locking to prevent concurrent upload data corruption.
     """
     # Get or create session for this user
     session = await get_current_session(request)
     add_session_to_response(response, session.session_id)
+
+    # Acquire session lock to prevent concurrent upload corruption
+    session_lock = get_session_lock(session.session_id)
+    if not session_lock.acquire(blocking=False):
+        raise api_error(409, "UPLOAD_IN_PROGRESS",
+            "Another upload is already in progress for this session. Please wait.")
 
     # Generate unique temp filename to avoid conflicts
     import uuid
@@ -775,7 +850,10 @@ async def upload_file(request: Request, response: Response, file: UploadFile = F
         # Don't expose internal error details to client
         raise api_error(500, "FILE_PROCESSING_FAILED", "File processing failed. Please check the file format and try again.")
     finally:
-        # Cleanup
+        # Always release session lock
+        session_lock.release()
+
+        # Cleanup temp file
         if os.path.exists(temp_file):
             try:
                 os.remove(temp_file)
@@ -979,7 +1057,10 @@ async def get_export_status(request: Request, response: Response):
 
 
 @app.get("/export")
-async def export_assets(request: Request, skip_approval_check: bool = Query(False, description="Skip approval validation (for audit exports only)")):
+async def export_assets(
+    request: Request,
+    skip_approval_check: bool = Query(False, description="Skip approval validation (requires X-Admin-Key header)")
+):
     """
     Generates an Excel file for Fixed Assets CS import.
     Uses session-based storage for user isolation.
@@ -987,6 +1068,8 @@ async def export_assets(request: Request, skip_approval_check: bool = Query(Fals
 
     IMPORTANT: All actionable assets (additions, disposals, transfers) must be approved
     before export. Existing assets are excluded from approval requirement.
+
+    SECURITY: skip_approval_check requires admin authentication via X-Admin-Key header.
     """
     session = await get_current_session(request)
 
@@ -1004,6 +1087,15 @@ async def export_assets(request: Request, skip_approval_check: bool = Query(Fals
             f"Cannot export: {error_count} asset(s) have validation errors. Fix all errors before exporting.",
             {"error_count": error_count}
         )
+
+    # SECURITY FIX: Require admin key to skip approval check
+    if skip_approval_check:
+        admin_key = request.headers.get("X-Admin-Key", "")
+        expected_key = os.environ.get("ADMIN_API_KEY", "")
+        if not expected_key or admin_key != expected_key:
+            logger.warning(f"Unauthorized attempt to skip approval check from session {session.session_id}")
+            raise api_error(403, "FORBIDDEN", "Admin authentication required to skip approval check")
+        logger.info(f"Admin bypass: Skipping approval check for session {session.session_id}")
 
     # Validate all actionable assets are approved
     # Existing assets don't need approval - they're just for reference
@@ -1091,7 +1183,7 @@ async def export_assets(request: Request, skip_approval_check: bool = Query(Fals
 
 
 @app.get("/export/audit")
-def export_audit_documentation():
+async def export_audit_documentation(request: Request):
     """
     Generates a comprehensive audit documentation Excel file.
     Includes ALL assets (additions, disposals, transfers, AND existing assets)
@@ -1101,12 +1193,17 @@ def export_audit_documentation():
     - IRS audit documentation
     - Internal compliance records
     - Year-over-year reconciliation
+
+    SECURITY: Uses session-based storage for user isolation.
     """
-    if not ASSET_STORE:
+    # FIX: Use session instead of global ASSET_STORE for user isolation
+    session = await get_current_session(request)
+
+    if not session.assets:
         raise api_error(400, "NO_ASSETS", "No assets to export")
 
-    assets = list(ASSET_STORE.values())
-    tax_year = TAX_CONFIG["tax_year"]
+    assets = list(session.assets.values())
+    tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
 
     # Create comprehensive audit DataFrame
     audit_data = []
@@ -1206,12 +1303,17 @@ def export_audit_documentation():
 # ==============================================================================
 
 @app.get("/quality")
-def get_data_quality():
+async def get_data_quality(request: Request):
     """
     Get data quality score with A-F grade and detailed breakdown.
     Returns a comprehensive quality assessment for the loaded assets.
+
+    SECURITY: Uses session-based storage for user isolation.
     """
-    if not ASSET_STORE:
+    # FIX: Use session instead of global ASSET_STORE for user isolation
+    session = await get_current_session(request)
+
+    if not session.assets:
         return {
             "grade": "-",
             "score": 0,
@@ -1223,7 +1325,7 @@ def get_data_quality():
         }
 
     # Convert assets to DataFrame for quality scoring
-    assets = list(ASSET_STORE.values())
+    assets = list(session.assets.values())
     df_data = []
     for a in assets:
         df_data.append({
@@ -1238,9 +1340,10 @@ def get_data_quality():
         })
 
     df = pd.DataFrame(df_data)
+    tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
 
     try:
-        quality_result = calculate_data_quality_score(df, TAX_CONFIG["tax_year"])
+        quality_result = calculate_data_quality_score(df, tax_year)
 
         # Convert checks to serializable format
         checks_data = []

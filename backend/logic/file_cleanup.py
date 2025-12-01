@@ -114,6 +114,7 @@ class FileCleanupManager:
     - Disk usage monitoring
     - Configurable retention policies
     - Emergency cleanup when disk full
+    - Active file tracking to prevent deletion during use
     """
 
     def __init__(self, base_path: str = None):
@@ -121,6 +122,34 @@ class FileCleanupManager:
         self._cleanup_task = None
         self._last_cleanup = None
         self._last_stats: Optional[CleanupStats] = None
+        # Active file tracking to prevent deletion during use
+        self._active_files: set = set()
+        self._active_files_lock = asyncio.Lock()
+
+    async def register_active_file(self, filepath: str) -> None:
+        """
+        Register a file as actively in use.
+        Cleanup will skip files registered here.
+        """
+        async with self._active_files_lock:
+            abs_path = os.path.abspath(filepath)
+            self._active_files.add(abs_path)
+            logger.debug(f"Registered active file: {abs_path}")
+
+    async def release_file(self, filepath: str) -> None:
+        """
+        Release a file from active use registry.
+        File will be eligible for cleanup after this.
+        """
+        async with self._active_files_lock:
+            abs_path = os.path.abspath(filepath)
+            self._active_files.discard(abs_path)
+            logger.debug(f"Released active file: {abs_path}")
+
+    def _is_file_active(self, filepath: str) -> bool:
+        """Check if file is currently registered as active."""
+        abs_path = os.path.abspath(filepath)
+        return abs_path in self._active_files
 
     def get_disk_usage(self, path: str = None) -> DiskUsage:
         """Get disk usage for a path."""
@@ -190,6 +219,11 @@ class FileCleanupManager:
 
         for filepath in files:
             if os.path.isfile(filepath):
+                # SAFETY: Skip files that are actively in use
+                if self._is_file_active(filepath):
+                    logger.debug(f"Skipping active file: {filepath}")
+                    continue
+
                 age_hours = self._get_file_age_hours(filepath)
 
                 if age_hours > max_age_hours:

@@ -193,6 +193,57 @@ def _safe_get(d, keys: List[str], default=""):
     return default
 
 
+def _safe_float(value: Any, default: float = 0.7) -> float:
+    """
+    Safely convert value to float with fallback.
+
+    Handles:
+    - None → default
+    - Numeric values (int, float) → float
+    - Numeric strings → float
+    - Word confidence levels ("high", "medium", "low") → mapped float
+    - Invalid values → default
+
+    Args:
+        value: The value to convert
+        default: Fallback value (default 0.7)
+
+    Returns:
+        Float value
+    """
+    if value is None:
+        return default
+
+    # Already numeric
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    # String handling
+    if isinstance(value, str):
+        value_lower = value.strip().lower()
+
+        # Word confidence levels
+        confidence_map = {
+            "high": 0.9,
+            "very high": 0.95,
+            "medium": 0.7,
+            "moderate": 0.7,
+            "low": 0.5,
+            "very low": 0.3,
+        }
+        if value_lower in confidence_map:
+            return confidence_map[value_lower]
+
+        # Try numeric conversion
+        try:
+            return float(value)
+        except ValueError:
+            return default
+
+    # Any other type
+    return default
+
+
 def _rule_score(rule: Dict, desc: str, tokens: List[str], client_category: str = "") -> float:
     """
     Calculate match score for a rule
@@ -901,6 +952,8 @@ def _call_gpt_batch(assets: List[Dict], model: str = "gpt-4o-mini") -> List[Dict
         for i, asset in enumerate(assets):
             if i < len(gpt_results):
                 r = gpt_results[i]
+                # Use _safe_float to handle non-numeric confidence values (e.g., "high", "medium")
+                conf = _safe_float(r.get("confidence"), 0.7)
                 raw_result = {
                     "final_class": r.get("class"),
                     "final_life": r.get("life"),
@@ -909,8 +962,8 @@ def _call_gpt_batch(assets: List[Dict], model: str = "gpt-4o-mini") -> List[Dict
                     "bonus": r.get("bonus", False),
                     "qip": r.get("qip", False),
                     "source": "gpt_batch",
-                    "confidence": float(r.get("confidence", 0.7)),
-                    "low_confidence": float(r.get("confidence", 0.7)) < LOW_CONF_THRESHOLD,
+                    "confidence": conf,
+                    "low_confidence": conf < LOW_CONF_THRESHOLD,
                     "notes": r.get("reasoning", "GPT batch classification")
                 }
                 # Validate GPT category against approved list

@@ -171,8 +171,39 @@ class CircuitBreaker:
                     self._state = CircuitState.CLOSED
                     logger.info(f"Circuit '{self.name}' CLOSED - service recovered")
 
+    def _is_rate_limit_error(self, error: Optional[Exception]) -> bool:
+        """Check if error is a rate limit (429) response - shouldn't open circuit."""
+        if error is None:
+            return False
+
+        # Check for common rate limit indicators
+        error_str = str(error).lower()
+        if "429" in error_str or "rate limit" in error_str or "too many requests" in error_str:
+            return True
+
+        # Check for status_code attribute (requests/httpx style)
+        if hasattr(error, 'status_code') and error.status_code == 429:
+            return True
+
+        # Check for response attribute with status_code
+        if hasattr(error, 'response') and hasattr(error.response, 'status_code'):
+            if error.response.status_code == 429:
+                return True
+
+        return False
+
     def record_failure(self, error: Optional[Exception] = None):
-        """Record a failed call"""
+        """Record a failed call.
+
+        Note: Rate limit (429) errors are NOT counted as failures since they
+        indicate the service is healthy but throttling - circuit should stay closed.
+        """
+        # SAFETY: Don't count rate limits as circuit-breaking failures
+        if self._is_rate_limit_error(error):
+            logger.info(f"Circuit '{self.name}': Rate limit detected - not counting as failure")
+            self.stats.failed_calls += 1  # Still count for stats
+            return  # Don't increment failure_count or potentially open circuit
+
         with self._lock:
             self._failure_count += 1
             self._last_failure_time = time.time()
