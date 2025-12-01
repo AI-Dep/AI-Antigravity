@@ -31,28 +31,100 @@ class ExporterService:
     The CPA reviews and decides what to do - the system doesn't exclude anything.
     """
 
-    def _format_asset_number(self, asset_id, row_index: int) -> int:
+    def _format_asset_number(self, asset: Asset) -> int:
         """
-        Format Asset # for FA CS - must be numeric, strip leading zeros.
-        FA CS rules: 001 → 1, 0001 → 1, "A-001" → use row_index
+        Format Asset # for FA CS - must be numeric.
+
+        Priority:
+        1. Use fa_cs_asset_number if explicitly set by CPA
+        2. Extract numeric part from client's asset_id
+        3. Fall back to row_index
+
+        FA CS rules: 001 → 1, 0001 → 1, "A-001" → extract 1
         """
-        if asset_id is None:
-            return row_index
+        # Priority 1: Use explicit FA CS number if set
+        if asset.fa_cs_asset_number is not None:
+            return asset.fa_cs_asset_number
 
-        # Convert to string and strip whitespace
-        asset_str = str(asset_id).strip()
+        # Priority 2: Try to extract from client asset_id
+        if asset.asset_id is not None:
+            asset_str = str(asset.asset_id).strip()
 
-        # Try to extract numeric value
-        # Remove common prefixes like "A-", "Asset-", etc.
-        import re
-        numeric_match = re.search(r'(\d+)', asset_str)
+            # Try to extract numeric value
+            import re
+            numeric_match = re.search(r'(\d+)', asset_str)
 
-        if numeric_match:
-            # Found numeric part - convert to int (strips leading zeros)
-            return int(numeric_match.group(1))
-        else:
-            # No numeric part found - use row index
-            return row_index
+            if numeric_match:
+                # Found numeric part - convert to int (strips leading zeros)
+                return int(numeric_match.group(1))
+
+        # Priority 3: Fall back to row index
+        return asset.row_index
+
+    def detect_asset_number_collisions(self, assets: List[Asset]) -> dict:
+        """
+        Detect collisions where multiple client Asset IDs would map to the same FA CS Asset #.
+
+        Returns dict with:
+        - collisions: List of collision groups [{fa_cs_number, assets: [{asset_id, description}]}]
+        - warnings: List of warning messages
+        - has_collisions: bool
+        """
+        # Map FA CS numbers to the assets that would use them
+        fa_cs_to_assets = {}
+
+        for asset in assets:
+            fa_cs_num = self._format_asset_number(asset)
+            if fa_cs_num not in fa_cs_to_assets:
+                fa_cs_to_assets[fa_cs_num] = []
+            fa_cs_to_assets[fa_cs_num].append({
+                "unique_id": asset.unique_id,
+                "client_asset_id": asset.asset_id,
+                "description": asset.description[:50] if asset.description else "",
+                "row_index": asset.row_index,
+                "has_explicit_fa_cs_number": asset.fa_cs_asset_number is not None
+            })
+
+        # Find collisions (FA CS numbers used by multiple assets)
+        collisions = []
+        warnings = []
+
+        for fa_cs_num, asset_list in fa_cs_to_assets.items():
+            if len(asset_list) > 1:
+                # Check if at least one doesn't have explicit FA CS number
+                # (if all are explicit, user intentionally set them the same - still warn but different message)
+                all_explicit = all(a["has_explicit_fa_cs_number"] for a in asset_list)
+
+                collision = {
+                    "fa_cs_number": fa_cs_num,
+                    "asset_count": len(asset_list),
+                    "assets": asset_list,
+                    "all_explicit": all_explicit
+                }
+                collisions.append(collision)
+
+                # Generate warning message
+                asset_ids = [a["client_asset_id"] or f"Row {a['row_index']}" for a in asset_list]
+                if all_explicit:
+                    warnings.append(
+                        f"⚠️ FA CS Asset # {fa_cs_num} is explicitly assigned to {len(asset_list)} assets: "
+                        f"{', '.join(asset_ids[:3])}{'...' if len(asset_ids) > 3 else ''}. "
+                        f"FA CS requires unique Asset #s."
+                    )
+                else:
+                    warnings.append(
+                        f"⚠️ COLLISION: Client Asset IDs {', '.join(asset_ids[:3])}{'...' if len(asset_ids) > 3 else ''} "
+                        f"all map to FA CS Asset # {fa_cs_num}. "
+                        f"Please assign unique FA CS numbers in Review table."
+                    )
+
+        return {
+            "collisions": collisions,
+            "warnings": warnings,
+            "has_collisions": len(collisions) > 0,
+            "collision_count": len(collisions),
+            "affected_assets": sum(c["asset_count"] for c in collisions)
+        }
 
     def generate_fa_cs_export(self, assets: List[Asset], tax_year: int = None, de_minimis_limit: float = 0.0) -> BytesIO:
         """
@@ -83,8 +155,8 @@ class ExporterService:
             trans_type = self._detect_transaction_type(asset)
 
             row = {
-                "Asset #": self._format_asset_number(asset.asset_id, asset.row_index),
-                "Asset ID": str(asset.asset_id) if asset.asset_id else str(asset.row_index),
+                "Asset #": self._format_asset_number(asset),
+                "Client Asset ID": str(asset.asset_id) if asset.asset_id else f"Row-{asset.row_index}",
                 "Description": asset.description,
 
                 # Dates - FA CS requires "Date In Service" column name
@@ -259,8 +331,8 @@ class ExporterService:
         audit_data = []
         for asset in assets:
             row = {
-                "Asset #": self._format_asset_number(asset.asset_id, asset.row_index),
-                "Original Asset ID": asset.asset_id,  # Keep original for reference
+                "Asset #": self._format_asset_number(asset),
+                "Client Asset ID": asset.asset_id,  # Keep original for reference
                 "Description": asset.description,
                 "Cost": asset.cost,
                 "Acquisition Date": asset.acquisition_date,

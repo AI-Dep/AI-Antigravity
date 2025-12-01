@@ -334,6 +334,22 @@ function Review({ assets = [] }) {
         }
     };
 
+    // Generic asset field update (for FA CS #, etc.)
+    const handleAssetUpdate = async (uniqueId, updateData) => {
+        try {
+            // Update local state immediately for responsive UI
+            setLocalAssets(prev => prev.map(a =>
+                a.unique_id === uniqueId
+                    ? { ...a, ...updateData }
+                    : a
+            ));
+            // Call backend to persist the update
+            await apiPost(`/assets/${uniqueId}/update`, updateData);
+        } catch (error) {
+            console.error("Failed to update asset:", error);
+        }
+    };
+
     const handleApprove = async (uniqueId) => {
         try {
             // Call backend to record approval
@@ -679,6 +695,12 @@ function Review({ assets = [] }) {
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '90px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Status</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '55px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Conf.</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Asset ID</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '70px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>
+                                        <span className="flex items-center gap-1 cursor-help" title="FA CS Asset # (numeric). Edit to resolve collisions with client Asset IDs.">
+                                            FA CS #
+                                            <Info className="w-3 h-3 text-slate-400" />
+                                        </span>
+                                    </th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '220px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}>Description</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Cost</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '110px', minWidth: '90px', resize: 'horizontal', overflow: 'hidden' }}>
@@ -799,12 +821,45 @@ function Review({ assets = [] }) {
                                                     </div>
                                                 </div>
                                             </td>
-                                            {/* Asset ID */}
+                                            {/* Asset ID (Client's ID) */}
                                             <td className={cn(
                                                 "font-medium text-slate-900 dark:text-white",
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
                                             )}>
                                                 {asset.asset_id || "-"}
+                                            </td>
+                                            {/* FA CS # (Editable - maps to FA CS numeric Asset #) */}
+                                            <td className={cn(
+                                                "text-slate-600",
+                                                tableCompact ? "px-1 py-1" : "px-2 py-1.5"
+                                            )}>
+                                                <input
+                                                    type="number"
+                                                    min="1"
+                                                    className={cn(
+                                                        "w-full border rounded text-center font-mono",
+                                                        tableCompact ? "px-1 py-0.5 text-[10px]" : "px-2 py-1 text-xs",
+                                                        asset.fa_cs_asset_number ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white",
+                                                        "focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                    )}
+                                                    placeholder={(() => {
+                                                        // Calculate auto-generated FA CS # (same logic as backend)
+                                                        if (asset.asset_id) {
+                                                            const match = String(asset.asset_id).match(/(\d+)/);
+                                                            return match ? match[1] : String(asset.row_index);
+                                                        }
+                                                        return String(asset.row_index);
+                                                    })()}
+                                                    value={asset.fa_cs_asset_number || ""}
+                                                    onChange={(e) => {
+                                                        const newValue = e.target.value ? parseInt(e.target.value, 10) : null;
+                                                        handleAssetUpdate(asset.unique_id, { fa_cs_asset_number: newValue });
+                                                    }}
+                                                    title={asset.fa_cs_asset_number
+                                                        ? `Explicit FA CS #: ${asset.fa_cs_asset_number}`
+                                                        : `Auto-generated from "${asset.asset_id || 'row ' + asset.row_index}". Click to override.`
+                                                    }
+                                                />
                                             </td>
                                             {/* Description */}
                                             <td className={cn(

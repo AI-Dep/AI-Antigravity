@@ -13,9 +13,17 @@ class Asset(BaseModel):
     unique_id: Optional[int] = Field(None, description="Unique ID for storage (set by API)")
 
     # Critical Fields
-    asset_id: Optional[str] = Field(None, description="Unique Asset Identifier")
+    asset_id: Optional[str] = Field(None, description="Unique Asset Identifier from client")
     description: str = Field(..., min_length=1, description="Asset Description")
     cost: float = Field(0.0, ge=0, description="Acquisition Cost (0 if unknown)")
+
+    # FA CS Cross-Reference - Maps client's Asset ID to FA CS numeric Asset #
+    # FA CS requires numeric-only Asset #, but clients may use alphanumeric IDs
+    # This field allows CPA to specify the exact FA CS number to use
+    fa_cs_asset_number: Optional[int] = Field(
+        None,
+        description="FA CS Asset # (numeric). If not set, auto-generated from asset_id or row_index"
+    )
 
     # Dates (all optional - some assets may not have dates)
     acquisition_date: Optional[date] = Field(None, description="Date Acquired")

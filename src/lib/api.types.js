@@ -16,6 +16,7 @@
  * @property {number} row_index - Original row number in Excel
  * @property {number} [unique_id] - Unique ID for storage (set by API)
  * @property {string} [asset_id] - Unique Asset Identifier from client data
+ * @property {number} [fa_cs_asset_number] - FA CS Asset # (numeric, user-editable for cross-reference)
  * @property {string} description - Asset Description
  * @property {number} cost - Acquisition Cost (0 if unknown)
  * @property {string} [acquisition_date] - Date Acquired (ISO format)
