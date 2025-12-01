@@ -858,28 +858,28 @@ function Review({ assets = [] }) {
                                 tableCompact ? "text-[10px]" : "text-xs"
                             )}>
                                 <tr>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '90px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Status</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '85px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Status</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '55px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Conf.</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Asset ID</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '70px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '75px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Asset ID</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '65px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>
                                         <span className="flex items-center gap-1 cursor-help" title="FA CS Asset # (numeric). Edit to resolve collisions with client Asset IDs.">
                                             FA CS #
                                             <Info className="w-3 h-3 text-slate-400" />
                                         </span>
                                     </th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '220px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}>Description</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Cost</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '110px', minWidth: '90px', resize: 'horizontal', overflow: 'hidden' }}>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '210px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}>Description</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '95px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Cost</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '90px', resize: 'horizontal', overflow: 'hidden' }}>
                                         <span className="flex items-center gap-1 cursor-help" title="Additions/Existing: Date In Service | Disposals: Disposal Date | Transfers: Transfer Date">
                                             Key Date
                                             <Info className="w-3 h-3 text-slate-400" />
                                         </span>
                                     </th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Trans. Type</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Class</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '60px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Life</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '70px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>Method</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '80px', resize: 'horizontal', overflow: 'hidden' }}>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '95px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Trans. Type</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '90px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Class</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '55px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Life</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '65px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>Method</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '125px', minWidth: '110px', resize: 'horizontal', overflow: 'hidden' }}>
                                         <span className="flex items-center gap-1">
                                             Election
                                             <span className="text-[9px] bg-blue-100 text-blue-700 px-1 rounded">179/Bonus</span>
@@ -963,8 +963,8 @@ function Review({ assets = [] }) {
                                                     )}>
                                                         {Math.round((asset.confidence_score || 0) * 100)}%
                                                     </span>
-                                                    {/* Confidence tooltip with reasoning */}
-                                                    <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block w-64 p-3 bg-slate-800 text-white text-xs rounded shadow-lg z-10">
+                                                    {/* Confidence tooltip with reasoning - positioned to the right to avoid clipping */}
+                                                    <div className="absolute left-full top-0 ml-2 hidden group-hover:block w-64 p-3 bg-slate-800 text-white text-xs rounded shadow-lg z-50 whitespace-normal">
                                                         <div className="font-semibold mb-2">Confidence Score: {Math.round((asset.confidence_score || 0) * 100)}%</div>
                                                         <div className="space-y-1 text-slate-300">
                                                             {asset.confidence_score > 0.8 ? (
@@ -1349,7 +1349,7 @@ function Review({ assets = [] }) {
                                                                 asset.depreciation_election === "Bonus" ? "text-purple-500" : "text-slate-400"
                                                             )} />
                                                             {/* Tooltip showing election info with dynamic tax year values */}
-                                                            <div className="absolute right-0 bottom-full mb-1 hidden group-hover:block w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-20">
+                                                            <div className="absolute right-0 bottom-full mb-1 hidden group-hover:block w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-50">
                                                             {asset.depreciation_election === "DeMinimis" ? (
                                                                 <>
                                                                     <div className="font-semibold text-green-300 mb-1">⚡ De Minimis Safe Harbor</div>
