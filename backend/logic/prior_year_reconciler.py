@@ -32,6 +32,14 @@ class ReconciliationIssue:
     suggestion: str
 
 
+def _safe_get_row(df: pd.DataFrame, id_column: str, asset_id: str) -> Optional[pd.Series]:
+    """Safely get a row by asset ID, returning None if not found."""
+    filtered = df[df[id_column].astype(str).str.strip() == asset_id]
+    if filtered.empty:
+        return None
+    return filtered.iloc[0]
+
+
 def reconcile_to_prior_year(
     current_df: pd.DataFrame,
     prior_df: pd.DataFrame,
@@ -126,7 +134,9 @@ def reconcile_to_prior_year(
     # Find missing assets (in prior, not in current)
     missing_ids = prior_ids - current_ids
     for asset_id in missing_ids:
-        prior_row = prior_df[prior_df[id_column].astype(str).str.strip() == asset_id].iloc[0]
+        prior_row = _safe_get_row(prior_df, id_column, asset_id)
+        if prior_row is None:
+            continue  # Skip if row not found (shouldn't happen but defensive)
         cost = prior_row.get("Cost", prior_row.get("Tax Cost", "N/A"))
         desc = prior_row.get("Description", "N/A")
 
@@ -147,8 +157,10 @@ def reconcile_to_prior_year(
 
     # Check for changed values on matched assets
     for asset_id in matched_ids:
-        prior_row = prior_df[prior_df[id_column].astype(str).str.strip() == asset_id].iloc[0]
-        current_row = current_df[current_df[id_column].astype(str).str.strip() == asset_id].iloc[0]
+        prior_row = _safe_get_row(prior_df, id_column, asset_id)
+        current_row = _safe_get_row(current_df, id_column, asset_id)
+        if prior_row is None or current_row is None:
+            continue  # Skip if either row not found
 
         # Check cost change
         prior_cost = prior_row.get("Cost", prior_row.get("Tax Cost"))
@@ -215,7 +227,9 @@ def reconcile_to_prior_year(
     # Verify disposals existed in prior year
     for asset_id in current_disposals:
         if asset_id not in prior_ids:
-            current_row = current_df[current_df[id_column].astype(str).str.strip() == asset_id].iloc[0]
+            current_row = _safe_get_row(current_df, id_column, asset_id)
+            if current_row is None:
+                continue  # Skip if row not found
             desc = current_row.get("Description", "N/A")
 
             issues.append(ReconciliationIssue(
@@ -231,7 +245,9 @@ def reconcile_to_prior_year(
     # Calculate new assets (in current but not prior, not marked as addition)
     new_ids = current_ids - prior_ids - current_disposals
     for asset_id in new_ids:
-        current_row = current_df[current_df[id_column].astype(str).str.strip() == asset_id].iloc[0]
+        current_row = _safe_get_row(current_df, id_column, asset_id)
+        if current_row is None:
+            continue  # Skip if row not found
         trans_type = str(current_row.get("Transaction Type", "")).lower()
 
         if "addition" not in trans_type and "new" not in trans_type:

@@ -279,9 +279,14 @@ def semantic_label_classify(
             )
 
         q_resp = create_query_embedding()
+        # Validate response has data before accessing
+        if not q_resp.data or len(q_resp.data) == 0:
+            logger.warning("OpenAI embedding response returned empty data array")
+            return None
         q_vec = np.array(q_resp.data[0].embedding, dtype=float)
     except Exception as e:
         # If embedding fails after all retries, cannot do semantic matching
+        logger.warning(f"Embedding creation failed: {e}")
         return None
 
     # Load / compute label embeddings
