@@ -681,7 +681,12 @@ function Review({ assets = [] }) {
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Asset ID</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '220px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}>Description</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Cost</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '110px', minWidth: '90px', resize: 'horizontal', overflow: 'hidden' }}>Date in Service</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '110px', minWidth: '90px', resize: 'horizontal', overflow: 'hidden' }}>
+                                        <span className="flex items-center gap-1 cursor-help" title="Additions/Existing: Date In Service | Disposals: Disposal Date | Transfers: Transfer Date">
+                                            Key Date
+                                            <Info className="w-3 h-3 text-slate-400" />
+                                        </span>
+                                    </th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Trans. Type</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Class</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '60px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Life</th>
@@ -817,33 +822,84 @@ function Review({ assets = [] }) {
                                             )}>
                                                 ${(asset.cost || 0).toLocaleString()}
                                             </td>
-                                            {/* Date in Service */}
+                                            {/* Key Date - Context-aware based on transaction type */}
                                             <td className={cn(
                                                 "text-slate-600",
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
                                             )}>
-                                                {asset.in_service_date ? (
-                                                    asset.in_service_date
-                                                ) : asset.acquisition_date ? (
-                                                    <span className="flex items-center gap-1" title="Using acquisition date (no in-service date provided)">
-                                                        <span className={asset.transaction_type === TRANSACTION_TYPES.TRANSFER ? "text-amber-600" : ""}>
-                                                            {asset.acquisition_date}
-                                                        </span>
-                                                        {asset.transaction_type === TRANSACTION_TYPES.TRANSFER && (
-                                                            <Info className="w-3.5 h-3.5 text-amber-500" />
-                                                        )}
-                                                    </span>
-                                                ) : (
-                                                    <span className={cn(
-                                                        "flex items-center gap-1",
-                                                        asset.transaction_type === TRANSACTION_TYPES.TRANSFER ? "text-slate-400" : "text-amber-600"
-                                                    )} title={asset.transaction_type === TRANSACTION_TYPES.TRANSFER ? "No date - transfer of existing asset" : "Missing date - manual review required"}>
-                                                        -
-                                                        {asset.transaction_type !== TRANSACTION_TYPES.TRANSFER && (
-                                                            <AlertTriangle className="w-3.5 h-3.5" />
-                                                        )}
-                                                    </span>
-                                                )}
+                                                {(() => {
+                                                    // Determine which date to display based on transaction type
+                                                    if (asset.transaction_type === TRANSACTION_TYPES.DISPOSAL) {
+                                                        // Disposals: Show disposal date, with tooltip for original in-service
+                                                        const disposalDate = asset.disposal_date || asset.disposed_date;
+                                                        if (disposalDate) {
+                                                            return (
+                                                                <span
+                                                                    className="group relative flex items-center gap-1 cursor-help"
+                                                                    title={asset.in_service_date ? `Originally in service: ${asset.in_service_date}` : ""}
+                                                                >
+                                                                    <span className="text-red-600">{disposalDate}</span>
+                                                                    {asset.in_service_date && (
+                                                                        <Info className="w-3 h-3 text-red-400" />
+                                                                    )}
+                                                                </span>
+                                                            );
+                                                        }
+                                                        // Fallback if no disposal date
+                                                        return (
+                                                            <span className="flex items-center gap-1 text-amber-600" title="Missing disposal date">
+                                                                -
+                                                                <AlertTriangle className="w-3.5 h-3.5" />
+                                                            </span>
+                                                        );
+                                                    } else if (asset.transaction_type === TRANSACTION_TYPES.TRANSFER) {
+                                                        // Transfers: Show transfer date, with tooltip for original in-service
+                                                        const transferDate = asset.transfer_date || asset.transferred_date;
+                                                        if (transferDate) {
+                                                            return (
+                                                                <span
+                                                                    className="group relative flex items-center gap-1 cursor-help"
+                                                                    title={asset.in_service_date ? `Originally in service: ${asset.in_service_date}` : ""}
+                                                                >
+                                                                    <span className="text-purple-600">{transferDate}</span>
+                                                                    {asset.in_service_date && (
+                                                                        <Info className="w-3 h-3 text-purple-400" />
+                                                                    )}
+                                                                </span>
+                                                            );
+                                                        }
+                                                        // Fallback: Use in_service_date with note for transfers
+                                                        if (asset.in_service_date) {
+                                                            return (
+                                                                <span className="text-slate-400" title="In-service date (transfer date not provided)">
+                                                                    {asset.in_service_date}
+                                                                </span>
+                                                            );
+                                                        }
+                                                        return (
+                                                            <span className="text-slate-400" title="No date - transfer of existing asset">
+                                                                -
+                                                            </span>
+                                                        );
+                                                    } else {
+                                                        // Additions/Existing: Show in-service date as before
+                                                        if (asset.in_service_date) {
+                                                            return asset.in_service_date;
+                                                        } else if (asset.acquisition_date) {
+                                                            return (
+                                                                <span className="flex items-center gap-1" title="Using acquisition date (no in-service date provided)">
+                                                                    {asset.acquisition_date}
+                                                                </span>
+                                                            );
+                                                        }
+                                                        return (
+                                                            <span className="flex items-center gap-1 text-amber-600" title="Missing date - manual review required">
+                                                                -
+                                                                <AlertTriangle className="w-3.5 h-3.5" />
+                                                            </span>
+                                                        );
+                                                    }
+                                                })()}
                                             </td>
                                             {/* Transaction Type */}
                                             <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
