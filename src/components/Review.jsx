@@ -1302,7 +1302,7 @@ function Review({ assets = [] }) {
                                             {/* Election Column - 179/Bonus/DeMinimis/MACRS (always visible, outside edit mode toggle) */}
                                             <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                 {asset.transaction_type === "Current Year Addition" ? (
-                                                    <div className="group relative flex items-center gap-1">
+                                                    <div className="relative flex items-center gap-1">
                                                         <select
                                                             value={asset.depreciation_election || "MACRS"}
                                                             onChange={(e) => handleElectionChange(asset.unique_id, e.target.value)}
@@ -1336,8 +1336,17 @@ function Review({ assets = [] }) {
                                                         {asset.depreciation_election === "Bonus" && isRealProperty(asset.macrs_life) && (
                                                             <AlertTriangle className="w-3.5 h-3.5 text-red-500" title="Real property (27.5/39 year) cannot take bonus depreciation" />
                                                         )}
-                                                        {/* Tooltip showing election info with dynamic tax year values */}
-                                                        <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-20">
+                                                        {/* Info icon with tooltip - hover trigger */}
+                                                        <div className="group relative">
+                                                            <Info className={cn(
+                                                                "cursor-help",
+                                                                tableCompact ? "w-3 h-3" : "w-3.5 h-3.5",
+                                                                asset.depreciation_election === "DeMinimis" ? "text-green-500" :
+                                                                asset.depreciation_election === "Section179" ? "text-blue-500" :
+                                                                asset.depreciation_election === "Bonus" ? "text-purple-500" : "text-slate-400"
+                                                            )} />
+                                                            {/* Tooltip showing election info with dynamic tax year values */}
+                                                            <div className="absolute right-0 bottom-full mb-1 hidden group-hover:block w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-20">
                                                             {asset.depreciation_election === "DeMinimis" ? (
                                                                 <>
                                                                     <div className="font-semibold text-green-300 mb-1">⚡ De Minimis Safe Harbor</div>
@@ -1396,6 +1405,7 @@ function Review({ assets = [] }) {
                                                                     {asset.election_reason}
                                                                 </div>
                                                             )}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 ) : (
