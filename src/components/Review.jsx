@@ -954,41 +954,23 @@ function Review({ assets = [] }) {
                                             </td>
                                             {/* Confidence - MOVED TO SECOND COLUMN */}
                                             <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                <div className="group relative">
-                                                    <span className={cn(
+                                                <span
+                                                    className={cn(
                                                         "font-mono cursor-help",
                                                         tableCompact ? "text-[10px]" : "text-xs",
                                                         asset.confidence_score > 0.8 ? "text-green-600" :
                                                             asset.confidence_score > 0.5 ? "text-yellow-600" : "text-red-600"
-                                                    )}>
-                                                        {Math.round((asset.confidence_score || 0) * 100)}%
-                                                    </span>
-                                                    {/* Confidence tooltip with reasoning - positioned to the right to avoid clipping */}
-                                                    <div className="absolute left-full top-0 ml-2 hidden group-hover:block w-64 p-3 bg-slate-800 text-white text-xs rounded shadow-lg z-50 whitespace-normal">
-                                                        <div className="font-semibold mb-2">Confidence Score: {Math.round((asset.confidence_score || 0) * 100)}%</div>
-                                                        <div className="space-y-1 text-slate-300">
-                                                            {asset.confidence_score > 0.8 ? (
-                                                                <>
-                                                                    <div>✓ Description matched known asset patterns</div>
-                                                                    <div>✓ Recovery period matches asset class</div>
-                                                                    <div>✓ Cost within expected range</div>
-                                                                </>
-                                                            ) : asset.confidence_score > 0.5 ? (
-                                                                <>
-                                                                    <div>⚠ Partial description match</div>
-                                                                    <div>⚠ Multiple possible classifications</div>
-                                                                    <div className="mt-2 text-yellow-300">Recommend manual review</div>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <div>✗ Unknown or ambiguous asset type</div>
-                                                                    <div>✗ Insufficient data for classification</div>
-                                                                    <div className="mt-2 text-red-300">Manual classification required</div>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
+                                                    )}
+                                                    title={
+                                                        asset.confidence_score > 0.8
+                                                            ? `High Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n✓ Description matched known asset patterns\n✓ Recovery period matches asset class\n✓ Cost within expected range`
+                                                            : asset.confidence_score > 0.5
+                                                            ? `Medium Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n⚠ Partial description match\n⚠ Multiple possible classifications\n→ Recommend manual review`
+                                                            : `Low Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n✗ Unknown or ambiguous asset type\n✗ Insufficient data for classification\n→ Manual classification required`
+                                                    }
+                                                >
+                                                    {Math.round((asset.confidence_score || 0) * 100)}%
+                                                </span>
                                             </td>
                                             {/* Asset ID (Client's ID) */}
                                             <td className={cn(
@@ -1339,77 +1321,27 @@ function Review({ assets = [] }) {
                                                         {asset.depreciation_election === "Bonus" && isRealProperty(asset.macrs_life) && (
                                                             <AlertTriangle className="w-3.5 h-3.5 text-red-500" title="Real property (27.5/39 year) cannot take bonus depreciation" />
                                                         )}
-                                                        {/* Info icon with tooltip - hover trigger */}
-                                                        <div className="group relative">
-                                                            <Info className={cn(
+                                                        {/* Info icon with tooltip - using native title for reliability */}
+                                                        <Info
+                                                            className={cn(
                                                                 "cursor-help",
                                                                 tableCompact ? "w-3 h-3" : "w-3.5 h-3.5",
                                                                 asset.depreciation_election === "DeMinimis" ? "text-green-500" :
                                                                 asset.depreciation_election === "Section179" ? "text-blue-500" :
                                                                 asset.depreciation_election === "Bonus" ? "text-purple-500" : "text-slate-400"
-                                                            )} />
-                                                            {/* Tooltip showing election info with dynamic tax year values */}
-                                                            <div className="absolute right-0 bottom-full mb-1 hidden group-hover:block w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-50">
-                                                            {asset.depreciation_election === "DeMinimis" ? (
-                                                                <>
-                                                                    <div className="font-semibold text-green-300 mb-1">⚡ De Minimis Safe Harbor</div>
-                                                                    <div>• Expense immediately (≤${DE_MINIMIS_THRESHOLD.toLocaleString()})</div>
-                                                                    <div>• NOT added to FA CS</div>
-                                                                    <div>• Exported to separate sheet</div>
-                                                                    {asset.cost > DE_MINIMIS_THRESHOLD && (
-                                                                        <div className="mt-1 p-1 bg-orange-900/50 rounded text-orange-200">
-                                                                            ⚠️ Cost ${asset.cost.toLocaleString()} exceeds threshold!
-                                                                        </div>
-                                                                    )}
-                                                                    <div className="mt-1 text-yellow-200 text-[10px]">Rev. Proc. 2015-20</div>
-                                                                </>
-                                                            ) : asset.depreciation_election === "Section179" ? (
-                                                                <>
-                                                                    <div className="font-semibold text-blue-300 mb-1">§179 Expense Election</div>
-                                                                    <div>• Full deduction in Year 1</div>
-                                                                    <div>• Subject to business income limit</div>
-                                                                    <div>• {taxYear} limit: ${currentYearConfig.section179Limit.toLocaleString()}</div>
-                                                                </>
-                                                            ) : asset.depreciation_election === "Bonus" ? (
-                                                                <>
-                                                                    <div className="font-semibold text-purple-300 mb-1">Bonus Depreciation</div>
-                                                                    {currentYearConfig.bonusPercent > 0 ? (
-                                                                        <>
-                                                                            <div>• {currentYearConfig.bonusPercent}% deduction in Year 1 ({taxYear})</div>
-                                                                            <div>• Remaining {100 - currentYearConfig.bonusPercent}% via MACRS</div>
-                                                                        </>
-                                                                    ) : (
-                                                                        <div className="text-red-300">• Bonus depreciation expired for {taxYear}</div>
-                                                                    )}
-                                                                    <div>• No income limitation</div>
-                                                                    {isRealProperty(asset.macrs_life) && (
-                                                                        <div className="mt-1 p-1 bg-red-900/50 rounded text-red-200">
-                                                                            ⚠️ Real property cannot take bonus depreciation!
-                                                                        </div>
-                                                                    )}
-                                                                </>
-                                                            ) : asset.depreciation_election === "ADS" ? (
-                                                                <>
-                                                                    <div className="font-semibold text-slate-300 mb-1">Alternative Depreciation</div>
-                                                                    <div>• Straight-line method</div>
-                                                                    <div>• Longer recovery periods</div>
-                                                                    <div>• Required for some property</div>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <div className="font-semibold text-slate-300 mb-1">MACRS (Default)</div>
-                                                                    <div>• Standard depreciation</div>
-                                                                    <div>• 200DB or 150DB method</div>
-                                                                    <div>• Based on property class</div>
-                                                                </>
                                                             )}
-                                                            {asset.election_reason && (
-                                                                <div className="mt-1 pt-1 border-t border-slate-600 text-slate-300">
-                                                                    {asset.election_reason}
-                                                                </div>
-                                                            )}
-                                                            </div>
-                                                        </div>
+                                                            title={
+                                                                asset.depreciation_election === "DeMinimis"
+                                                                    ? `De Minimis Safe Harbor\n• Expense immediately (≤$${DE_MINIMIS_THRESHOLD.toLocaleString()})\n• NOT added to FA CS\n• Exported to separate sheet${asset.cost > DE_MINIMIS_THRESHOLD ? `\n⚠ Cost $${asset.cost.toLocaleString()} exceeds threshold!` : ''}`
+                                                                    : asset.depreciation_election === "Section179"
+                                                                    ? `§179 Expense Election\n• Full deduction in Year 1\n• Subject to business income limit\n• ${taxYear} limit: $${currentYearConfig.section179Limit.toLocaleString()}`
+                                                                    : asset.depreciation_election === "Bonus"
+                                                                    ? `Bonus Depreciation\n• ${currentYearConfig.bonusPercent}% deduction in Year 1 (${taxYear})\n• Remaining ${100 - currentYearConfig.bonusPercent}% via MACRS\n• No income limitation${isRealProperty(asset.macrs_life) ? '\n⚠ Real property cannot take bonus!' : ''}`
+                                                                    : asset.depreciation_election === "ADS"
+                                                                    ? `Alternative Depreciation (ADS)\n• Straight-line method\n• Longer recovery periods\n• Required for some property`
+                                                                    : `MACRS (Default)\n• Standard depreciation\n• 200DB or 150DB method\n• Based on property class`
+                                                            }
+                                                        />
                                                     </div>
                                                 ) : (
                                                     <span className={cn(
