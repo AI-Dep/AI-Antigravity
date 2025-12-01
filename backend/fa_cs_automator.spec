@@ -106,6 +106,14 @@ hidden_imports = [
     'rapidfuzz',
     'rapidfuzz.fuzz',
     'rapidfuzz.process',
+
+    # RPA dependencies (Windows-only, but include for packaging)
+    'pyautogui',
+    'pywinauto',
+    'pywinauto.application',
+    'pywinauto.findwindows',
+    'pywinauto.controls',
+    'pywinauto.win32functions',
 ]
 
 # Collect all backend submodules dynamically

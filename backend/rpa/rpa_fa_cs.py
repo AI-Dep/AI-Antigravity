@@ -39,7 +39,19 @@ else:
         ElementNotFoundError = Exception
         psutil = None
 
-from .logging_utils import get_logger
+try:
+    from backend.logic.logging_utils import get_logger
+except ImportError:
+    # Fallback for when running as standalone module
+    import logging
+    def get_logger(name):
+        logger = logging.getLogger(name)
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+        return logger
 
 logger = get_logger(__name__)
 
@@ -78,9 +90,34 @@ class RPAConfig:
     }
 
 
+def _reset_rpa_state():
+    """Reset RPA state between retry attempts.
+
+    Moves mouse to safe position, presses Escape to close dialogs,
+    and waits briefly for the application to stabilize.
+    """
+    if not _RPA_AVAILABLE or pyautogui is None:
+        return
+
+    try:
+        # Move mouse to safe location (top-left but not corner to avoid failsafe)
+        pyautogui.moveTo(100, 100, duration=0.2)
+
+        # Press Escape to close any open dialogs
+        pyautogui.press('escape')
+        time.sleep(0.3)
+
+        # Press Escape again in case of nested dialogs
+        pyautogui.press('escape')
+        time.sleep(0.2)
+
+    except Exception as e:
+        logger.debug(f"State reset warning (non-fatal): {e}")
+
+
 def _with_retry(func, max_retries: int = 3, retry_delay: float = 1.0, operation_name: str = "operation"):
     """
-    Retry wrapper for RPA operations.
+    Retry wrapper for RPA operations with state recovery.
 
     Args:
         func: Callable that returns bool (True=success, False=failure)
@@ -102,10 +139,14 @@ def _with_retry(func, max_retries: int = 3, retry_delay: float = 1.0, operation_
                     f"{operation_name} failed (attempt {attempt}/{max_retries}). "
                     f"Retrying in {retry_delay}s..."
                 )
+                # Reset state before retry
+                _reset_rpa_state()
                 time.sleep(retry_delay)
         except Exception as e:
             logger.error(f"{operation_name} error (attempt {attempt}/{max_retries}): {e}")
             if attempt < max_retries:
+                # Reset state before retry
+                _reset_rpa_state()
                 time.sleep(retry_delay)
             else:
                 raise
@@ -403,7 +444,7 @@ class FACSDataEntry:
     def _type_field(self, text: str):
         """Type text into current field"""
         if pd.notna(text) and str(text).strip():
-            pyautogui.write(str(text), interval=0.05)
+            pyautogui.typewrite(str(text), interval=0.05)
             time.sleep(self.config.WAIT_AFTER_TYPING)
 
     def _tab(self):

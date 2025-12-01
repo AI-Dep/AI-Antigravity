@@ -107,21 +107,28 @@ class RateLimiter:
         client_host = request.client.host if request.client else "unknown"
         return f"ip:{client_host}"
 
-    def _get_or_create_bucket(self, client_id: str, operation: str) -> TokenBucket:
-        """Get existing bucket or create new one."""
+    async def _get_or_create_bucket(self, client_id: str, operation: str) -> TokenBucket:
+        """Get existing bucket or create new one (thread-safe)."""
         key = (client_id, operation)
 
-        if key not in self._buckets:
-            config = self.limits.get(operation, self.limits["default"])
-            rate = config.requests_per_minute / 60.0  # Convert to per-second
-            self._buckets[key] = TokenBucket(
-                tokens=config.burst_size,
-                last_update=time.time(),
-                rate=rate,
-                capacity=config.burst_size
-            )
+        # Fast path: bucket exists
+        if key in self._buckets:
+            return self._buckets[key]
 
-        return self._buckets[key]
+        # Slow path: need to create bucket, use lock to prevent race
+        async with self._lock:
+            # Double-check after acquiring lock
+            if key not in self._buckets:
+                config = self.limits.get(operation, self.limits["default"])
+                rate = config.requests_per_minute / 60.0  # Convert to per-second
+                self._buckets[key] = TokenBucket(
+                    tokens=config.burst_size,
+                    last_update=time.time(),
+                    rate=rate,
+                    capacity=config.burst_size
+                )
+
+            return self._buckets[key]
 
     async def _cleanup_old_buckets(self):
         """Remove buckets that haven't been used in a while."""
@@ -167,7 +174,7 @@ class RateLimiter:
         await self._cleanup_old_buckets()
 
         client_id = self._get_client_id(request, user_id)
-        bucket = self._get_or_create_bucket(client_id, operation)
+        bucket = await self._get_or_create_bucket(client_id, operation)
 
         if not bucket.consume(tokens):
             retry_after = bucket.retry_after

@@ -36,7 +36,18 @@ try:
 except ImportError as e:
     logging.warning(f"RPA libraries not installed: {e}")
 
-from .logging_utils import get_logger
+try:
+    from backend.logic.logging_utils import get_logger
+except ImportError:
+    import logging
+    def get_logger(name):
+        logger = logging.getLogger(name)
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+        return logger
 from .rpa_fa_cs import RPAConfig, FACSWindowManager
 
 logger = get_logger(__name__)

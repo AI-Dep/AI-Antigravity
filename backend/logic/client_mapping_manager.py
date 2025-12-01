@@ -424,6 +424,8 @@ def generate_mapping_preview(
 
             # Extract headers
             df = df_raw.iloc[header_idx:].copy()
+            if df.empty or len(df) < 1:
+                raise ValueError(f"Mapping file '{file_path}' has no data after header row")
             headers = [_normalize_header(x) for x in df.iloc[0]]
             df.columns = headers
 

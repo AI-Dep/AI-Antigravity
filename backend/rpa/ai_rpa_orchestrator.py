@@ -14,8 +14,23 @@ from datetime import datetime
 import json
 from pathlib import Path
 
-from .logging_utils import get_logger
-from .fa_export import build_fa, export_fa_excel
+try:
+    from backend.logic.logging_utils import get_logger
+except ImportError:
+    import logging
+    def get_logger(name):
+        logger = logging.getLogger(name)
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+        return logger
+
+try:
+    from backend.logic.fa_export import build_fa, export_fa_excel
+except ImportError:
+    from ..logic.fa_export import build_fa, export_fa_excel
 from .rpa_fa_cs import FARobotOrchestrator, RPAConfig
 from .rpa_fa_cs_import import HybridFACSAutomation
 
