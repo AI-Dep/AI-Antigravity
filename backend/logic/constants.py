@@ -114,6 +114,11 @@ OBBBA_BONUS_EFFECTIVE_DATE = date(2025, 1, 19)
 # Property placed in service AFTER this date
 OBBBA_179_EFFECTIVE_DATE = date(2024, 12, 31)
 
+# Nonresidential real property date cutoff (per IRS Pub 946, Table A-7/A-7a)
+# Property placed in service BEFORE May 13, 1993 = 31.5-year (Table A-7a)
+# Property placed in service ON OR AFTER May 13, 1993 = 39-year (Table A-7)
+NONRESIDENTIAL_31_5_YEAR_CUTOFF = date(1993, 5, 13)
+
 
 # ==============================================================================
 # RECOVERY PERIODS (IRS Publication 946)
@@ -129,7 +134,8 @@ MACRS_GDS_RECOVERY_PERIODS = {
     "20-year": 20,
     "25-year": 25,  # Water utility property
     "27.5-year": 27.5,  # Residential rental
-    "39-year": 39,  # Nonresidential real property
+    "31.5-year": 31.5,  # Nonresidential real property (pre-May 13, 1993)
+    "39-year": 39,  # Nonresidential real property (post-May 12, 1993)
 }
 
 # ADS recovery periods (IRC §168(g))
@@ -140,8 +146,9 @@ MACRS_ADS_RECOVERY_PERIODS = {
     "10-year": 16,
     "15-year": 20,
     "20-year": 25,
-    "25-year": 25,
+    "25-year": 35,    # Water utility property under ADS (Pub 946)
     "27.5-year": 30,  # Residential rental under ADS
+    "31.5-year": 40,  # Pre-May 1993 nonresidential under ADS
     "39-year": 40,    # Nonresidential under ADS
 }
 

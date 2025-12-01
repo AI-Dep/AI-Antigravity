@@ -1,15 +1,24 @@
 {
   "categories": {
+    "tractor_unit": 3,
+    "race_horse": 3,
+    "breeding_hog": 3,
+    "special_tools": 3,
     "office_equipment": 5,
+    "computer": 5,
+    "automobile": 5,
+    "light_truck": 5,
+    "aircraft": 5,
     "office_furniture": 7,
     "machinery": 7,
     "warehouse_racks": 7,
     "vehicle": 5,
     "software": 5,
+    "water_utility": 25,
     "qip": 15,
     "land_improvement": 15,
     "residential": 27.5,
     "nonresidential": 39
   },
-  "notes": "GDS lives shown; ADS logic optional."
+  "notes": "GDS lives per IRS Pub 946. 3-year: tractor units, race horses, hogs, special tools. 25-year: water utility property. ADS logic in ads_system.py."
 }

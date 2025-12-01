@@ -237,25 +237,34 @@ def get_bonus_percentage(
 
             # Property acquired before Jan 20, 2025 - use TCJA phase-down
             # OR if OBBBA is disabled, use TCJA phase-down for all property
+            # Per bonus.json and IRS Form 4562 Instructions
             if acq_date <= OBBB_BONUS_EFFECTIVE_DATE or not obbba_enabled:
                 if tax_year == 2025:
-                    return 0.40  # 40% for pre-OBBBA 2025 acquisitions
+                    return 0.80  # 80% for pre-OBBBA 2025 acquisitions (per TCJA phaseout)
                 elif tax_year == 2026:
-                    return 0.20  # 20% for pre-OBBBA property
+                    return 0.60  # 60% for pre-OBBBA property
+                elif tax_year == 2027:
+                    return 0.40  # 40% TCJA phaseout
+                elif tax_year == 2028:
+                    return 0.20  # 20% TCJA phaseout
                 else:
-                    return 0.00  # 0% for 2027+
+                    return 0.00  # 0% for 2029+
 
         # No dates provided for 2025+
         if obbba_enabled:
             return 1.00  # Default to 100% for 2025+ under OBBBA
         else:
-            # OBBBA disabled - use TCJA phase-down
+            # OBBBA disabled - use TCJA phase-down per bonus.json
             if tax_year == 2025:
-                return 0.40
+                return 0.80  # 80% TCJA phaseout
             elif tax_year == 2026:
-                return 0.20
+                return 0.60  # 60% TCJA phaseout
+            elif tax_year == 2027:
+                return 0.40  # 40% TCJA phaseout
+            elif tax_year == 2028:
+                return 0.20  # 20% TCJA phaseout
             else:
-                return 0.00
+                return 0.00  # 0% for 2029+
 
     # Historical TCJA phase-down (for tax years before 2025)
     # Per Form 4562 Instructions and TCJA §168(k)(6)
@@ -388,7 +397,7 @@ def get_luxury_auto_limits(tax_year: int, asset_year: int = 1) -> int:
 
 HEAVY_SUV_179_LIMITS = {
     2024: 28900,
-    2025: 29500,  # Estimated
+    2025: 30500,  # Per section179.json (aligned with OBBBA)
 }
 
 

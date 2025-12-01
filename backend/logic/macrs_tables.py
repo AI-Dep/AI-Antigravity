@@ -704,6 +704,9 @@ def get_macrs_table(
         if method == "SL":
             if recovery_period == 27.5:
                 return get_sl_mm_table(27.5, month)
+            elif recovery_period == 31.5:
+                # Pre-May 13, 1993 nonresidential real property (Pub 946 Table A-7a)
+                return get_sl_mm_table(31.5, month)
             elif recovery_period == 39:
                 return get_sl_mm_table(39, month)
 
@@ -726,7 +729,7 @@ def get_macrs_table(
         # Recursively call with corrected method
         return get_macrs_table(recovery_period, "150DB", convention, quarter, month)
 
-    if recovery_period in (27.5, 39) and method in ("200DB", "150DB"):
+    if recovery_period in (27.5, 31.5, 39) and method in ("200DB", "150DB"):
         logger.warning(
             f"MACRS Correction: {recovery_period}-year real property must use SL per IRS rules. "
             f"Using SL instead (convention: {convention or 'MM'})."
@@ -742,6 +745,8 @@ def get_macrs_table(
             month = 7  # Default to July if not provided
         if recovery_period == 27.5:
             return get_sl_mm_table(27.5, month)
+        elif recovery_period == 31.5:
+            return get_sl_mm_table(31.5, month)
         elif recovery_period == 39:
             return get_sl_mm_table(39, month)
 
