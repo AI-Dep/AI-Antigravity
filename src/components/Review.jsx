@@ -829,6 +829,9 @@ function Review({ assets = [] }) {
                                     const hasErrors = asset.validation_errors?.length > 0;
                                     const needsReview = !hasErrors && asset.confidence_score <= 0.8;
                                     const isDeMinimis = asset.depreciation_election === 'DeMinimis';
+                                    // Hide MACRS fields for De Minimis (expensed), Disposals, and Transfers
+                                    const isDisposalOrTransfer = isDisposal(asset.transaction_type) || isTransfer(asset.transaction_type);
+                                    const hideMacrsFields = isDeMinimis || isDisposalOrTransfer;
 
                                     return (
                                         <tr
@@ -1101,11 +1104,11 @@ function Review({ assets = [] }) {
                                                 </span>
                                             </td>
 
-                                            {/* Class, Life, Method - Hidden for De Minimis assets (not capitalized) */}
+                                            {/* Class, Life, Method - Hidden for De Minimis, Disposals, and Transfers */}
                                             {editingId === asset.unique_id ? (
-                                                // Edit mode - Class, Life, Method inputs (hidden for De Minimis)
-                                                isDeMinimis ? (
-                                                    // De Minimis: Show empty cells (MACRS fields not applicable)
+                                                // Edit mode - Class, Life, Method inputs (hidden when not applicable)
+                                                hideMacrsFields ? (
+                                                    // De Minimis/Disposal/Transfer: Show empty cells (MACRS fields not applicable)
                                                     <>
                                                         <td className={cn("text-center text-slate-300", tableCompact ? "px-2 py-1.5" : "px-3 py-2.5")}>—</td>
                                                         <td className={cn("text-center text-slate-300", tableCompact ? "px-2 py-1.5" : "px-3 py-2.5")}>—</td>
@@ -1153,18 +1156,18 @@ function Review({ assets = [] }) {
                                                     </>
                                                 )
                                             ) : (
-                                                // Display mode - Class, Life, Method display (hidden for De Minimis)
-                                                isDeMinimis ? (
-                                                    // De Minimis: Show empty cells with tooltip explaining why
+                                                // Display mode - Class, Life, Method display (hidden when not applicable)
+                                                hideMacrsFields ? (
+                                                    // De Minimis/Disposal/Transfer: Show empty cells with tooltip
                                                     <>
                                                         <td className={cn("text-center", tableCompact ? "px-2 py-1.5" : "px-3 py-2.5")}>
-                                                            <span className="text-slate-300 cursor-help" title="De Minimis assets are expensed, not depreciated">—</span>
+                                                            <span className="text-slate-300 cursor-help" title={isDeMinimis ? "De Minimis assets are expensed, not depreciated" : "Classification not required for disposals/transfers"}>—</span>
                                                         </td>
                                                         <td className={cn("text-center", tableCompact ? "px-2 py-1.5" : "px-3 py-2.5")}>
-                                                            <span className="text-slate-300 cursor-help" title="De Minimis assets are expensed, not depreciated">—</span>
+                                                            <span className="text-slate-300 cursor-help" title={isDeMinimis ? "De Minimis assets are expensed, not depreciated" : "Classification not required for disposals/transfers"}>—</span>
                                                         </td>
                                                         <td className={cn("text-center", tableCompact ? "px-2 py-1.5" : "px-3 py-2.5")}>
-                                                            <span className="text-slate-300 cursor-help" title="De Minimis assets are expensed, not depreciated">—</span>
+                                                            <span className="text-slate-300 cursor-help" title={isDeMinimis ? "De Minimis assets are expensed, not depreciated" : "Classification not required for disposals/transfers"}>—</span>
                                                         </td>
                                                     </>
                                                 ) : (
