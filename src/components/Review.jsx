@@ -178,9 +178,19 @@ function Review({ assets = [] }) {
         const totalCost = localAssets.reduce((sum, a) => sum + (a.cost || 0), 0);
 
         // Count by transaction type
-        const additions = localAssets.filter(a =>
+        const allAdditions = localAssets.filter(a =>
             a.transaction_type === TRANSACTION_TYPES.ADDITION
-        ).length;
+        );
+        const additions = allAdditions.length;
+
+        // De Minimis items (expensed, not capitalized)
+        const deMinimisItems = allAdditions.filter(a =>
+            a.depreciation_election === 'DeMinimis'
+        );
+        const deMinimisCount = deMinimisItems.length;
+        const deMinimisTotal = deMinimisItems.reduce((sum, a) => sum + (a.cost || 0), 0);
+        const capitalAdditions = additions - deMinimisCount;
+
         const disposals = localAssets.filter(a =>
             a.transaction_type === TRANSACTION_TYPES.DISPOSAL
         ).length;
@@ -200,6 +210,9 @@ function Review({ assets = [] }) {
             approved,
             totalCost,
             additions,
+            capitalAdditions,
+            deMinimisCount,
+            deMinimisTotal,
             disposals,
             transfers,
             existing,
@@ -591,8 +604,16 @@ function Review({ assets = [] }) {
                     <div className="h-6 w-px bg-slate-300" />
                     <div className="flex items-center gap-3 text-xs text-slate-500">
                         <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded">
-                            {stats.additions} Additions
+                            {stats.capitalAdditions} Additions
                         </span>
+                        {stats.deMinimisCount > 0 && (
+                            <span
+                                className="bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded cursor-help"
+                                title={`$${stats.deMinimisTotal.toLocaleString()} expensed via De Minimis Safe Harbor - NOT added to FA CS`}
+                            >
+                                {stats.deMinimisCount} Expensed
+                            </span>
+                        )}
                         <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded">
                             {stats.disposals} Disposals
                         </span>
@@ -660,7 +681,12 @@ function Review({ assets = [] }) {
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Asset ID</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '220px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}>Description</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Cost</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '110px', minWidth: '90px', resize: 'horizontal', overflow: 'hidden' }}>Date in Service</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '110px', minWidth: '90px', resize: 'horizontal', overflow: 'hidden' }}>
+                                        <span className="flex items-center gap-1 cursor-help" title="Additions/Existing: Date In Service | Disposals: Disposal Date | Transfers: Transfer Date">
+                                            Key Date
+                                            <Info className="w-3 h-3 text-slate-400" />
+                                        </span>
+                                    </th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Trans. Type</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Class</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '60px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Life</th>
@@ -680,6 +706,7 @@ function Review({ assets = [] }) {
                                     const isApproved = approvedIds.has(asset.unique_id);
                                     const hasErrors = asset.validation_errors?.length > 0;
                                     const needsReview = !hasErrors && asset.confidence_score <= 0.8;
+                                    const isDeMinimis = asset.depreciation_election === 'DeMinimis';
 
                                     return (
                                         <tr
@@ -688,7 +715,8 @@ function Review({ assets = [] }) {
                                                 "border-b hover:bg-slate-50 dark:border-slate-800",
                                                 hasErrors && "bg-red-50/50",
                                                 needsReview && !isApproved && "bg-yellow-50/30",
-                                                isApproved && "bg-green-50/30"
+                                                isApproved && "bg-green-50/30",
+                                                isDeMinimis && "bg-emerald-50/40 opacity-75"
                                             )}
                                         >
                                             {/* Status - MOVED TO FIRST COLUMN */}
@@ -794,48 +822,102 @@ function Review({ assets = [] }) {
                                             )}>
                                                 ${(asset.cost || 0).toLocaleString()}
                                             </td>
-                                            {/* Date in Service */}
+                                            {/* Key Date - Context-aware based on transaction type */}
                                             <td className={cn(
                                                 "text-slate-600",
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
                                             )}>
-                                                {asset.in_service_date ? (
-                                                    asset.in_service_date
-                                                ) : asset.acquisition_date ? (
-                                                    <span className="flex items-center gap-1" title="Using acquisition date (no in-service date provided)">
-                                                        <span className={asset.transaction_type === TRANSACTION_TYPES.TRANSFER ? "text-amber-600" : ""}>
-                                                            {asset.acquisition_date}
-                                                        </span>
-                                                        {asset.transaction_type === TRANSACTION_TYPES.TRANSFER && (
-                                                            <Info className="w-3.5 h-3.5 text-amber-500" />
-                                                        )}
-                                                    </span>
-                                                ) : (
-                                                    <span className={cn(
-                                                        "flex items-center gap-1",
-                                                        asset.transaction_type === TRANSACTION_TYPES.TRANSFER ? "text-slate-400" : "text-amber-600"
-                                                    )} title={asset.transaction_type === TRANSACTION_TYPES.TRANSFER ? "No date - transfer of existing asset" : "Missing date - manual review required"}>
-                                                        -
-                                                        {asset.transaction_type !== TRANSACTION_TYPES.TRANSFER && (
-                                                            <AlertTriangle className="w-3.5 h-3.5" />
-                                                        )}
-                                                    </span>
-                                                )}
+                                                {(() => {
+                                                    // Determine which date to display based on transaction type
+                                                    if (asset.transaction_type === TRANSACTION_TYPES.DISPOSAL) {
+                                                        // Disposals: Show disposal date, with tooltip for original in-service
+                                                        const disposalDate = asset.disposal_date || asset.disposed_date;
+                                                        if (disposalDate) {
+                                                            return (
+                                                                <span
+                                                                    className="group relative flex items-center gap-1 cursor-help"
+                                                                    title={asset.in_service_date ? `Originally in service: ${asset.in_service_date}` : ""}
+                                                                >
+                                                                    <span className="text-red-600">{disposalDate}</span>
+                                                                    {asset.in_service_date && (
+                                                                        <Info className="w-3 h-3 text-red-400" />
+                                                                    )}
+                                                                </span>
+                                                            );
+                                                        }
+                                                        // Fallback if no disposal date
+                                                        return (
+                                                            <span className="flex items-center gap-1 text-amber-600" title="Missing disposal date">
+                                                                -
+                                                                <AlertTriangle className="w-3.5 h-3.5" />
+                                                            </span>
+                                                        );
+                                                    } else if (asset.transaction_type === TRANSACTION_TYPES.TRANSFER) {
+                                                        // Transfers: Show transfer date, with tooltip for original in-service
+                                                        const transferDate = asset.transfer_date || asset.transferred_date;
+                                                        if (transferDate) {
+                                                            return (
+                                                                <span
+                                                                    className="group relative flex items-center gap-1 cursor-help"
+                                                                    title={asset.in_service_date ? `Originally in service: ${asset.in_service_date}` : ""}
+                                                                >
+                                                                    <span className="text-purple-600">{transferDate}</span>
+                                                                    {asset.in_service_date && (
+                                                                        <Info className="w-3 h-3 text-purple-400" />
+                                                                    )}
+                                                                </span>
+                                                            );
+                                                        }
+                                                        // Fallback: Use in_service_date with note for transfers
+                                                        if (asset.in_service_date) {
+                                                            return (
+                                                                <span className="text-slate-400" title="In-service date (transfer date not provided)">
+                                                                    {asset.in_service_date}
+                                                                </span>
+                                                            );
+                                                        }
+                                                        return (
+                                                            <span className="text-slate-400" title="No date - transfer of existing asset">
+                                                                -
+                                                            </span>
+                                                        );
+                                                    } else {
+                                                        // Additions/Existing: Show in-service date as before
+                                                        if (asset.in_service_date) {
+                                                            return asset.in_service_date;
+                                                        } else if (asset.acquisition_date) {
+                                                            return (
+                                                                <span className="flex items-center gap-1" title="Using acquisition date (no in-service date provided)">
+                                                                    {asset.acquisition_date}
+                                                                </span>
+                                                            );
+                                                        }
+                                                        return (
+                                                            <span className="flex items-center gap-1 text-amber-600" title="Missing date - manual review required">
+                                                                -
+                                                                <AlertTriangle className="w-3.5 h-3.5" />
+                                                            </span>
+                                                        );
+                                                    }
+                                                })()}
                                             </td>
                                             {/* Transaction Type */}
                                             <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                 <span className={cn(
                                                     "rounded font-medium whitespace-nowrap",
                                                     tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs",
-                                                    asset.transaction_type === TRANSACTION_TYPES.ADDITION && "bg-green-100 text-green-700",
+                                                    asset.transaction_type === TRANSACTION_TYPES.ADDITION && !isDeMinimis && "bg-green-100 text-green-700",
+                                                    asset.transaction_type === TRANSACTION_TYPES.ADDITION && isDeMinimis && "bg-emerald-100 text-emerald-700",
                                                     asset.transaction_type === TRANSACTION_TYPES.EXISTING && "bg-slate-100 text-slate-700",
                                                     asset.transaction_type === TRANSACTION_TYPES.DISPOSAL && "bg-red-100 text-red-700",
                                                     asset.transaction_type === TRANSACTION_TYPES.TRANSFER && "bg-purple-100 text-purple-700",
                                                     !asset.transaction_type && "bg-yellow-100 text-yellow-700"
                                                 )}>
-                                                    {asset.transaction_type === TRANSACTION_TYPES.ADDITION ? "Addition" :
-                                                     asset.transaction_type === TRANSACTION_TYPES.EXISTING ? "Existing" :
-                                                     asset.transaction_type || "Unknown"}
+                                                    {asset.transaction_type === TRANSACTION_TYPES.ADDITION
+                                                        ? (isDeMinimis ? "Expensed" : "Addition")
+                                                        : asset.transaction_type === TRANSACTION_TYPES.EXISTING
+                                                            ? "Existing"
+                                                            : asset.transaction_type || "Unknown"}
                                                 </span>
                                             </td>
 
@@ -907,25 +989,71 @@ function Review({ assets = [] }) {
                                                     {/* Election Column - 179/Bonus/DeMinimis/MACRS */}
                                                     <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                         {asset.transaction_type === "Current Year Addition" ? (
-                                                            <select
-                                                                value={asset.depreciation_election || "MACRS"}
-                                                                onChange={(e) => handleElectionChange(asset.unique_id, e.target.value)}
-                                                                className={cn(
-                                                                    "rounded border font-medium cursor-pointer",
-                                                                    tableCompact ? "px-1 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-xs",
-                                                                    asset.depreciation_election === "DeMinimis" && "bg-green-100 text-green-700 border-green-300",
-                                                                    asset.depreciation_election === "Section179" && "bg-blue-100 text-blue-700 border-blue-300",
-                                                                    asset.depreciation_election === "Bonus" && "bg-purple-100 text-purple-700 border-purple-300",
-                                                                    (!asset.depreciation_election || asset.depreciation_election === "MACRS") && "bg-slate-100 text-slate-700 border-slate-300"
-                                                                )}
-                                                                title={asset.election_reason || "Select depreciation treatment"}
-                                                            >
-                                                                <option value="MACRS">MACRS</option>
-                                                                <option value="DeMinimis">De Minimis</option>
-                                                                <option value="Section179">§179</option>
-                                                                <option value="Bonus">Bonus</option>
-                                                                <option value="ADS">ADS</option>
-                                                            </select>
+                                                            <div className="group relative">
+                                                                <select
+                                                                    value={asset.depreciation_election || "MACRS"}
+                                                                    onChange={(e) => handleElectionChange(asset.unique_id, e.target.value)}
+                                                                    className={cn(
+                                                                        "rounded border font-medium cursor-pointer",
+                                                                        tableCompact ? "px-1 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-xs",
+                                                                        asset.depreciation_election === "DeMinimis" && "bg-green-100 text-green-700 border-green-300",
+                                                                        asset.depreciation_election === "Section179" && "bg-blue-100 text-blue-700 border-blue-300",
+                                                                        asset.depreciation_election === "Bonus" && "bg-purple-100 text-purple-700 border-purple-300",
+                                                                        (!asset.depreciation_election || asset.depreciation_election === "MACRS") && "bg-slate-100 text-slate-700 border-slate-300"
+                                                                    )}
+                                                                >
+                                                                    <option value="MACRS">MACRS</option>
+                                                                    <option value="DeMinimis">De Minimis</option>
+                                                                    <option value="Section179">§179</option>
+                                                                    <option value="Bonus">Bonus</option>
+                                                                    <option value="ADS">ADS</option>
+                                                                </select>
+                                                                {/* Tooltip showing election info */}
+                                                                <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block w-64 p-2 bg-slate-800 text-white text-xs rounded shadow-lg z-20">
+                                                                    {asset.depreciation_election === "DeMinimis" ? (
+                                                                        <>
+                                                                            <div className="font-semibold text-green-300 mb-1">⚡ De Minimis Safe Harbor</div>
+                                                                            <div>• Expense immediately (≤$2,500)</div>
+                                                                            <div>• NOT added to FA CS</div>
+                                                                            <div>• Exported to separate sheet</div>
+                                                                            <div className="mt-1 text-yellow-200 text-[10px]">Rev. Proc. 2015-20</div>
+                                                                        </>
+                                                                    ) : asset.depreciation_election === "Section179" ? (
+                                                                        <>
+                                                                            <div className="font-semibold text-blue-300 mb-1">§179 Expense Election</div>
+                                                                            <div>• Full deduction in Year 1</div>
+                                                                            <div>• Subject to business income limit</div>
+                                                                            <div>• 2024 limit: $1,160,000</div>
+                                                                        </>
+                                                                    ) : asset.depreciation_election === "Bonus" ? (
+                                                                        <>
+                                                                            <div className="font-semibold text-purple-300 mb-1">Bonus Depreciation</div>
+                                                                            <div>• 60% deduction in Year 1 (2024)</div>
+                                                                            <div>• Remaining 40% via MACRS</div>
+                                                                            <div>• No income limitation</div>
+                                                                        </>
+                                                                    ) : asset.depreciation_election === "ADS" ? (
+                                                                        <>
+                                                                            <div className="font-semibold text-slate-300 mb-1">Alternative Depreciation</div>
+                                                                            <div>• Straight-line method</div>
+                                                                            <div>• Longer recovery periods</div>
+                                                                            <div>• Required for some property</div>
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            <div className="font-semibold text-slate-300 mb-1">MACRS (Default)</div>
+                                                                            <div>• Standard depreciation</div>
+                                                                            <div>• 200DB or 150DB method</div>
+                                                                            <div>• Based on property class</div>
+                                                                        </>
+                                                                    )}
+                                                                    {asset.election_reason && (
+                                                                        <div className="mt-1 pt-1 border-t border-slate-600 text-slate-300">
+                                                                            {asset.election_reason}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
                                                         ) : (
                                                             <span className={cn(
                                                                 "bg-slate-50 text-slate-400 rounded",
