@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Info, Calendar, DollarSign } from 'lucide-react';
+import { Info, Calendar, DollarSign, Hash } from 'lucide-react';
 import { apiGet, apiPost } from '../lib/api.client';
 
 function Settings() {
@@ -14,11 +14,16 @@ function Settings() {
         obbba_effective: false,
         obbba_info: null
     });
+    const [facsConfig, setFacsConfig] = useState({
+        asset_number_start: 1,
+        remote_mode: true,
+    });
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
         fetchConfig();
+        fetchFacsConfig();
     }, []);
 
     const fetchConfig = async () => {
@@ -32,17 +37,48 @@ function Settings() {
         }
     };
 
+    const fetchFacsConfig = async () => {
+        try {
+            const data = await apiGet('/facs/config');
+            setFacsConfig(prev => ({
+                ...prev,
+                asset_number_start: data.asset_number_start || 1,
+                remote_mode: data.remote_mode ?? true,
+            }));
+        } catch (error) {
+            console.error('Failed to fetch FA CS config:', error);
+        }
+    };
+
+    const saveFacsConfig = async () => {
+        try {
+            await apiPost('/facs/config', {
+                asset_number_start: facsConfig.asset_number_start,
+                remote_mode: facsConfig.remote_mode,
+            });
+            return true;
+        } catch (error) {
+            console.error('Failed to save FA CS config:', error);
+            return false;
+        }
+    };
+
     const saveConfig = async () => {
         setSaving(true);
         try {
+            // Save tax config
             const data = await apiPost('/config/tax', {
                 tax_year: config.tax_year,
                 de_minimis_threshold: config.de_minimis_threshold,
                 has_afs: config.has_afs
             });
 
+            // Save FA CS config
+            await saveFacsConfig();
+
             // Refresh config after save
             await fetchConfig();
+            await fetchFacsConfig();
 
             alert(`Configuration saved! ${data.assets_reclassified} assets reclassified.`);
         } catch (error) {
@@ -184,6 +220,52 @@ function Settings() {
                         <label htmlFor="has_afs" className="text-sm text-slate-700">
                             Taxpayer has Audited Financial Statements (AFS)
                         </label>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* FA CS Asset Numbering */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Hash className="w-5 h-5 text-purple-600" />
+                        FA CS Asset Numbering
+                    </CardTitle>
+                    <CardDescription>
+                        Configure how FA CS Asset #s are assigned for new assets.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">
+                            Starting Asset Number
+                        </label>
+                        <input
+                            type="number"
+                            min="1"
+                            value={facsConfig.asset_number_start}
+                            onChange={(e) => setFacsConfig({
+                                ...facsConfig,
+                                asset_number_start: Math.max(1, parseInt(e.target.value) || 1)
+                            })}
+                            className="w-full border rounded-lg px-3 py-2 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                        />
+                        <p className="text-xs text-slate-500 mt-1">
+                            If your client already has assets in FA CS (e.g., 1000 existing assets),
+                            set this to the next available number (e.g., 1001) to avoid collisions.
+                        </p>
+                    </div>
+
+                    <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                        <div className="flex items-center gap-2 text-purple-800 font-semibold text-sm">
+                            <Info className="w-4 h-4" />
+                            How Asset Numbers Work
+                        </div>
+                        <ul className="text-xs text-purple-700 mt-2 space-y-1">
+                            <li>• New additions will be assigned numbers starting from {facsConfig.asset_number_start}</li>
+                            <li>• Existing assets keep their original FA CS numbers if imported</li>
+                            <li>• You can manually edit individual Asset #s in the Review table</li>
+                        </ul>
                     </div>
                 </CardContent>
             </Card>

@@ -500,9 +500,61 @@ def set_export_path(path: str = Body(..., embed=True)):
     return {"export_path": abs_path, "message": f"Export path set to: {abs_path}"}
 
 @app.get("/facs/config")
-def get_facs_config():
-    """Get current FA CS configuration."""
-    return FACS_CONFIG
+async def get_facs_config(request: Request, response: Response):
+    """
+    Get current FA CS configuration including:
+    - remote_mode: Whether using remote desktop connection
+    - user_confirmed_connected: User confirmed FA CS is accessible
+    - export_path: Custom export path
+    - asset_number_start: Starting number for new FA CS Asset #s
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    # Merge session config with global config (session takes precedence)
+    config = dict(FACS_CONFIG)
+    config.update(session.facs_config)
+    return config
+
+
+@app.post("/facs/config")
+async def set_facs_config(
+    request: Request,
+    response: Response,
+    asset_number_start: int = Body(None, embed=True, ge=1),
+    remote_mode: bool = Body(None, embed=True),
+):
+    """
+    Update FA CS configuration.
+
+    Args:
+        asset_number_start: Starting number for new FA CS Asset #s (e.g., 1001 if client has 1000 existing assets)
+        remote_mode: Whether using remote desktop connection to FA CS
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    updated = {}
+
+    if asset_number_start is not None:
+        session.facs_config["asset_number_start"] = asset_number_start
+        updated["asset_number_start"] = asset_number_start
+        logger.info(f"FA CS asset_number_start set to: {asset_number_start}")
+
+    if remote_mode is not None:
+        session.facs_config["remote_mode"] = remote_mode
+        updated["remote_mode"] = remote_mode
+
+    # Save session
+    manager = get_session_manager()
+    manager._save_session(session)
+
+    return {
+        "success": True,
+        "updated": updated,
+        "config": session.facs_config,
+    }
+
 
 @app.get("/stats")
 async def get_stats(request: Request, response: Response):
@@ -1978,8 +2030,12 @@ async def auto_generate_fa_cs_numbers(request: Request, response: Response, mode
                 auto_num = exporter._format_asset_number(asset)
                 existing_numbers.add(auto_num)
 
-        # Start from max + 1 (or 1 if no existing)
-        next_num = max(existing_numbers) + 1 if existing_numbers else 1
+        # Get configured starting number (for when client has existing assets in FA CS)
+        configured_start = session.facs_config.get("asset_number_start", 1)
+
+        # Start from max of: (max existing + 1) or configured start
+        max_existing = max(existing_numbers) + 1 if existing_numbers else 1
+        next_num = max(max_existing, configured_start)
 
         # Detect collision groups
         collision_result = exporter.detect_asset_number_collisions(assets)
@@ -2011,7 +2067,12 @@ async def auto_generate_fa_cs_numbers(request: Request, response: Response, mode
             for asset in assets:
                 used_numbers.add(exporter._format_asset_number(asset))
 
-            next_num = max(used_numbers) + 1
+            # Get configured starting number
+            configured_start = session.facs_config.get("asset_number_start", 1)
+
+            # Start from max of: (max used + 1) or configured start
+            max_used = max(used_numbers) + 1 if used_numbers else 1
+            next_num = max(max_used, configured_start)
 
             # Fix collisions
             for collision in collision_result["collisions"]:
