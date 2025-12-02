@@ -940,7 +940,8 @@ SHEET_SKIP_PATTERNS = [
     "old data", "legacy",
 
     # Budget/planning sheets (not actual assets)
-    "budget", "forecast", "projection", "plan",
+    # NOTE: Removed "plan" - too broad, matches "Plant Equip"
+    "budget", "forecast", "projection",
 
     # Reconciliation sheets
     "reconcile", "apr to may", "roll forward", "rollforward",
