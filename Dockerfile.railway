@@ -8,10 +8,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy requirements first (for better caching)
+# Cache bust - change this to force rebuild: v2
+ARG CACHE_BUST=2
+
+# Copy requirements first
 COPY requirements.txt .
 
-# Install Python dependencies
+# Install Python dependencies (including uvicorn)
+RUN pip install --no-cache-dir uvicorn[standard] fastapi
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy all source files
