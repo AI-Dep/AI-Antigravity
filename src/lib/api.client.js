@@ -9,13 +9,30 @@
  */
 import axios from 'axios';
 
-// API base URL - prefer electronAPI if available, then env variable, then default
+// API base URL - detect environment and use appropriate URL
 const getBaseUrl = () => {
+    // 1. Electron mode - use electronAPI
     if (typeof window !== 'undefined' && window.electronAPI?.getBackendUrl) {
         return window.electronAPI.getBackendUrl();
     }
-    // Use localhost (not 127.0.0.1) to match frontend origin for cookie sharing
-    return import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+    // 2. Environment variable override
+    if (import.meta.env.VITE_API_URL) {
+        return import.meta.env.VITE_API_URL;
+    }
+
+    // 3. Web deployment mode - use relative /api/ path (nginx proxies to backend)
+    // Detect if running in production web mode (not localhost dev server)
+    if (typeof window !== 'undefined') {
+        const isLocalDev = window.location.hostname === 'localhost' && window.location.port === '5173';
+        if (!isLocalDev) {
+            // Production web mode - use relative path for nginx proxy
+            return '/api';
+        }
+    }
+
+    // 4. Local development - direct backend connection
+    return 'http://localhost:8000';
 };
 
 export const API_BASE = getBaseUrl();

@@ -1,14 +1,18 @@
 # ==============================================================================
 # FA CS Automator - Docker Compose Configuration
 # ==============================================================================
-# For testers: docker-compose up
-# For production: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+# QUICK START FOR TESTERS:
+#   1. Copy .env.example to .env and add your OPENAI_API_KEY
+#   2. Run: docker-compose up
+#   3. Open: http://localhost:5173
+#
+# Note: RPA features (FA CS automation) require desktop app, not web version
 # ==============================================================================
 
 version: '3.8'
 
 services:
-  # Backend API Service
+  # Backend API Service (Python/FastAPI)
   backend:
     build:
       context: .
@@ -16,18 +20,19 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000,http://localhost
     volumes:
       - ./bot_handoff:/app/bot_handoff
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      - ./uploads:/app/uploads
+      - ./exports:/app/exports
+      # Optional: Mount custom config
+      # - ./config.json:/app/config.json
     restart: unless-stopped
 
-  # Frontend Web Service
+  # Frontend Web Service (React + Nginx)
   frontend:
     build:
       context: .
@@ -38,6 +43,8 @@ services:
       - backend
     restart: unless-stopped
 
-# Optional: Add volume for persistent data
+# Persistent volumes
 volumes:
   bot_handoff:
+  uploads:
+  exports:

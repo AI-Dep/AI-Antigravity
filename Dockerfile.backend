@@ -2,6 +2,7 @@
 # FA CS Automator - Backend Dockerfile
 # ==============================================================================
 # Builds Python backend as standalone service
+# For testers: docker-compose up
 # ==============================================================================
 
 FROM python:3.11-slim
@@ -20,8 +21,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend code
 COPY backend/ ./backend/
 
-# Create bot_handoff directory
-RUN mkdir -p /app/bot_handoff
+# Copy config template (users can mount their own config.json)
+COPY backend/config.template.json ./config.json
+
+# Create directories for file handling
+RUN mkdir -p /app/bot_handoff /app/uploads /app/exports
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -29,6 +33,10 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 # Expose port
 EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/api/v1/ || exit 1
 
 # Run the API
 CMD ["python", "-m", "uvicorn", "backend.api:app", "--host", "0.0.0.0", "--port", "8000"]
