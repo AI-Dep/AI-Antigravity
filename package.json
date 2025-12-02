@@ -31,8 +31,7 @@
                     "target": "portable",
                     "arch": ["x64"]
                 }
-            ],
-            "publisherName": "Your Company Name"
+            ]
         },
         "nsis": {
             "oneClick": false,
