@@ -221,18 +221,27 @@ def get_cors_origins():
     """Get CORS allowed origins from environment or use development defaults."""
     env_origins = os.environ.get("CORS_ALLOWED_ORIGINS", "")
     if env_origins:
-        # Production: use configured origins
-        return [origin.strip() for origin in env_origins.split(",") if origin.strip()]
+        # Production: use configured origins (can be "*" to allow all)
+        origins = [origin.strip() for origin in env_origins.split(",") if origin.strip()]
+        return origins
     else:
-        # Development: allow both localhost and 127.0.0.1 variants
-        return [
-            "http://localhost:3000",
-            "http://localhost:5173",
-            "http://localhost:8000",
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:5173",
-            "http://127.0.0.1:8000"
-        ]
+        # Check if running in production (Railway, Render, etc.)
+        is_production = os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("PORT")
+        if is_production:
+            # Production without explicit CORS config: allow all origins
+            # This is safe when using Vercel proxy (requests come through Vercel's edge)
+            # For stricter security, set CORS_ALLOWED_ORIGINS env var
+            return ["*"]
+        else:
+            # Development: allow both localhost and 127.0.0.1 variants
+            return [
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "http://localhost:8000",
+                "http://127.0.0.1:3000",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:8000"
+            ]
 
 app.add_middleware(
     CORSMiddleware,

@@ -954,17 +954,27 @@ function Review({ assets = [] }) {
                                                             Approved
                                                         </span>
                                                     ) : asset.confidence_score > 0.8 ? (
-                                                        <span className={cn(
-                                                            "inline-flex items-center rounded-full font-medium bg-green-50 text-green-700",
-                                                            tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                                                        )}>
+                                                        <span
+                                                            className={cn(
+                                                                "inline-flex items-center rounded-full font-medium bg-green-50 text-green-700 cursor-help",
+                                                                tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                            )}
+                                                            title={`High Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n✓ Description matched known asset patterns\n✓ Recovery period matches asset class\n✓ Cost within expected range`}
+                                                        >
                                                             High Conf.
                                                         </span>
                                                     ) : (
-                                                        <span className={cn(
-                                                            "inline-flex items-center rounded-full font-medium bg-yellow-100 text-yellow-800",
-                                                            tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
-                                                        )}>
+                                                        <span
+                                                            className={cn(
+                                                                "inline-flex items-center rounded-full font-medium bg-yellow-100 text-yellow-800 cursor-help",
+                                                                tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                            )}
+                                                            title={
+                                                                asset.confidence_score > 0.5
+                                                                    ? `Medium Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n⚠ Partial description match\n⚠ Multiple possible classifications\n→ Recommend manual review`
+                                                                    : `Low Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n✗ Unknown or ambiguous asset type\n✗ Insufficient data for classification\n→ Manual classification required`
+                                                            }
+                                                        >
                                                             <AlertTriangle className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
                                                             Review
                                                         </span>
@@ -972,18 +982,11 @@ function Review({ assets = [] }) {
                                                     {/* Confidence % below the badge */}
                                                     <span
                                                         className={cn(
-                                                            "font-mono cursor-help",
+                                                            "font-mono",
                                                             tableCompact ? "text-[9px]" : "text-[10px]",
                                                             asset.confidence_score > 0.8 ? "text-green-600" :
                                                                 asset.confidence_score > 0.5 ? "text-yellow-600" : "text-red-600"
                                                         )}
-                                                        title={
-                                                            asset.confidence_score > 0.8
-                                                                ? `High Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n✓ Description matched known asset patterns\n✓ Recovery period matches asset class\n✓ Cost within expected range`
-                                                                : asset.confidence_score > 0.5
-                                                                ? `Medium Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n⚠ Partial description match\n⚠ Multiple possible classifications\n→ Recommend manual review`
-                                                                : `Low Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n✗ Unknown or ambiguous asset type\n✗ Insufficient data for classification\n→ Manual classification required`
-                                                        }
                                                     >
                                                         {Math.round((asset.confidence_score || 0) * 100)}%
                                                     </span>
