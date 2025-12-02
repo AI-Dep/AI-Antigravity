@@ -192,6 +192,7 @@ class SessionData:
         "remote_mode": True,
         "user_confirmed_connected": False,
         "export_path": None,
+        "asset_number_start": 1,  # Starting number for new FA CS Asset #s
     })
 
     def touch(self):
