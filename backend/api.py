@@ -621,7 +621,10 @@ async def get_stats(request: Request, response: Response):
         # De Minimis tracking
         "de_minimis_count": de_minimis_count,
         "de_minimis_total": round(de_minimis_total, 2),
-        "capital_additions": capital_additions  # Additions minus De Minimis
+        "capital_additions": capital_additions,  # Additions minus De Minimis
+        # Parse warnings (e.g., missing asset IDs)
+        "parse_warnings": getattr(session, 'parse_warnings', []),
+        "parse_stats": getattr(session, 'parse_stats', {}),
     }
 
 
@@ -1536,6 +1539,11 @@ async def upload_file(
 
         # 1. Parse Excel (pass tax year to skip prior year sheets for performance)
         assets = importer.parse_excel(temp_file, target_tax_year=current_tax_year)
+        parse_report = importer.get_last_parse_report()
+
+        # Store parse warnings in session for later retrieval
+        session.parse_warnings = parse_report.get('warnings', [])
+        session.parse_stats = parse_report.get('stats', {})
 
         # 2. Classify Assets (MACRS + Transaction Types)
         tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])

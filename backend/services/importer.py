@@ -179,6 +179,15 @@ class ImporterService:
         result.stats['row_errors'] = len(row_errors)
         result.assets = assets
 
+        # Track assets missing asset_id (important for CPA review)
+        missing_asset_id_count = sum(1 for a in assets if not a.asset_id)
+        result.stats['missing_asset_id'] = missing_asset_id_count
+        if missing_asset_id_count > 0:
+            pct = (missing_asset_id_count / len(assets) * 100) if assets else 0
+            warning_msg = f"{missing_asset_id_count} assets ({pct:.0f}%) are missing Asset ID/Number"
+            result.warnings.append(warning_msg)
+            print(f"Warning: {warning_msg}")
+
         print(f"Successfully created {len(assets)} Asset objects")
         return assets
 
