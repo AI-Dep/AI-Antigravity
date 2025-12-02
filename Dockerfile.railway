@@ -8,8 +8,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Cache bust - change this to force rebuild: v2
-ARG CACHE_BUST=2
+# Cache bust - change this to force rebuild: v3
+ARG CACHE_BUST=3
 
 # Copy requirements first
 COPY requirements.txt .
@@ -29,5 +29,8 @@ ENV PYTHONPATH=/app
 # Expose port
 EXPOSE 8000
 
+# List files for debugging (will show in build logs)
+RUN ls -la /app && ls -la /app/backend || true
+
 # Start the FastAPI server (Railway sets PORT env variable)
-CMD python -m uvicorn backend.api:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD cd /app && PYTHONPATH=/app uvicorn backend.api:app --host 0.0.0.0 --port ${PORT:-8000}
