@@ -9,5 +9,10 @@
     "fallback_to_rules": true,
 
     "log_level": "INFO",
-    "server_port": 8000
+    "server_port": 8000,
+
+    "_s3_comment": "Tax Rules Auto-Update (optional - for automatic IRS limit updates)",
+    "tax_rules_s3_bucket": "",
+    "tax_rules_s3_key": "tax_rules.json",
+    "tax_rules_s3_region": "us-east-1"
 }
