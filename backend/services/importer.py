@@ -253,8 +253,7 @@ class ImporterService:
         inferred_method = None
         if sheet_name and sheet_name != 'Unknown':
             inferred_macrs_class, inferred_life, inferred_method = infer_macrs_class_from_sheet_name(sheet_name)
-            if inferred_macrs_class:
-                print(f"[MACRS Inference] Sheet '{sheet_name}' -> {inferred_macrs_class} ({inferred_life}yr)")
+            # Note: Logging moved to sheet-level to reduce verbosity
 
         # Use inferred values if not already set from file
         if tax_life is None and inferred_life is not None and inferred_life > 0:
