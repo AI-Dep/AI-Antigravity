@@ -143,7 +143,75 @@ class ClassifierService:
             if trans_type == "Current Year Addition":
                 self._suggest_depreciation_election(asset, tax_year)
 
+            # IMPORTANT: Override confidence score for disposals and transfers
+            # For these transaction types, MACRS classification confidence is not meaningful
+            # Instead, use data completeness as the confidence metric
+            if "Disposal" in trans_type:
+                asset.confidence_score = self._calculate_disposal_confidence(asset)
+            elif "Transfer" in trans_type:
+                asset.confidence_score = self._calculate_transfer_confidence(asset)
+
         return assets
+
+    def _calculate_disposal_confidence(self, asset: Asset) -> float:
+        """
+        Calculate confidence for disposal based on data completeness.
+
+        For disposals, CPAs care about having complete data for gain/loss calculation,
+        NOT about MACRS classification accuracy (the asset is being removed).
+
+        High confidence (95%): Has disposal date + cost + accumulated depreciation
+        Medium confidence (85%): Has disposal date + cost
+        Low confidence (70%): Has disposal date only
+        Needs review (50%): Missing disposal date
+        """
+        score = 0.50  # Base score - needs review
+
+        # Disposal date is critical
+        if asset.disposal_date:
+            score = 0.70
+
+            # Cost is important for gain/loss
+            if asset.cost and asset.cost > 0:
+                score = 0.85
+
+                # Accumulated depreciation needed for accurate gain/loss
+                if asset.accumulated_depreciation is not None:
+                    score = 0.95
+
+                # Proceeds present (even if $0) is good
+                if asset.proceeds is not None:
+                    score = min(0.98, score + 0.03)
+
+        return score
+
+    def _calculate_transfer_confidence(self, asset: Asset) -> float:
+        """
+        Calculate confidence for transfer based on data completeness.
+
+        For transfers, CPAs care about having complete transfer documentation,
+        NOT about MACRS classification (it doesn't change on transfer).
+
+        High confidence (95%): Has transfer date + from/to location info
+        Medium confidence (85%): Has transfer date only
+        Needs review (60%): Missing transfer date
+        """
+        score = 0.60  # Base score - needs review
+
+        # Transfer date is critical
+        if asset.transfer_date:
+            score = 0.85
+
+            # From/To location info makes it complete
+            has_from = asset.from_location and str(asset.from_location).strip()
+            has_to = asset.to_location and str(asset.to_location).strip()
+
+            if has_from or has_to:
+                score = 0.92
+            if has_from and has_to:
+                score = 0.98
+
+        return score
 
     def _suggest_depreciation_election(self, asset: Asset, tax_year: int):
         """

@@ -115,6 +115,73 @@ logger = logging.getLogger(__name__)
 
 
 # ====================================================================================
+# MACRS CLASS INFERENCE FROM SHEET NAME
+# ====================================================================================
+# When a sheet name indicates asset category, we can infer the likely MACRS class
+# This helps when the source file doesn't have an explicit MACRS class column
+
+SHEET_NAME_TO_MACRS_CLASS = {
+    # 5-Year Property (computers, office equipment, vehicles, etc.)
+    "office": ("Office Equipment", 5, "200DB"),
+    "computer": ("Office Equipment", 5, "200DB"),
+    "it equipment": ("Office Equipment", 5, "200DB"),
+    "vehicle": ("Vehicles", 5, "200DB"),
+    "auto": ("Vehicles", 5, "200DB"),
+    "truck": ("Vehicles", 5, "200DB"),
+
+    # 7-Year Property (furniture, fixtures, machinery, equipment)
+    "furniture": ("Furniture & Fixtures", 7, "200DB"),
+    "f&f": ("Furniture & Fixtures", 7, "200DB"),
+    "fixture": ("Furniture & Fixtures", 7, "200DB"),
+    "plant equip": ("Machinery & Equipment", 7, "200DB"),
+    "plant equipment": ("Machinery & Equipment", 7, "200DB"),
+    "machinery": ("Machinery & Equipment", 7, "200DB"),
+    "equipment": ("Machinery & Equipment", 7, "200DB"),
+    "manufacturing": ("Machinery & Equipment", 7, "200DB"),
+
+    # 15-Year Property (land improvements, QIP)
+    "land improvement": ("Land Improvements", 15, "150DB"),
+    "site improvement": ("Land Improvements", 15, "150DB"),
+    "parking": ("Land Improvements", 15, "150DB"),
+    "landscaping": ("Land Improvements", 15, "150DB"),
+    "qip": ("Qualified Improvement Property", 15, "SL"),
+
+    # 27.5/39-Year Property (real property)
+    "lh improvement": ("Leasehold Improvements", 15, "SL"),  # QIP treatment post-TCJA
+    "leasehold": ("Leasehold Improvements", 15, "SL"),
+    "building": ("Nonresidential Real Property", 39, "SL"),
+    "structure": ("Nonresidential Real Property", 39, "SL"),
+
+    # Non-depreciable
+    "land": ("Land", 0, None),  # Land is not depreciable
+}
+
+
+def infer_macrs_class_from_sheet_name(sheet_name: str) -> Tuple[Optional[str], Optional[int], Optional[str]]:
+    """
+    Infer MACRS class, recovery period, and method from sheet name.
+
+    This is used when the source file doesn't have an explicit MACRS class column.
+    The inference is based on common CPA naming conventions for asset schedule tabs.
+
+    Args:
+        sheet_name: Name of the Excel sheet
+
+    Returns:
+        Tuple of (macrs_class, recovery_period, method) or (None, None, None) if no match
+    """
+    sheet_lower = sheet_name.lower().strip()
+
+    # Check each pattern
+    for pattern, (macrs_class, recovery_period, method) in SHEET_NAME_TO_MACRS_CLASS.items():
+        if pattern in sheet_lower:
+            logger.debug(f"Inferred MACRS class from sheet name: '{sheet_name}' -> {macrs_class} ({recovery_period}yr)")
+            return macrs_class, recovery_period, method
+
+    return None, None, None
+
+
+# ====================================================================================
 # DATA CLASSES
 # ====================================================================================
 
@@ -859,9 +926,9 @@ def _detect_sheet_role_from_name(sheet_name: str) -> Optional[SheetRole]:
 # ====================================================================================
 
 # Patterns for sheets that should be SKIPPED
-# NOTE: Be careful not to skip useful sheets like "FY 2024 2025" which contains roll-forward data
+# NOTE: Be careful to skip summary sheets but keep detail sheets
 SHEET_SKIP_PATTERNS = [
-    # Working/draft sheets only - NOT summary (too broad, matches useful roll-forward sheets)
+    # Working/draft sheets
     "reconciliation", "recon", "working", "draft", "temp", "scratch",
     "pivot", "chart", "graph",
 
@@ -871,6 +938,27 @@ SHEET_SKIP_PATTERNS = [
     # Historical archives
     "prior year", "prior years", "historical", "archive", "archived",
     "old data", "legacy",
+
+    # Budget/planning sheets (not actual assets)
+    "budget", "forecast", "projection", "plan",
+
+    # Reconciliation sheets
+    "reconcile", "apr to may", "roll forward", "rollforward",
+]
+
+# Patterns that indicate a sheet is a SUMMARY (category-level totals, not asset details)
+# These sheets contain rows like "Office Equip 15010  $223,153.15" - totals not assets
+SUMMARY_SHEET_PATTERNS = [
+    r"^fy\s*\d{4}\s*\d{4}$",          # "FY 2024 2025" - fiscal year summary
+    r"^fy\s*\d{4}\s*/?\s*\d{4}$",     # "FY 2024/2025" - fiscal year summary
+    r"^fy\s*\d{4}$",                   # "FY 2024" - fiscal year summary
+]
+
+# Patterns that indicate a sheet contains DISPOSALS in journal entry format
+# These have irregular structure (JE #, A/D, Asset rows) not standard asset lists
+DISPOSAL_JE_PATTERNS = [
+    r"disposal",                       # "Disposals FY 2024 2025"
+    r"disposed",
 ]
 
 # Fiscal year patterns that indicate PRIOR years (not current)
@@ -893,6 +981,7 @@ def _should_skip_sheet(sheet_name: str, target_tax_year: Optional[int] = None) -
     - Summary/overview sheets (contain totals, not asset data)
     - Prior year sheets (historical data)
     - Working/draft sheets
+    - Disposal sheets in journal entry format
 
     Args:
         sheet_name: Name of the Excel sheet
@@ -903,10 +992,22 @@ def _should_skip_sheet(sheet_name: str, target_tax_year: Optional[int] = None) -
     """
     sheet_lower = sheet_name.lower().strip()
 
-    # Check against skip patterns
+    # Check against skip patterns (substring match)
     for pattern in SHEET_SKIP_PATTERNS:
         if pattern in sheet_lower:
             return True, f"Matches skip pattern: '{pattern}'"
+
+    # Check for summary sheet patterns (regex match)
+    # These are fiscal year summary sheets with category totals, not asset details
+    for pattern in SUMMARY_SHEET_PATTERNS:
+        if re.search(pattern, sheet_lower):
+            return True, f"Summary sheet (category totals, not asset details): '{sheet_name}'"
+
+    # Check for disposal journal entry sheets (regex match)
+    # These have JE format (JE #, A/D, Asset rows) not standard asset lists
+    for pattern in DISPOSAL_JE_PATTERNS:
+        if re.search(pattern, sheet_lower):
+            return True, f"Disposal sheet (journal entry format): '{sheet_name}'"
 
     # Check for prior year patterns using regex
     for pattern in PRIOR_YEAR_PATTERNS:

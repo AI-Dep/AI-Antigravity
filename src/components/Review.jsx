@@ -959,7 +959,13 @@ function Review({ assets = [] }) {
                                                                 "inline-flex items-center rounded-full font-medium bg-green-50 text-green-700 cursor-help",
                                                                 tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
                                                             )}
-                                                            title={`High Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n✓ Description matched known asset patterns\n✓ Recovery period matches asset class\n✓ Cost within expected range`}
+                                                            title={
+                                                                asset.transaction_type?.includes('Disposal')
+                                                                    ? `Complete Data (${Math.round((asset.confidence_score || 0) * 100)}%)\n✓ Disposal date recorded\n✓ Cost/basis available\n✓ Ready for gain/loss calculation`
+                                                                    : asset.transaction_type?.includes('Transfer')
+                                                                    ? `Complete Data (${Math.round((asset.confidence_score || 0) * 100)}%)\n✓ Transfer date recorded\n✓ Location info available\n✓ Ready for transfer documentation`
+                                                                    : `High Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n✓ Description matched known asset patterns\n✓ Recovery period matches asset class\n✓ Cost within expected range`
+                                                            }
                                                         >
                                                             High Conf.
                                                         </span>
@@ -970,7 +976,11 @@ function Review({ assets = [] }) {
                                                                 tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
                                                             )}
                                                             title={
-                                                                asset.confidence_score > 0.5
+                                                                asset.transaction_type?.includes('Disposal')
+                                                                    ? `Incomplete Data (${Math.round((asset.confidence_score || 0) * 100)}%)\n⚠ Missing disposal date or cost\n⚠ Cannot calculate gain/loss\n→ Add missing data for processing`
+                                                                    : asset.transaction_type?.includes('Transfer')
+                                                                    ? `Incomplete Data (${Math.round((asset.confidence_score || 0) * 100)}%)\n⚠ Missing transfer date or locations\n⚠ Incomplete transfer record\n→ Add from/to location info`
+                                                                    : asset.confidence_score > 0.5
                                                                     ? `Medium Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n⚠ Partial description match\n⚠ Multiple possible classifications\n→ Recommend manual review`
                                                                     : `Low Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n✗ Unknown or ambiguous asset type\n✗ Insufficient data for classification\n→ Manual classification required`
                                                             }

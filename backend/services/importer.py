@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from threading import local
 from backend.models.asset import Asset
 from backend.logic import sheet_loader
+from backend.logic.sheet_loader import infer_macrs_class_from_sheet_name
 
 
 @dataclass
@@ -229,6 +230,22 @@ class ImporterService:
         sheet_name = row.get('sheet_name', 'Unknown')
         transaction_type = row.get('transaction_type', 'addition')
 
+        # Infer MACRS class from sheet name if not provided in data
+        # This helps when files don't have explicit MACRS class columns
+        inferred_macrs_class = None
+        inferred_life = None
+        inferred_method = None
+        if sheet_name and sheet_name != 'Unknown':
+            inferred_macrs_class, inferred_life, inferred_method = infer_macrs_class_from_sheet_name(sheet_name)
+            if inferred_macrs_class:
+                print(f"[MACRS Inference] Sheet '{sheet_name}' -> {inferred_macrs_class} ({inferred_life}yr)")
+
+        # Use inferred values if not already set from file
+        if tax_life is None and inferred_life is not None and inferred_life > 0:
+            tax_life = float(inferred_life)
+        if tax_method is None and inferred_method is not None:
+            tax_method = inferred_method
+
         # Get disposal fields (for disposed assets)
         disposal_date = row.get('disposal_date')
         if pd.isna(disposal_date):
@@ -263,6 +280,7 @@ class ImporterService:
             cost=cost,
             acquisition_date=acquisition_date,
             in_service_date=in_service_date,
+            macrs_class=inferred_macrs_class,  # Use inferred class from sheet name
             macrs_life=tax_life,
             macrs_method=tax_method,
             # Disposal fields
