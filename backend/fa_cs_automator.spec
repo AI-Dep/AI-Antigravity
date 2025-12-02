@@ -128,6 +128,9 @@ hidden_imports += collect_submodules('backend.ui')
 # Data Files - non-Python files that must be included
 # ------------------------------------------------------------------------------
 datas = [
+    # Config template (users copy to config.json and edit)
+    ('config.template.json', '.'),
+
     # Logic module and all subfolders
     ('logic', 'logic'),
     ('logic/config', 'logic/config'),

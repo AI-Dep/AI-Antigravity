@@ -51,6 +51,10 @@
                 "from": "backend/dist/api",
                 "to": "backend_dist",
                 "filter": ["**/*"]
+            },
+            {
+                "from": "backend/config.template.json",
+                "to": "config.template.json"
             }
         ]
     },

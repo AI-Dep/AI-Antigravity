@@ -1,0 +1,13 @@
+{
+    "_comment": "FA CS Automator Configuration",
+    "_instructions": "Copy this file to 'config.json' and fill in your settings",
+
+    "openai_api_key": "",
+    "openai_model": "gpt-4o-mini",
+
+    "use_ai_classification": true,
+    "fallback_to_rules": true,
+
+    "log_level": "INFO",
+    "server_port": 8000
+}
