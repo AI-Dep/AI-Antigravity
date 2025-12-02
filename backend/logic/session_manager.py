@@ -178,6 +178,10 @@ class SessionData:
     tab_analysis_result: Optional[Any] = None
     last_upload_filename: Optional[str] = None
 
+    # Parse warnings and stats (from importer)
+    parse_warnings: List[str] = field(default_factory=list)
+    parse_stats: Dict[str, Any] = field(default_factory=dict)
+
     # Tax configuration (replaces global TAX_CONFIG)
     tax_config: Dict[str, Any] = field(default_factory=lambda: {
         "tax_year": datetime.now().year,

@@ -331,7 +331,7 @@ export const apiUpload = async (url, formData, onProgress = null) => {
         headers: {
             'Content-Type': 'multipart/form-data'
         },
-        timeout: 120000, // 2 minute timeout for uploads
+        timeout: 300000, // 5 minute timeout for uploads (large files with many sheets)
         onUploadProgress: (progressEvent) => {
             if (onProgress && progressEvent.total) {
                 const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
