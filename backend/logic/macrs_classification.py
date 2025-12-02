@@ -24,15 +24,19 @@ from .api_utils import retry_with_exponential_backoff
 
 # Import OpenAI with graceful fallback
 # Only consider OpenAI available if BOTH the library is installed AND the API key is set
+# AND the DISABLE_GPT_CLASSIFICATION flag is not set
 import os
 try:
     from openai import OpenAI
     # Check if API key is actually configured (not just library installed)
     _api_key = os.environ.get('OPENAI_API_KEY', '')
-    OPENAI_AVAILABLE = bool(_api_key and len(_api_key) > 10)
-    if not OPENAI_AVAILABLE:
-        logger = None  # Will be set later
-        print("[MACRS] OpenAI library installed but API key not configured - using rule-based classification")
+    # Allow disabling GPT classification for speed (use rules only)
+    _disable_gpt = os.environ.get('DISABLE_GPT_CLASSIFICATION', '').lower() in ('true', '1', 'yes')
+    OPENAI_AVAILABLE = bool(_api_key and len(_api_key) > 10 and not _disable_gpt)
+    if _disable_gpt:
+        print("[MACRS] GPT classification disabled via DISABLE_GPT_CLASSIFICATION - using fast rule-based classification")
+    elif not _api_key or len(_api_key) <= 10:
+        print("[MACRS] OpenAI API key not configured - using rule-based classification")
 except ImportError:
     OPENAI_AVAILABLE = False
     OpenAI = None
