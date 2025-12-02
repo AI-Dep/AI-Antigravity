@@ -131,8 +131,14 @@ def parse_percentage(v, default: Optional[float] = None) -> Optional[float]:
             if result > 1.0:
                 result = result / 100.0
 
-        # Clamp to [0, 1]
-        return max(0.0, min(1.0, result))
+        # Validate and clamp to [0, 1] with warnings for out-of-range values
+        if result < 0.0:
+            logger.warning(f"Negative percentage '{v}' clamped to 0.0 - percentages must be non-negative")
+            return 0.0
+        if result > 1.0:
+            logger.warning(f"Percentage '{v}' exceeds 100%, clamped to 1.0")
+            return 1.0
+        return result
 
     except (ValueError, TypeError, AttributeError) as e:
         logger.debug(f"Failed to parse percentage from '{v}': {e}")
