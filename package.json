@@ -18,6 +18,9 @@
         "copyright": "Copyright © 2025",
         "asar": true,
         "asarUnpack": [],
+        "directories": {
+            "output": "release"
+        },
         "win": {
             "target": [
                 {
@@ -29,15 +32,11 @@
                     "arch": ["x64"]
                 }
             ],
-            "icon": "icon.ico",
             "publisherName": "Your Company Name"
         },
         "nsis": {
             "oneClick": false,
             "allowToChangeInstallationDirectory": true,
-            "installerIcon": "icon.ico",
-            "uninstallerIcon": "icon.ico",
-            "installerHeaderIcon": "icon.ico",
             "createDesktopShortcut": true,
             "createStartMenuShortcut": true
         },
