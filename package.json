@@ -8,17 +8,45 @@
         "dev:backend": "venv\\Scripts\\python backend/api.py",
         "dev": "concurrently -k \"npm run dev:server\" \"npm run dev:electron\" \"npm run dev:backend\"",
         "start": "electron .",
-        "dist": "vite build && electron-builder"
+        "dist": "vite build && electron-builder",
+        "build:backend": "cd backend && pyinstaller fa_cs_automator.spec --noconfirm",
+        "build:all": "npm run build:backend && npm run dist"
     },
     "build": {
         "appId": "com.facs.automator",
+        "productName": "FA CS Automator",
+        "copyright": "Copyright © 2025",
+        "asar": true,
+        "asarUnpack": [],
         "win": {
-            "target": "portable",
-            "icon": "icon.ico"
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": ["x64"]
+                },
+                {
+                    "target": "portable",
+                    "arch": ["x64"]
+                }
+            ],
+            "icon": "icon.ico",
+            "publisherName": "Your Company Name"
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true,
+            "installerIcon": "icon.ico",
+            "uninstallerIcon": "icon.ico",
+            "installerHeaderIcon": "icon.ico",
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true
         },
         "files": [
             "dist/**/*",
-            "electron/**/*"
+            "electron/**/*",
+            "!**/*.map",
+            "!**/node_modules/**/*.md",
+            "!**/node_modules/**/*.ts"
         ],
         "extraResources": [
             {
@@ -39,6 +67,7 @@
         "wait-on": "^9.0.3"
     },
     "dependencies": {
+        "@radix-ui/react-tooltip": "^1.2.8",
         "axios": "^1.13.2",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",

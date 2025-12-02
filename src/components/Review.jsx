@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
 import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2, Shield, Wand2, DollarSign, Calculator } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -565,6 +566,7 @@ function Review({ assets = [] }) {
     }
 
     return (
+        <TooltipProvider delayDuration={200}>
         <div className="p-6 max-w-[1900px] mx-auto">
             {/* Header */}
             <div className="flex justify-between items-start mb-6">
@@ -1336,27 +1338,64 @@ function Review({ assets = [] }) {
                                                         {asset.depreciation_election === "Bonus" && isRealProperty(asset.macrs_life) && (
                                                             <AlertTriangle className="w-3.5 h-3.5 text-red-500" title="Real property (27.5/39 year) cannot take bonus depreciation" />
                                                         )}
-                                                        {/* Info icon with tooltip - using native title for reliability */}
-                                                        <Info
-                                                            className={cn(
-                                                                "cursor-help",
-                                                                tableCompact ? "w-3 h-3" : "w-3.5 h-3.5",
-                                                                asset.depreciation_election === "DeMinimis" ? "text-green-500" :
-                                                                asset.depreciation_election === "Section179" ? "text-blue-500" :
-                                                                asset.depreciation_election === "Bonus" ? "text-purple-500" : "text-slate-400"
-                                                            )}
-                                                            title={
-                                                                asset.depreciation_election === "DeMinimis"
-                                                                    ? `De Minimis Safe Harbor\n• Expense immediately (≤$${DE_MINIMIS_THRESHOLD.toLocaleString()})\n• NOT added to FA CS\n• Exported to separate sheet${asset.cost > DE_MINIMIS_THRESHOLD ? `\n⚠ Cost $${asset.cost.toLocaleString()} exceeds threshold!` : ''}`
-                                                                    : asset.depreciation_election === "Section179"
-                                                                    ? `§179 Expense Election\n• Full deduction in Year 1\n• Subject to business income limit\n• ${taxYear} limit: $${currentYearConfig.section179Limit.toLocaleString()}`
-                                                                    : asset.depreciation_election === "Bonus"
-                                                                    ? `Bonus Depreciation\n• ${currentYearConfig.bonusPercent}% deduction in Year 1 (${taxYear})\n• Remaining ${100 - currentYearConfig.bonusPercent}% via MACRS\n• No income limitation${isRealProperty(asset.macrs_life) ? '\n⚠ Real property cannot take bonus!' : ''}`
-                                                                    : asset.depreciation_election === "ADS"
-                                                                    ? `Alternative Depreciation (ADS)\n• Straight-line method\n• Longer recovery periods\n• Required for some property`
-                                                                    : `MACRS (Default)\n• Standard depreciation\n• 200DB or 150DB method\n• Based on property class`
-                                                            }
-                                                        />
+                                                        {/* Info icon with Radix UI tooltip for proper multi-line display */}
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <Info
+                                                                    className={cn(
+                                                                        "cursor-help",
+                                                                        tableCompact ? "w-3 h-3" : "w-3.5 h-3.5",
+                                                                        asset.depreciation_election === "DeMinimis" ? "text-green-500" :
+                                                                        asset.depreciation_election === "Section179" ? "text-blue-500" :
+                                                                        asset.depreciation_election === "Bonus" ? "text-purple-500" : "text-slate-400"
+                                                                    )}
+                                                                />
+                                                            </TooltipTrigger>
+                                                            <TooltipContent side="left" className="max-w-xs">
+                                                                {asset.depreciation_election === "DeMinimis" ? (
+                                                                    <div className="space-y-1">
+                                                                        <div className="font-semibold text-green-300">De Minimis Safe Harbor</div>
+                                                                        <div>• Expense immediately (≤${DE_MINIMIS_THRESHOLD.toLocaleString()})</div>
+                                                                        <div>• NOT added to FA CS</div>
+                                                                        <div>• Exported to separate sheet</div>
+                                                                        {asset.cost > DE_MINIMIS_THRESHOLD && (
+                                                                            <div className="text-orange-300 font-medium">⚠ Cost ${asset.cost.toLocaleString()} exceeds threshold!</div>
+                                                                        )}
+                                                                    </div>
+                                                                ) : asset.depreciation_election === "Section179" ? (
+                                                                    <div className="space-y-1">
+                                                                        <div className="font-semibold text-blue-300">§179 Expense Election</div>
+                                                                        <div>• Full deduction in Year 1</div>
+                                                                        <div>• Subject to business income limit</div>
+                                                                        <div>• {taxYear} limit: ${currentYearConfig.section179Limit.toLocaleString()}</div>
+                                                                    </div>
+                                                                ) : asset.depreciation_election === "Bonus" ? (
+                                                                    <div className="space-y-1">
+                                                                        <div className="font-semibold text-purple-300">Bonus Depreciation</div>
+                                                                        <div>• {currentYearConfig.bonusPercent}% deduction in Year 1 ({taxYear})</div>
+                                                                        <div>• Remaining {100 - currentYearConfig.bonusPercent}% via MACRS</div>
+                                                                        <div>• No income limitation</div>
+                                                                        {isRealProperty(asset.macrs_life) && (
+                                                                            <div className="text-red-300 font-medium">⚠ Real property cannot take bonus!</div>
+                                                                        )}
+                                                                    </div>
+                                                                ) : asset.depreciation_election === "ADS" ? (
+                                                                    <div className="space-y-1">
+                                                                        <div className="font-semibold text-slate-300">Alternative Depreciation (ADS)</div>
+                                                                        <div>• Straight-line method</div>
+                                                                        <div>• Longer recovery periods</div>
+                                                                        <div>• Required for some property</div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="space-y-1">
+                                                                        <div className="font-semibold text-slate-300">MACRS (Default)</div>
+                                                                        <div>• Standard depreciation</div>
+                                                                        <div>• 200DB or 150DB method</div>
+                                                                        <div>• Based on property class</div>
+                                                                    </div>
+                                                                )}
+                                                            </TooltipContent>
+                                                        </Tooltip>
                                                     </div>
                                                 ) : (
                                                     <span className={cn(
@@ -1598,6 +1637,7 @@ function Review({ assets = [] }) {
                 </div>
             )}
         </div>
+        </TooltipProvider>
     );
 }
 
