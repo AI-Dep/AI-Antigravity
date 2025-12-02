@@ -399,8 +399,7 @@ HEADER_KEYS = {
         "serial", "serial number", "serial #",
         # Alternate
         "number", "no", "no.", "#", "ref", "reference",
-        # Client-specific patterns (CPA internal asset numbering)
-        "kla asset #", "kla asset", "kla #", "kla id", "kla number",
+        # Generic internal asset numbering patterns
         "company asset #", "internal asset #", "client asset #", "internal #",
         "co asset #", "asset tag #", "equip #", "equip id"
     ],
