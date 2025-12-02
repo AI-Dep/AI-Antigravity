@@ -64,6 +64,7 @@ build/
 .env
 .env.local
 *.local
+config.json
 
 # Temporary files
 temp_*
