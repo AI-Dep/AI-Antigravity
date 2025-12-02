@@ -2,9 +2,9 @@
 # https://docs.railway.app/reference/config-as-code
 
 [build]
-# Use the Dockerfile for building
+# Use the simplified Railway Dockerfile
 builder = "dockerfile"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "Dockerfile.railway"
 
 [deploy]
 # Number of instances
