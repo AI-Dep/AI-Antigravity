@@ -66,6 +66,9 @@ build/
 *.local
 config.json
 
+# S3 config cache (auto-generated)
+.tax_rules_cache.json
+
 # Temporary files
 temp_*
 tmp/

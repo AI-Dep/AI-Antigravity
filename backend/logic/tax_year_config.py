@@ -33,7 +33,12 @@ logger = logging.getLogger(__name__)
 
 
 # ==============================================================================
-# JSON CONFIGURATION LOADER
+# JSON CONFIGURATION LOADER (S3 + Local Fallback)
+# ==============================================================================
+# Priority order:
+#   1. S3 bucket (if TAX_RULES_S3_BUCKET is configured)
+#   2. Local file (backend/config/tax_rules.json)
+#   3. Embedded defaults in this file
 # ==============================================================================
 
 def _get_config_path() -> str:
@@ -52,9 +57,27 @@ def _get_config_path() -> str:
     return config_path  # Return default even if not found
 
 
-def _load_json_config() -> Optional[Dict[str, Any]]:
+def _load_from_s3() -> Optional[Dict[str, Any]]:
     """
-    Load tax rules from JSON configuration file.
+    Attempt to load tax rules from S3 bucket.
+
+    Returns:
+        Dict with configuration or None if S3 not configured/unavailable
+    """
+    try:
+        from backend.config.s3_config_loader import load_config_from_s3
+        return load_config_from_s3()
+    except ImportError as e:
+        logger.debug(f"S3 config loader not available: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"S3 config load error: {e}")
+        return None
+
+
+def _load_from_local_file() -> Optional[Dict[str, Any]]:
+    """
+    Load tax rules from local JSON configuration file.
 
     Returns:
         Dict with configuration or None if file not found/invalid
@@ -64,7 +87,7 @@ def _load_json_config() -> Optional[Dict[str, Any]]:
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
-            logger.info(f"Loaded tax rules from: {config_path}")
+            logger.info(f"Loaded tax rules from local file: {config_path}")
 
             # Log version info
             meta = config.get("_meta", {})
@@ -73,14 +96,42 @@ def _load_json_config() -> Optional[Dict[str, Any]]:
 
             return config
     except FileNotFoundError:
-        logger.warning(f"Tax rules config not found at {config_path}, using embedded defaults")
+        logger.warning(f"Tax rules config not found at {config_path}")
         return None
     except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in tax rules config: {e}, using embedded defaults")
+        logger.error(f"Invalid JSON in tax rules config: {e}")
         return None
     except Exception as e:
-        logger.error(f"Error loading tax rules config: {e}, using embedded defaults")
+        logger.error(f"Error loading tax rules config: {e}")
         return None
+
+
+def _load_json_config() -> Optional[Dict[str, Any]]:
+    """
+    Load tax rules from configuration sources with fallback.
+
+    Priority:
+        1. S3 bucket (if configured via TAX_RULES_S3_BUCKET)
+        2. Local file (backend/config/tax_rules.json)
+        3. Returns None (embedded defaults will be used)
+
+    Returns:
+        Dict with configuration or None if all sources fail
+    """
+    # Try S3 first (if configured)
+    s3_config = _load_from_s3()
+    if s3_config:
+        logger.info("Using tax rules from S3")
+        return s3_config
+
+    # Fall back to local file
+    local_config = _load_from_local_file()
+    if local_config:
+        return local_config
+
+    # All external sources failed
+    logger.warning("No external tax rules config found, using embedded defaults")
+    return None
 
 
 # Load configuration at module import (with fallback to defaults)
@@ -184,12 +235,32 @@ def get_config_info() -> Dict[str, Any]:
     Get configuration metadata for display in UI.
 
     Returns:
-        Dict with version, last updated, supported years info
+        Dict with version, last updated, supported years info, and source details
     """
     official_years = [y for y, s in SUPPORTED_TAX_YEARS.items() if s == TaxYearStatus.OFFICIAL]
     estimated_years = [y for y, s in SUPPORTED_TAX_YEARS.items() if s == TaxYearStatus.ESTIMATED]
 
-    return {
+    # Determine config source
+    config_source = "embedded"
+    config_path = None
+    s3_info = None
+
+    if _JSON_CONFIG:
+        # Check if loaded from S3 (will have S3-specific metadata in cache)
+        try:
+            from backend.config.s3_config_loader import get_config_source_info
+            s3_info = get_config_source_info()
+            if s3_info.get("s3_configured") and s3_info.get("cache_exists"):
+                config_source = "s3"
+                config_path = s3_info.get("cache_source")
+            else:
+                config_source = "local_file"
+                config_path = _get_config_path()
+        except ImportError:
+            config_source = "local_file"
+            config_path = _get_config_path()
+
+    result = {
         "version": CONFIG_VERSION,
         "last_updated": CONFIG_LAST_UPDATED,
         "updated_by": CONFIG_UPDATED_BY,
@@ -197,9 +268,18 @@ def get_config_info() -> Dict[str, Any]:
         "estimated_years": sorted(estimated_years),
         "min_year": MIN_SUPPORTED_YEAR,
         "max_year": MAX_SUPPORTED_YEAR,
-        "config_source": "json" if _JSON_CONFIG else "embedded",
-        "config_path": _get_config_path() if _JSON_CONFIG else None,
+        "config_source": config_source,
+        "config_path": config_path,
     }
+
+    # Add S3 details if available
+    if s3_info:
+        result["s3_configured"] = s3_info.get("s3_configured", False)
+        result["s3_bucket"] = s3_info.get("s3_bucket")
+        if s3_info.get("cache_timestamp"):
+            result["s3_cache_timestamp"] = s3_info.get("cache_timestamp")
+
+    return result
 
 
 def reload_config() -> bool:

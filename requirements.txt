@@ -25,6 +25,9 @@ plotly>=5.19.0
 pydantic>=2.0.0
 PyJWT>=2.8.0          # JWT token handling for authentication
 
+# AWS S3 for remote configuration
+boto3>=1.34.0         # AWS SDK for S3 tax rules config
+
 # Optional: Redis for scalable session storage
 # redis>=5.0.0
 
