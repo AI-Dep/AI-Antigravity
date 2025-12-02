@@ -940,7 +940,8 @@ SHEET_SKIP_PATTERNS = [
     "old data", "legacy",
 
     # Budget/planning sheets (not actual assets)
-    "budget", "forecast", "projection", "plan",
+    # NOTE: Removed "plan" - too broad, matches "Plant Equip"
+    "budget", "forecast", "projection",
 
     # Reconciliation sheets
     "reconcile", "apr to may", "roll forward", "rollforward",
@@ -1013,10 +1014,11 @@ def _should_skip_sheet(sheet_name: str, target_tax_year: Optional[int] = None) -
             years = [int(y) for y in years_in_name]
             max_year = max(years)
 
-            # If the highest year in the sheet name is older than target-1, skip it
-            # (e.g., if target is 2025, skip sheets with only 2023 or earlier)
-            if max_year < target_tax_year - 1:
-                return True, f"Sheet year ({max_year}) is older than target year ({target_tax_year})"
+            # If the highest year in the sheet name is older than target year, skip it
+            # (e.g., if target is 2025, skip sheets with 2024 or earlier)
+            # CPAs don't need to review prior year asset schedules
+            if max_year < target_tax_year:
+                return True, f"Prior year sheet ({max_year}) - skipping for tax year {target_tax_year}"
 
     return False, ""
 
