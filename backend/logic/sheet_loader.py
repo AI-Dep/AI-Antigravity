@@ -950,10 +950,35 @@ SHEET_SKIP_PATTERNS = [
 # Patterns that indicate a sheet is a SUMMARY (category-level totals, not asset details)
 # These sheets contain rows like "Office Equip 15010  $223,153.15" - totals not assets
 SUMMARY_SHEET_PATTERNS = [
-    r"^fy\s*\d{4}\s*\d{4}$",          # "FY 2024 2025" - fiscal year summary
-    r"^fy\s*\d{4}\s*/?\s*\d{4}$",     # "FY 2024/2025" - fiscal year summary
+    r"^fy\s*\d{4}\s*[-/]?\s*\d{4}$",  # "FY 2024 2025" or "FY 2024/2025" - fiscal year summary
     r"^fy\s*\d{4}$",                   # "FY 2024" - fiscal year summary
 ]
+
+# Keywords that indicate a ROLLFORWARD/SUMMARY sheet (check in first 10 rows)
+ROLLFORWARD_INDICATORS = [
+    "beg balance", "beginning balance", "beg bal",
+    "end balance", "ending balance", "end bal",
+    "accum depreciation", "accumulated depreciation",
+    "fixed assets net", "net fixed assets", "total fixed assets",
+    "roll forward", "rollforward",
+]
+
+# Account code patterns that indicate summary rows (e.g., "Office Equip 15010")
+ACCOUNT_CODE_PATTERN = re.compile(r'^\s*[A-Za-z\s&]+\s+\d{5}(?:-\d{2})?\s*$')
+
+# Disposal JE format patterns
+# Matches: "Asset #51 - April 2024 - disposed of B27 Grinding Wheel"
+DISPOSAL_JE_HEADER_PATTERN = re.compile(
+    r'Asset\s*#?\s*(\d+)\s*[-–]\s*(\w+\s+\d{4})\s*[-–]\s*(.+)',
+    re.IGNORECASE
+)
+# Matches month year: "April 2024", "Mar 2025"
+MONTH_YEAR_PATTERN = re.compile(
+    r'(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|'
+    r'Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)'
+    r'\s+(\d{4})',
+    re.IGNORECASE
+)
 
 # NOTE: Disposal sheets should be PROCESSED (with SheetRole.DISPOSALS), not SKIPPED
 # The sheet role detection at _detect_sheet_role_from_name handles disposal sheets correctly
@@ -1021,6 +1046,204 @@ def _should_skip_sheet(sheet_name: str, target_tax_year: Optional[int] = None) -
                 return True, f"Prior year sheet ({max_year}) - skipping for tax year {target_tax_year}"
 
     return False, ""
+
+
+def _is_rollforward_sheet(df: pd.DataFrame, sheet_name: str) -> Tuple[bool, str]:
+    """
+    Check if a sheet is a rollforward/summary sheet by examining its CONTENT.
+
+    Rollforward sheets typically have:
+    - "Beg Balance" / "End Balance" columns
+    - Category rows with account codes (e.g., "Office Equip 15010")
+    - "Accum Depreciation" section
+    - "Fixed Assets Net" totals
+
+    These are NOT asset detail sheets and should be skipped.
+
+    Args:
+        df: Raw DataFrame (header=None)
+        sheet_name: Name of the sheet (for logging)
+
+    Returns:
+        Tuple of (is_rollforward, reason)
+    """
+    if df is None or df.empty or len(df) < 3:
+        return False, ""
+
+    # Check first 15 rows for rollforward indicators
+    check_rows = min(15, len(df))
+
+    # Concatenate all cell values in first rows to search for keywords
+    text_content = ""
+    for i in range(check_rows):
+        for val in df.iloc[i]:
+            if pd.notna(val):
+                text_content += " " + str(val).lower()
+
+    # Check for rollforward indicators
+    found_indicators = []
+    for indicator in ROLLFORWARD_INDICATORS:
+        if indicator in text_content:
+            found_indicators.append(indicator)
+
+    # If we find 2+ indicators, it's likely a rollforward sheet
+    if len(found_indicators) >= 2:
+        return True, f"Rollforward sheet (found: {', '.join(found_indicators[:3])})"
+
+    # Check for account code patterns in first column (e.g., "Office Equip 15010")
+    account_code_count = 0
+    for i in range(min(20, len(df))):
+        first_col = df.iloc[i, 0] if len(df.columns) > 0 else None
+        if pd.notna(first_col):
+            cell_str = str(first_col).strip()
+            if ACCOUNT_CODE_PATTERN.match(cell_str):
+                account_code_count += 1
+
+    # If we find 3+ account code rows, it's a summary sheet
+    if account_code_count >= 3:
+        return True, f"Summary sheet with {account_code_count} category total rows"
+
+    return False, ""
+
+
+def _is_disposal_je_format(df: pd.DataFrame) -> bool:
+    """
+    Check if a sheet uses the Journal Entry format for disposals.
+
+    JE format has entries like:
+        1. Asset #51 - April 2024 - disposed of B27 Grinding Wheel E0423
+           JE # 16133
+           A/D     6,080.33    15059-00
+           Asset   6,080.33    15050-00
+
+    Returns:
+        True if this appears to be JE format
+    """
+    if df is None or df.empty or len(df) < 5:
+        return False
+
+    # Look for "Asset #" pattern in first 20 rows
+    je_indicators = 0
+    for i in range(min(20, len(df))):
+        for j in range(min(5, len(df.columns))):
+            val = df.iloc[i, j]
+            if pd.notna(val):
+                val_str = str(val).strip()
+                # Check for "Asset #XX" pattern
+                if re.search(r'Asset\s*#\s*\d+', val_str, re.IGNORECASE):
+                    je_indicators += 1
+                # Check for "JE #" pattern
+                if re.search(r'JE\s*#', val_str, re.IGNORECASE):
+                    je_indicators += 1
+                # Check for "A/D" (accumulated depreciation) row
+                if val_str.upper() in ('A/D', 'A.D.', 'ACCUM DEP', 'ACC DEP'):
+                    je_indicators += 1
+
+    return je_indicators >= 2
+
+
+def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[str, Any]]:
+    """
+    Parse disposal sheet in Journal Entry format.
+
+    Extracts disposal information from JE entries like:
+        1. Asset #51 - April 2024 - disposed of B27 Grinding Wheel E0423
+           JE # 16133
+           A/D     6,080.33    15059-00
+           Asset   6,080.33    15050-00
+
+    Returns:
+        List of disposal records with keys: asset_id, description, disposal_date, cost, accum_dep, proceeds
+    """
+    disposals = []
+
+    if df is None or df.empty:
+        return disposals
+
+    current_disposal = None
+
+    for i in range(len(df)):
+        row_text = ""
+        for j in range(min(8, len(df.columns))):
+            val = df.iloc[i, j]
+            if pd.notna(val):
+                row_text += " " + str(val).strip()
+
+        row_text = row_text.strip()
+
+        # Check for disposal header: "Asset #51 - April 2024 - disposed of..."
+        # Also match: "1. Asset #51 - April 2024 - disposed of..."
+        header_match = DISPOSAL_JE_HEADER_PATTERN.search(row_text)
+        if header_match:
+            # Save previous disposal if exists
+            if current_disposal and current_disposal.get('description'):
+                disposals.append(current_disposal)
+
+            asset_num = header_match.group(1)
+            date_str = header_match.group(2)
+            description = header_match.group(3).strip()
+
+            # Clean up description - remove "disposed of", "sold to", etc.
+            description = re.sub(r'^(disposed\s+of|sold\s+to|transferred)\s*', '', description, flags=re.IGNORECASE)
+
+            # Parse the month/year to a date
+            disposal_date = None
+            month_match = MONTH_YEAR_PATTERN.search(date_str)
+            if month_match:
+                month_str = month_match.group(1)
+                year_str = month_match.group(2)
+                try:
+                    disposal_date = pd.to_datetime(f"{month_str} 1, {year_str}")
+                except Exception:
+                    pass
+
+            current_disposal = {
+                'asset_id': f"#{asset_num}",
+                'description': description,
+                'disposal_date': disposal_date,
+                'cost': None,
+                'accum_dep': None,
+                'proceeds': None,
+                'source_sheet': sheet_name,
+            }
+            continue
+
+        # If we have a current disposal, look for A/D, Asset, and Proceeds rows
+        if current_disposal:
+            # Check for A/D row (accumulated depreciation)
+            if re.search(r'\bA/?D\b', row_text, re.IGNORECASE):
+                # Find numeric value
+                numbers = re.findall(r'[\d,]+\.?\d*', row_text)
+                if numbers:
+                    try:
+                        current_disposal['accum_dep'] = float(numbers[0].replace(',', ''))
+                    except ValueError:
+                        pass
+
+            # Check for Asset row (cost)
+            elif row_text.lower().startswith('asset') and not header_match:
+                numbers = re.findall(r'[\d,]+\.?\d*', row_text)
+                if numbers:
+                    try:
+                        current_disposal['cost'] = float(numbers[0].replace(',', ''))
+                    except ValueError:
+                        pass
+
+            # Check for Proceeds
+            elif 'proceed' in row_text.lower():
+                numbers = re.findall(r'[\d,]+\.?\d*', row_text)
+                if numbers:
+                    try:
+                        current_disposal['proceeds'] = float(numbers[0].replace(',', ''))
+                    except ValueError:
+                        pass
+
+    # Don't forget the last disposal
+    if current_disposal and current_disposal.get('description'):
+        disposals.append(current_disposal)
+
+    logger.info(f"[{sheet_name}] Parsed {len(disposals)} disposals from JE format")
+    return disposals
 
 
 def _extract_fiscal_year_from_sheet(sheet_name: str) -> Optional[int]:
@@ -2050,6 +2273,38 @@ def build_unified_dataframe(
         if df_raw is None or df_raw.empty:
             logger.warning(f"Skipping empty sheet: {sheet_name}")
             skipped_sheets += 1
+            continue
+
+        # CONTENT-BASED SKIP: Check if sheet is a rollforward/summary by examining content
+        is_rollforward, rollforward_reason = _is_rollforward_sheet(df_raw, sheet_name)
+        if is_rollforward:
+            logger.info(f"⏭️  Skipping sheet '{sheet_name}': {rollforward_reason}")
+            skipped_sheet_reasons.append(f"'{sheet_name}': {rollforward_reason}")
+            skipped_sheets += 1
+            continue
+
+        # SPECIAL HANDLING: Disposal sheets in JE (Journal Entry) format
+        # These have a non-standard format and need special parsing
+        sheet_name_lower = sheet_name.lower()
+        is_disposal_sheet = 'disposal' in sheet_name_lower or 'disposed' in sheet_name_lower
+        if is_disposal_sheet and _is_disposal_je_format(df_raw):
+            logger.info(f"[{sheet_name}] Detected JE format disposal sheet - using special parser")
+            je_disposals = _parse_disposal_je_format(df_raw, sheet_name)
+            for disposal in je_disposals:
+                row_data = {
+                    'description': disposal.get('description', ''),
+                    'asset_id': disposal.get('asset_id'),
+                    'cost': disposal.get('cost'),
+                    'accumulated_depreciation': disposal.get('accum_dep'),
+                    'disposal_date': disposal.get('disposal_date'),
+                    'proceeds': disposal.get('proceeds'),
+                    'source_sheet': sheet_name,
+                    'sheet_role': 'disposals',
+                    'transaction_type': 'Disposal',
+                }
+                all_rows.append(row_data)
+            processed_sheets += 1
+            logger.info(f"[{sheet_name}] Added {len(je_disposals)} disposals from JE format")
             continue
 
         try:
