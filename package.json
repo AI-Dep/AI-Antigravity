@@ -5,7 +5,7 @@
     "scripts": {
         "dev:server": "vite",
         "dev:electron": "wait-on tcp:5173 && electron .",
-        "dev:backend": "venv\\Scripts\\python backend/api.py",
+        "dev:backend": "venv\\Scripts\\python -m backend.api",
         "dev": "concurrently -k \"npm run dev:server\" \"npm run dev:electron\" \"npm run dev:backend\"",
         "start": "electron .",
         "dist": "vite build && electron-builder",
