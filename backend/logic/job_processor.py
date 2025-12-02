@@ -461,9 +461,9 @@ def upload_job_handler(job: Job, params: Dict[str, Any], on_progress: Callable) 
 
     on_progress(0, 100, "Parsing Excel file...")
 
-    # Parse file
+    # Parse file (pass tax_year to skip prior year sheets for performance)
     importer = ImporterService()
-    assets = importer.parse_excel(file_path)
+    assets = importer.parse_excel(file_path, target_tax_year=tax_year)
 
     if not assets:
         raise ValueError("No assets found in file")

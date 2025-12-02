@@ -1534,8 +1534,8 @@ async def upload_file(
             logger.warning(f"Tab analysis error (non-fatal): {tab_err}")
             session.tab_analysis_result = None
 
-        # 1. Parse Excel
-        assets = importer.parse_excel(temp_file)
+        # 1. Parse Excel (pass tax year to skip prior year sheets for performance)
+        assets = importer.parse_excel(temp_file, target_tax_year=current_tax_year)
 
         # 2. Classify Assets (MACRS + Transaction Types)
         tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])

@@ -72,7 +72,7 @@ class ImporterService:
         report = self.get_last_parse_report()
         return assets, report
 
-    def parse_excel(self, file_path: str, filter_by_date: bool = False) -> List[Asset]:
+    def parse_excel(self, file_path: str, filter_by_date: bool = False, target_tax_year: Optional[int] = None) -> List[Asset]:
         """
         Reads an Excel file and returns a list of validated Asset objects.
 
@@ -81,11 +81,14 @@ class ImporterService:
         - Includes assets even without dates (filter_by_date=False by default)
         - Uses smart tab analysis to detect sheet roles
         - Results are stored in thread-local storage for thread safety
+        - Skips prior year sheets to optimize performance
 
         Args:
             file_path: Path to the Excel file
             filter_by_date: If True, only include rows with dates in target fiscal year.
                            Default is False to include ALL assets.
+            target_tax_year: Tax year to process (e.g., 2025). Sheets from prior years
+                            will be skipped for performance. If None, uses current year.
 
         Returns:
             List of Asset objects from all valid sheets
@@ -124,10 +127,14 @@ class ImporterService:
 
         # 2. Use advanced sheet_loader to build unified dataframe from ALL sheets
         # CRITICAL: filter_by_date=False ensures assets without dates are NOT excluded
+        # PERFORMANCE: target_tax_year enables skipping prior year sheets
+        from datetime import datetime
+        effective_tax_year = target_tax_year or datetime.now().year
+
         try:
             df_unified = sheet_loader.build_unified_dataframe(
                 sheets,
-                target_tax_year=None,  # Don't filter by year
+                target_tax_year=effective_tax_year,  # Skip prior year sheets for performance
                 filter_by_date=filter_by_date,  # Default False - include all assets
                 client_id=None
             )
