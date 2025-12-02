@@ -1,36 +1,25 @@
 # ==============================================================================
 # FA CS Automator - Railway Deployment Dockerfile
 # ==============================================================================
-# Simplified Dockerfile for Railway.app deployment
-# ==============================================================================
 
 FROM python:3.11-slim
 
+# Set working directory to /app
 WORKDIR /app
 
-# Cache bust - change this to force rebuild: v3
-ARG CACHE_BUST=3
-
-# Copy requirements first
+# Copy requirements and install dependencies
 COPY requirements.txt .
-
-# Install Python dependencies (including uvicorn)
-RUN pip install --no-cache-dir uvicorn[standard] fastapi
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy all source files
 COPY . .
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
+# Set PYTHONPATH so imports work
 ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
 
 # Expose port
 EXPOSE 8000
 
-# List files for debugging (will show in build logs)
-RUN ls -la /app && ls -la /app/backend || true
-
-# Start the FastAPI server (Railway sets PORT env variable)
-CMD cd /app && PYTHONPATH=/app uvicorn backend.api:app --host 0.0.0.0 --port ${PORT:-8000}
+# Run the startup script
+CMD ["python", "/app/start.py"]
