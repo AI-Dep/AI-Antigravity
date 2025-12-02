@@ -954,12 +954,8 @@ SUMMARY_SHEET_PATTERNS = [
     r"^fy\s*\d{4}$",                   # "FY 2024" - fiscal year summary
 ]
 
-# Patterns that indicate a sheet contains DISPOSALS in journal entry format
-# These have irregular structure (JE #, A/D, Asset rows) not standard asset lists
-DISPOSAL_JE_PATTERNS = [
-    r"disposal",                       # "Disposals FY 2024 2025"
-    r"disposed",
-]
+# NOTE: Disposal sheets should be PROCESSED (with SheetRole.DISPOSALS), not SKIPPED
+# The sheet role detection at _detect_sheet_role_from_name handles disposal sheets correctly
 
 # Fiscal year patterns that indicate PRIOR years (not current)
 # These get matched against sheet names to detect prior year data
@@ -981,7 +977,8 @@ def _should_skip_sheet(sheet_name: str, target_tax_year: Optional[int] = None) -
     - Summary/overview sheets (contain totals, not asset data)
     - Prior year sheets (historical data)
     - Working/draft sheets
-    - Disposal sheets in journal entry format
+
+    NOTE: Disposal sheets are NOT skipped - they are processed with SheetRole.DISPOSALS
 
     Args:
         sheet_name: Name of the Excel sheet
@@ -1002,12 +999,6 @@ def _should_skip_sheet(sheet_name: str, target_tax_year: Optional[int] = None) -
     for pattern in SUMMARY_SHEET_PATTERNS:
         if re.search(pattern, sheet_lower):
             return True, f"Summary sheet (category totals, not asset details): '{sheet_name}'"
-
-    # Check for disposal journal entry sheets (regex match)
-    # These have JE format (JE #, A/D, Asset rows) not standard asset lists
-    for pattern in DISPOSAL_JE_PATTERNS:
-        if re.search(pattern, sheet_lower):
-            return True, f"Disposal sheet (journal entry format): '{sheet_name}'"
 
     # Check for prior year patterns using regex
     for pattern in PRIOR_YEAR_PATTERNS:
