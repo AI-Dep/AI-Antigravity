@@ -23,9 +23,16 @@ from .constants import LOW_CONFIDENCE_THRESHOLD, MIN_RULE_SCORE, GPT_TEMPERATURE
 from .api_utils import retry_with_exponential_backoff
 
 # Import OpenAI with graceful fallback
+# Only consider OpenAI available if BOTH the library is installed AND the API key is set
+import os
 try:
     from openai import OpenAI
-    OPENAI_AVAILABLE = True
+    # Check if API key is actually configured (not just library installed)
+    _api_key = os.environ.get('OPENAI_API_KEY', '')
+    OPENAI_AVAILABLE = bool(_api_key and len(_api_key) > 10)
+    if not OPENAI_AVAILABLE:
+        logger = None  # Will be set later
+        print("[MACRS] OpenAI library installed but API key not configured - using rule-based classification")
 except ImportError:
     OPENAI_AVAILABLE = False
     OpenAI = None
