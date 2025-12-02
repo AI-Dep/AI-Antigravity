@@ -398,7 +398,11 @@ HEADER_KEYS = {
         "tag", "tag number", "asset tag", "equipment id", "equipment number",
         "serial", "serial number", "serial #",
         # Alternate
-        "number", "no", "no.", "#", "ref", "reference"
+        "number", "no", "no.", "#", "ref", "reference",
+        # Client-specific patterns (CPA internal asset numbering)
+        "kla asset #", "kla asset", "kla #", "kla id", "kla number",
+        "company asset #", "internal asset #", "client asset #", "internal #",
+        "co asset #", "asset tag #", "equip #", "equip id"
     ],
 
     "description": [
@@ -469,7 +473,9 @@ HEADER_KEYS = {
         # Edge cases commonly seen in CPA files
         "service dt", "in svc", "in svc date", "placed date",
         "depr start", "depreciation date", "begin depr",
-        "effective date", "effective"
+        "effective date", "effective",
+        # Simple "Date" column (common in CPA asset schedules where single date = in-service)
+        "date"
     ],
 
     "location": [
