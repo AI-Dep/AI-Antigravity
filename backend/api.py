@@ -3246,9 +3246,17 @@ async def fix_data_category(request: Request, response: Response, body: dict = B
     session = await get_current_session(request)
     add_session_to_response(response, session.session_id)
 
+    # Validate category parameter against allowed values
+    VALID_CATEGORIES = {"invalid_dates", "missing_dates", "negative_format", "ocr_errors", "cost_format"}
+
     category = body.get("category")
     if not category:
         raise HTTPException(status_code=400, detail="Category required")
+    if category not in VALID_CATEGORIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid category '{category}'. Must be one of: {', '.join(sorted(VALID_CATEGORIES))}"
+        )
 
     fixed_count = 0
     assets = session.assets
@@ -3266,27 +3274,54 @@ async def fix_data_category(request: Request, response: Response, body: dict = B
                 try:
                     from datetime import datetime
                     import calendar
+
+                    def safe_parse_year(parts):
+                        """Safely parse year from date parts with validation."""
+                        if len(parts) >= 3:
+                            year_str = parts[2].strip()
+                            if year_str.isdigit():
+                                if len(year_str) == 4:
+                                    year = int(year_str)
+                                elif len(year_str) == 2:
+                                    year = 2000 + int(year_str) if int(year_str) < 50 else 1900 + int(year_str)
+                                else:
+                                    return None
+                                # Validate year is reasonable (1900-2100)
+                                if 1900 <= year <= 2100:
+                                    return year
+                        return None
+
+                    def safe_parse_month(parts):
+                        """Safely parse month from date parts with validation."""
+                        if len(parts) >= 1:
+                            month_str = parts[0].strip()
+                            if month_str.isdigit():
+                                month = int(month_str)
+                                if 1 <= month <= 12:
+                                    return month
+                        return None
+
                     # Try to parse and fix invalid dates
                     if "2/30" in date_str or "2/31" in date_str:
                         # February - use last day of Feb
-                        year = datetime.now().year
                         if "/" in date_str:
                             parts = date_str.split("/")
-                            if len(parts) >= 3:
-                                year = int(parts[2]) if len(parts[2]) == 4 else 2000 + int(parts[2])
-                        last_day = 29 if calendar.isleap(year) else 28
-                        asset.in_service_date = datetime(year, 2, last_day)
-                        fixed_count += 1
+                            year = safe_parse_year(parts)
+                            if year:
+                                last_day = 29 if calendar.isleap(year) else 28
+                                asset.in_service_date = datetime(year, 2, last_day)
+                                fixed_count += 1
                     elif "4/31" in date_str or "6/31" in date_str or "9/31" in date_str or "11/31" in date_str:
                         # 30-day months
                         if "/" in date_str:
                             parts = date_str.split("/")
-                            month = int(parts[0])
-                            year = int(parts[2]) if len(parts) >= 3 and len(parts[2]) == 4 else datetime.now().year
-                            asset.in_service_date = datetime(year, month, 30)
-                            fixed_count += 1
-                except Exception:
-                    pass  # Can't auto-fix this date
+                            month = safe_parse_month(parts)
+                            year = safe_parse_year(parts)
+                            if month and year and month in [4, 6, 9, 11]:
+                                asset.in_service_date = datetime(year, month, 30)
+                                fixed_count += 1
+                except Exception as e:
+                    logger.warning(f"Could not auto-fix date for asset {asset_id}: {e}")
 
         elif category == "negative_format":
             if asset.cost is not None:

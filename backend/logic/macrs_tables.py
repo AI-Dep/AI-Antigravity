@@ -503,6 +503,14 @@ def get_sl_mm_table(recovery_period: float, month: int) -> List[float]:
     Returns:
         List of depreciation percentages for each year
     """
+    # Validate recovery_period to prevent division by zero
+    if recovery_period is None or recovery_period <= 0:
+        raise ValueError(f"Invalid recovery_period: {recovery_period}. Must be a positive number.")
+
+    # Validate month
+    if month is None or month < 1 or month > 12:
+        month = 1  # Default to January if invalid
+
     # Total months of depreciation
     total_months = recovery_period * 12  # 330 for 27.5yr, 468 for 39yr
 
@@ -566,6 +574,10 @@ def get_sl_hy_table(recovery_period: int) -> List[float]:
     Returns:
         List of depreciation percentages
     """
+    # Validate recovery_period to prevent division by zero
+    if recovery_period is None or recovery_period <= 0:
+        raise ValueError(f"Invalid recovery_period: {recovery_period}. Must be a positive integer.")
+
     # First year: Half year
     first_year_pct = 0.5 / recovery_period
 
@@ -613,7 +625,14 @@ def get_macrs_table(
 
     Returns:
         List of depreciation percentages for each year
+
+    Raises:
+        ValueError: If recovery_period is invalid (None, 0, or negative)
     """
+    # Validate recovery_period to prevent division by zero in fallback calculations
+    if recovery_period is None or recovery_period <= 0:
+        raise ValueError(f"Invalid recovery_period: {recovery_period}. Must be a positive number (e.g., 3, 5, 7, 10, 15, 20, 27.5, 39).")
+
     # Map to table based on parameters
     if convention == "HY":
         if method == "200DB" or method == "DB":

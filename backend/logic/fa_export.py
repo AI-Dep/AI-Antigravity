@@ -185,11 +185,18 @@ def _fix_client_category(cat: str):
 # NBV RECONCILIATION
 # --------------------------------------------------------------
 
-def _compute_nbv_reco(df: pd.DataFrame, tolerance: float = 5.0) -> pd.DataFrame:
+def _compute_nbv_reco(df: pd.DataFrame, min_tolerance: float = 5.0, pct_tolerance: float = 0.001) -> pd.DataFrame:
     """
     Validate Net Book Value = Cost - Accumulated Depreciation.
 
-    Flags assets with NBV discrepancies > tolerance for CPA review.
+    Flags assets with NBV discrepancies for CPA review.
+
+    Tolerance is the GREATER of:
+    - min_tolerance: Minimum dollar amount (default $5.00)
+    - pct_tolerance: Percentage of asset cost (default 0.1%)
+
+    This ensures small assets use dollar tolerance while large assets
+    use percentage tolerance (e.g., $1M asset gets $1,000 tolerance).
     """
     df = df.copy()
 
@@ -239,14 +246,20 @@ def _compute_nbv_reco(df: pd.DataFrame, tolerance: float = 5.0) -> pd.DataFrame:
     if mask2.any():
         df.loc[mask2, "NBV_Diff"] = df.loc[mask2, "NBV"] - df.loc[mask2, "NBV_Derived"]
 
+    # Calculate asset-specific tolerance: max(min_tolerance, cost * pct_tolerance)
+    # This ensures large assets get proportional tolerance while small assets get minimum
+    df["_Tolerance"] = df["Cost"].abs() * pct_tolerance
+    df["_Tolerance"] = df["_Tolerance"].clip(lower=min_tolerance)
+
     # Set reconciliation status
     df["NBV_Reco"] = "OK"
-    # Flag if NBV difference exceeds tolerance (client-provided NBV doesn't match calculated)
-    df.loc[df["NBV_Diff"].abs() > tolerance, "NBV_Reco"] = "CHECK"
+    # Flag if NBV difference exceeds asset-specific tolerance
+    exceeds_tolerance = df["NBV_Diff"].abs() > df["_Tolerance"]
+    df.loc[exceeds_tolerance, "NBV_Reco"] = "CHECK"
     # Note: We no longer flag missing NBV as "CHECK" since we auto-fill it from derived value
 
-    # Clean up temporary column
-    df = df.drop(columns=["_AccumDep"])
+    # Clean up temporary columns
+    df = df.drop(columns=["_AccumDep", "_Tolerance"])
 
     return df
 
@@ -1494,6 +1507,25 @@ def build_fa(
         # Get MACRS parameters
         # Support both "Recovery Period" (preferred) and "MACRS Life" (fallback) column names
         recovery_period = row.get("Recovery Period") or row.get("MACRS Life")
+
+        # Validate recovery_period - must be a positive number for depreciation
+        if recovery_period is None or recovery_period == 0:
+            asset_id = row.get("Asset ID", idx)
+            print(f"Warning: Asset {asset_id} has no valid Recovery Period or MACRS Life. Depreciation will be $0.00.")
+            macrs_year1_depreciation.append(0.0)
+            continue
+
+        # Convert to numeric if string
+        try:
+            recovery_period = float(recovery_period)
+            if recovery_period <= 0:
+                raise ValueError("Recovery period must be positive")
+        except (ValueError, TypeError) as e:
+            asset_id = row.get("Asset ID", idx)
+            print(f"Warning: Asset {asset_id} has invalid Recovery Period '{recovery_period}': {e}. Depreciation will be $0.00.")
+            macrs_year1_depreciation.append(0.0)
+            continue
+
         method = row.get("Method", "200DB")
         convention = row.get("Convention", "HY")
         quarter = row.get("Quarter")  # For MQ convention

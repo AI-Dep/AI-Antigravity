@@ -2,17 +2,25 @@
 
 **Thomson Reuters Fixed Asset CS AI Automation Tool**
 
-Automate the detection of asset schedules from various Excel files and import to Fixed Asset CS with RPA (UiPath).
+Automate the detection of asset schedules from various Excel files and import to Fixed Asset CS with AI-powered classification and RPA automation.
 
 ## Features
 
 - **Auto-Detection**: Intelligent column detection from any Excel format
 - **MACRS Classification**: AI-powered asset classification with rule-based engine + GPT fallback
 - **Human-in-the-Loop**: CPA review and approval workflow before data conversion
-- **RPA Integration**: UiPath automation for Fixed Asset CS import
-- **Multi-Format Support**: Handles diverse client Excel formats
-- **SQLite Database**: Full audit trail and multi-client support
 - **Tax Compliance**: IRS Publication 946 compliant classifications
+- **S3 Configuration**: Remote tax rules configuration via AWS S3
+- **RPA Integration**: Playwright automation for Fixed Asset CS import (Windows)
+- **Multi-Format Support**: Handles diverse client Excel formats
+- **Session-Based**: Multi-user support with isolated sessions
+
+## Deployment
+
+| Component | Platform | URL |
+|-----------|----------|-----|
+| Backend API | Railway | `ai-antigravity-production.up.railway.app` |
+| Frontend | Vercel | Configure with `VITE_API_URL` env var |
 
 ## Project Structure
 
@@ -20,27 +28,38 @@ Automate the detection of asset schedules from various Excel files and import to
 FA_CS_Automator/
 ├── backend/                    # Python Backend
 │   ├── api.py                 # FastAPI REST API server
-│   ├── logic/                 # Core processing logic (57+ modules)
-│   │   ├── column_detector.py # Excel column auto-detection
+│   ├── config/                # Configuration
+│   │   ├── tax_rules.json    # Tax rules (local fallback)
+│   │   └── s3_config_loader.py # S3 configuration loader
+│   ├── logic/                 # Core processing logic
+│   │   ├── smart_column_detector.py # Excel column auto-detection
 │   │   ├── sheet_loader.py    # Multi-format Excel parsing
-│   │   ├── macrs_classification.py # MACRS classification engine
+│   │   ├── transaction_classifier.py # Transaction classification
+│   │   ├── macrs_tables.py    # MACRS depreciation tables
 │   │   ├── fa_export.py       # FA CS export builder
-│   │   ├── database_schema.sql # SQLite schema
-│   │   └── config/            # JSON configuration files
+│   │   ├── tax_year_config.py # Tax year configuration
+│   │   ├── rollforward_reconciliation.py # Balance validation
+│   │   └── convention_rules.py # MACRS convention detection
 │   ├── models/                # Pydantic data models
-│   ├── services/              # Business logic services
 │   ├── rpa/                   # RPA integration
-│   │   ├── uipath/           # UiPath XAML workflows
-│   │   └── rpa_config.json   # RPA configuration
-│   └── ui/                    # Desktop UI (Tkinter)
+│   │   ├── playwright_automation.py # Playwright RPA
+│   │   ├── ai_rpa_orchestrator.py   # AI-guided RPA
+│   │   └── rpa_fa_cs.py       # FA CS specific automation
+│   └── database_manager.py    # SQLite database
 ├── src/                       # React Frontend
 │   ├── components/           # React components
+│   │   ├── Dashboard.jsx     # Main dashboard
+│   │   ├── Review.jsx        # Asset review screen
+│   │   ├── Import.jsx        # File import
+│   │   └── Settings.jsx      # Configuration
+│   ├── lib/                  # Utilities
+│   │   └── api.client.js     # API client with retry
 │   └── App.jsx               # Main React app
+├── electron/                  # Electron desktop app
 ├── docs/                      # Documentation
-├── test_data/                 # Test data files
-├── tests/                     # Test suite
+├── Dockerfile.railway         # Railway deployment
+├── vercel.json               # Vercel deployment
 ├── requirements.txt           # Python dependencies
-├── requirements-rpa.txt       # Windows RPA dependencies
 └── package.json               # Node dependencies
 ```
 
@@ -55,9 +74,6 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
-
-# For Windows RPA features
-pip install -r requirements-rpa.txt
 ```
 
 ### Frontend (React)
@@ -66,16 +82,41 @@ pip install -r requirements-rpa.txt
 npm install
 ```
 
+## Environment Variables
+
+Create a `.env` file based on `.env.example`:
+
+```bash
+# OpenAI API Key (for GPT classification fallback)
+OPENAI_API_KEY=sk-...
+
+# AWS S3 Configuration (optional - for remote tax rules)
+TAX_RULES_S3_BUCKET=fa-cs-automator-config-prod
+TAX_RULES_S3_REGION=us-east-2
+TAX_RULES_S3_KEY=tax_rules.json
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+```
+
 ## Running the Application
+
+### Local Development
 
 ```bash
 # Terminal 1 - Backend API
-cd backend && python api.py
+python -m backend.api
 # API at http://127.0.0.1:8000
 
 # Terminal 2 - React Frontend
-npm run dev
+npm run dev:server
 # UI at http://localhost:5173
+```
+
+### Using npm scripts
+
+```bash
+# Run both backend and frontend
+npm run dev
 ```
 
 ## API Endpoints
@@ -83,14 +124,17 @@ npm run dev
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/` | GET | Health check |
-| `/check-facs` | GET | Check if FA CS is running |
-| `/stats` | GET | Dashboard statistics (total, errors, needs_review, approved) |
+| `/check-facs` | GET | Check FA CS connection status |
+| `/stats` | GET | Dashboard statistics |
 | `/upload` | POST | Upload Excel file for processing |
+| `/assets` | GET | Get all loaded assets |
 | `/assets/{id}/update` | POST | Update asset classification |
-| `/assets/{id}/approve` | POST | CPA approves single asset |
-| `/assets/{id}/approve` | DELETE | Remove approval from asset |
-| `/assets/approve-batch` | POST | Bulk approve multiple assets |
-| `/export` | GET | Export FA CS import file (blocked if errors exist) |
+| `/assets/{id}/approve` | POST | Approve single asset |
+| `/assets/approve-batch` | POST | Bulk approve assets |
+| `/quality` | GET | Data quality score |
+| `/rollforward` | GET | Rollforward reconciliation status |
+| `/projection` | GET | 10-year depreciation projection |
+| `/export` | GET | Export FA CS import file |
 | `/docs` | GET | OpenAPI documentation |
 
 ## Human-in-the-Loop Workflow
@@ -100,7 +144,7 @@ npm run dev
 3. **Review**: CPA reviews classifications (low confidence highlighted)
 4. **Approve**: CPA approves or overrides classifications
 5. **Export**: System generates FA CS import file
-6. **RPA**: UiPath imports data to Fixed Asset CS
+6. **RPA** (Optional): Playwright imports data to Fixed Asset CS
 
 ## Classification Engine
 
@@ -112,23 +156,29 @@ Multi-tier classification with confidence scoring:
 4. **GPT Fallback** - AI classification for ambiguous items (50-90% confidence)
 5. **Keyword Fallback** - Basic keyword matching when GPT unavailable
 
-## Configuration Files
+## Tax Compliance Features
 
-| File | Purpose |
-|------|---------|
-| `backend/logic/config/rules.json` | 300+ classification rules |
-| `backend/logic/config/overrides.json` | User override history |
-| `backend/logic/config/client_input_mappings.json` | Client-specific column mappings |
-| `backend/logic/config/bonus.json` | Bonus depreciation rules by year |
-| `backend/logic/config/section179.json` | Section 179 limits |
+- **Section 179**: Automatic limits and phaseout calculation per tax year
+- **Bonus Depreciation**: 100%/80%/60%/40%/20% based on placed-in-service date
+- **Mid-Quarter Convention**: Automatic detection when >40% placed in Q4
+- **De Minimis Safe Harbor**: Track expensed items under $2,500
+- **Rollforward Reconciliation**: Balance validation for CPA review
+
+## Configuration
+
+Tax rules can be loaded from:
+1. **AWS S3** (primary) - Remote configuration for production
+2. **Local file** (fallback) - `backend/config/tax_rules.json`
 
 ## Tech Stack
 
-- **Backend**: Python 3.11+, FastAPI, Pandas
+- **Backend**: Python 3.11+, FastAPI, Pandas, boto3
 - **AI**: OpenAI GPT-4o-mini for classification fallback
 - **Frontend**: React 18, Vite, Tailwind CSS
-- **RPA**: UiPath (Windows only)
-- **Database**: SQLite
+- **Desktop**: Electron (optional)
+- **RPA**: Playwright (Windows)
+- **Database**: SQLite (session-based)
+- **Deployment**: Railway (backend), Vercel (frontend)
 
 ## Documentation
 
@@ -137,8 +187,6 @@ See the `docs/` folder for detailed guides:
 - [Active Features List](docs/ACTIVE_FEATURES_LIST.md)
 - [Human-in-the-Loop Workflow](docs/HUMAN_IN_THE_LOOP_WORKFLOW.md)
 - [FA CS Import Mapping](docs/FA_CS_IMPORT_MAPPING.md)
-- [Example Input Format](docs/EXAMPLE_INPUT_FORMAT.md)
-- [RPA Quickstart](docs/QUICKSTART_RPA.md)
 
 ## License
 
