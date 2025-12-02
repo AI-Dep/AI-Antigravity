@@ -48,8 +48,13 @@
         ],
         "extraResources": [
             {
-                "from": "backend/dist/api.exe",
-                "to": "backend_dist/api.exe"
+                "from": "backend/dist/api",
+                "to": "backend_dist",
+                "filter": ["**/*"]
+            },
+            {
+                "from": "backend/config.template.json",
+                "to": "config.template.json"
             }
         ]
     },

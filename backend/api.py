@@ -56,7 +56,12 @@ def cleanup_stale_session_locks(active_session_ids: set) -> int:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Load environment variables from .env file
+# Load configuration from config.json (user-editable config file)
+# This runs BEFORE dotenv so config.json provides defaults, .env can override
+from backend.logic.config_manager import initialize_config, get_config
+app_config = initialize_config()
+
+# Load environment variables from .env file (can override config.json)
 from dotenv import load_dotenv
 load_dotenv()
 

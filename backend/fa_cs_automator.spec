@@ -128,6 +128,9 @@ hidden_imports += collect_submodules('backend.ui')
 # Data Files - non-Python files that must be included
 # ------------------------------------------------------------------------------
 datas = [
+    # Config template (users copy to config.json and edit)
+    ('config.template.json', '.'),
+
     # Logic module and all subfolders
     ('logic', 'logic'),
     ('logic/config', 'logic/config'),
@@ -199,15 +202,13 @@ a.datas = unique_datas(a.datas)
 pyz = PYZ(a.pure, a.zipped_data)
 
 # ------------------------------------------------------------------------------
-# Executable
+# Executable (onedir mode - faster startup, no extraction needed)
 # ------------------------------------------------------------------------------
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    [],
+    [],  # Don't bundle binaries/data in exe for onedir mode
+    exclude_binaries=True,  # Required for onedir
     name='api',
     debug=False,
     bootloader_ignore_signals=False,
@@ -222,4 +223,20 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=os.path.join(BACKEND_DIR, '..', 'icon.ico') if os.path.exists(os.path.join(BACKEND_DIR, '..', 'icon.ico')) else None,
+)
+
+# ------------------------------------------------------------------------------
+# Collect all files into a folder (onedir mode)
+# This creates dist/api/ folder with api.exe and all dependencies
+# Startup is instant - no extraction needed!
+# ------------------------------------------------------------------------------
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='api'
 )
