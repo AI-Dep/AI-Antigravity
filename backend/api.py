@@ -171,6 +171,18 @@ async def lifespan(app: FastAPI):
         logger.warning("Operating in UNLICENSED mode due to license check error")
         app.state.license_info = None
 
+    # Check for tax rules updates from S3 (non-blocking)
+    try:
+        from backend.logic.tax_rules_updater import check_and_update_tax_rules
+        tax_update_result = await check_and_update_tax_rules()
+        logger.info(f"Tax rules status: {tax_update_result['message']}")
+        if tax_update_result.get('updated'):
+            logger.info(f"Tax rules updated to version {tax_update_result.get('version')}")
+        app.state.tax_rules_info = tax_update_result
+    except Exception as e:
+        logger.warning(f"Tax rules update check failed: {e}")
+        app.state.tax_rules_info = {"status": "error", "message": str(e)}
+
     # Start session cleanup task
     session_manager = get_session_manager()
     await session_manager.start_cleanup_task()

@@ -183,6 +183,9 @@ def apply_config_to_environment(config: Dict[str, Any]) -> None:
         'openai_model': 'OPENAI_MODEL',
         'log_level': 'LOG_LEVEL',
         'server_port': 'SERVER_PORT',
+        'tax_rules_s3_bucket': 'TAX_RULES_S3_BUCKET',
+        'tax_rules_s3_key': 'TAX_RULES_S3_KEY',
+        'tax_rules_s3_region': 'TAX_RULES_S3_REGION',
     }
 
     for config_key, env_key in env_mappings.items():
