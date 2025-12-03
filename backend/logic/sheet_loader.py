@@ -2212,15 +2212,13 @@ def _is_totals_row(desc: str, asset_id: str = "") -> bool:
     return False
 
 
-def _clean_row_data(row: pd.Series, col_map: Dict[str, str], sheet_name: str = "", row_num: int = 0) -> Optional[Dict[str, Any]]:
+def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[str, Any]]:
     """
     Clean and validate a single row
 
     Args:
         row: DataFrame row
         col_map: Dictionary mapping logical field names to Excel column names
-        sheet_name: Optional sheet name for detailed logging
-        row_num: Optional row number for detailed logging
 
     Returns:
         Dictionary with cleaned data or None if row should be skipped
@@ -2228,47 +2226,30 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str], sheet_name: str = "
     asset_id = str(row.get(col_map.get("asset_id"), "")).strip() if col_map.get("asset_id") else ""
     desc_raw = str(row.get(col_map.get("description"), "")).strip() if col_map.get("description") else ""
 
-    # Trace logging for debugging F&F detection issues
-    trace_log = sheet_name.lower() in ['f&f', 'f & f', 'furniture', 'furniture & fixtures']
-    if trace_log and desc_raw:
-        logger.info(f"[TRACE {sheet_name}] Row {row_num}: desc='{desc_raw[:50]}', asset_id='{asset_id}'")
-
     # Skip completely empty rows
     if not asset_id and not desc_raw:
         return None
 
     # Skip header repetitions (Excel sometimes repeats headers)
     if _is_header_repetition(desc_raw):
-        if trace_log:
-            logger.info(f"[TRACE {sheet_name}] Row {row_num} SKIPPED: header repetition - '{desc_raw}'")
-        else:
-            logger.debug(f"Skipping header repetition: {desc_raw}")
+        logger.debug(f"Skipping header repetition: {desc_raw}")
         return None
 
     # Skip category labels (e.g., "Assets", "Vehicles", "FY 2024")
     # These are sheet names or category headers, not actual asset descriptions
     if _is_category_label(desc_raw):
-        if trace_log:
-            logger.info(f"[TRACE {sheet_name}] Row {row_num} SKIPPED: category label - '{desc_raw}'")
-        else:
-            logger.debug(f"Skipping category label: {desc_raw}")
+        logger.debug(f"Skipping category label: {desc_raw}")
         return None
 
     # Skip totals/summary rows (not actual asset data)
     if _is_totals_row(desc_raw, asset_id):
-        if trace_log:
-            logger.info(f"[TRACE {sheet_name}] Row {row_num} SKIPPED: totals row - '{desc_raw}'")
-        else:
-            logger.debug(f"Skipping totals row: {desc_raw}")
+        logger.debug(f"Skipping totals row: {desc_raw}")
         return None
 
     # Skip accounting adjustment rows (e.g., "April bal", "May depr", "Q4 adj")
     # These are journal entries, not actual fixed assets
     if _is_accounting_adjustment_row(desc_raw):
-        if trace_log:
-            logger.info(f"[TRACE {sheet_name}] Row {row_num} SKIPPED: accounting adjustment - '{desc_raw}'")
-        else:
-            logger.debug(f"Skipping accounting adjustment: {desc_raw}")
+        logger.debug(f"Skipping accounting adjustment: {desc_raw}")
         return None
 
     # Cost - parse early so we can use it for budget detection and validation
@@ -2279,14 +2260,9 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str], sheet_name: str = "
         except (ValueError, TypeError, KeyError) as e:
             logger.debug(f"Error parsing cost: {e}")
 
-    if trace_log:
-        logger.info(f"[TRACE {sheet_name}] Row {row_num}: parsed cost={cost}")
-
     # Skip budget/planning rows (e.g., "Office space" with no Asset ID + round amount)
     # These are future plans, not actual acquired assets
     if _is_budget_or_planning_row(desc_raw, asset_id, cost):
-        if trace_log:
-            logger.info(f"[TRACE {sheet_name}] Row {row_num} SKIPPED: budget/planning row - '{desc_raw}'")
         return None
 
     # Fix typos in description
@@ -2303,28 +2279,17 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str], sheet_name: str = "
     # This catches vague descriptions, placeholders, and non-asset rows
     is_valid, invalid_reason = _is_valid_asset_description(description, cost)
     if not is_valid:
-        if trace_log:
-            logger.info(f"[TRACE {sheet_name}] Row {row_num} SKIPPED: invalid description - {invalid_reason}")
-        else:
-            logger.debug(f"Skipping invalid description: {invalid_reason}")
+        logger.debug(f"Skipping invalid description: {invalid_reason}")
         return None
 
     # QUALITY CHECK: Skip placeholder rows ($0 cost with minimal description)
     if _is_placeholder_row(description, cost, asset_id):
-        if trace_log:
-            logger.info(f"[TRACE {sheet_name}] Row {row_num} SKIPPED: placeholder row - '{desc_raw}'")
         return None
 
     # QUALITY CHECK: Skip negative cost items (these are credits/adjustments, not assets)
     if cost is not None and cost < 0:
-        if trace_log:
-            logger.info(f"[TRACE {sheet_name}] Row {row_num} SKIPPED: negative cost - '{desc_raw}' (${cost})")
-        else:
-            logger.debug(f"Skipping negative cost row: {description} (${cost})")
+        logger.debug(f"Skipping negative cost row: {description} (${cost})")
         return None
-
-    if trace_log:
-        logger.info(f"[TRACE {sheet_name}] Row {row_num} PASSED all checks: '{desc_raw[:40]}' cost={cost}")
 
     # Dates
     acq_date = None
@@ -3146,12 +3111,6 @@ def build_unified_dataframe(
             logger.info(f"[{sheet_name}] Header detected at row {header_idx}, {len(df)} data rows")
             logger.info(f"[{sheet_name}] Columns found: {list(df.columns)[:8]}")
 
-            # Trace logging for F&F - show exact Excel row range
-            if sheet_name.lower() in ['f&f', 'f & f', 'furniture', 'furniture & fixtures']:
-                first_excel_row = header_idx + 2  # +1 for 1-indexed, +1 to skip header
-                last_excel_row = header_idx + len(df) + 1  # last data row
-                logger.info(f"[TRACE {sheet_name}] DataFrame spans Excel rows {first_excel_row} to {last_excel_row}")
-
             # STEP 3: Map columns with validation (using client mappings and sheet role)
             col_map, column_mappings, warnings_list = _map_columns_with_validation(
                 df, sheet_name,
@@ -3220,7 +3179,7 @@ def build_unified_dataframe(
 
             for idx, row in df.iterrows():
                 excel_row_num = header_idx + idx + 2  # Excel row number (1-indexed)
-                cleaned = _clean_row_data(row, col_map, sheet_name=sheet_name, row_num=excel_row_num)
+                cleaned = _clean_row_data(row, col_map)
                 if not cleaned:
                     rows_skipped += 1
                     continue
