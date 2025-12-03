@@ -427,6 +427,8 @@ def _detect_tab_role(tab_name: str, target_year: Optional[int] = None) -> Tuple[
     tab_lower = tab_name.lower().strip()
     notes = []
 
+    logger.debug(f"[TabRole] Detecting role for '{tab_name}' (lower: '{tab_lower}')")
+
     # 1. Check for Working/Draft tabs first (highest priority skip)
     for pattern in WORKING_TAB_PATTERNS:
         if re.search(pattern, tab_lower):
@@ -496,6 +498,7 @@ def _detect_tab_role(tab_name: str, target_year: Optional[int] = None) -> Tuple[
 
     # Default: Unknown
     notes.append("No pattern matched - unknown role")
+    logger.debug(f"[TabRole] '{tab_name}' -> UNKNOWN (no pattern matched)")
     return TabRole.UNKNOWN, 0.50, notes
 
 
@@ -719,26 +722,42 @@ def analyze_tabs(
         has_individual_records, unique_id_count, content_reason = _has_individual_asset_records(df)
 
         # Determine if should process
+        # PHILOSOPHY: Process ANY tab with asset-like data, regardless of name
         should_process = True
         skip_reason = None
+
+        logger.info(f"Tab '{tab_name}': role={role.value}, data_rows={data_row_count}, has_records={has_individual_records}, reason={content_reason}")
 
         # PRIORITY ORDER: Prior year check comes FIRST (never process prior year data)
         if role == TabRole.PRIOR_YEAR:
             # Prior year tabs are NEVER processed, regardless of content
-            should_process = False
-            skip_reason = f"Prior year data (year: {fiscal_year}, target: {target_tax_year})"
+            # EXCEPTION: If tab has individual records, maybe it's miscategorized
+            if has_individual_records and data_row_count >= 5:
+                notes.append(f"OVERRIDE: Prior year tab has individual records ({content_reason}) - will process")
+                role = TabRole.DETAIL
+                confidence = 0.75
+                logger.info(f"Tab '{tab_name}' reclassified from PRIOR_YEAR to DETAIL: {content_reason}")
+            else:
+                should_process = False
+                skip_reason = f"Prior year data (year: {fiscal_year}, target: {target_tax_year})"
         elif role == TabRole.WORKING:
-            should_process = False
-            skip_reason = "Working/draft tab - not final data"
+            # Working tabs can still have real data
+            if has_individual_records and data_row_count >= 5:
+                notes.append(f"OVERRIDE: Working tab has individual records ({content_reason}) - will process")
+                role = TabRole.DETAIL
+                confidence = 0.70
+                logger.info(f"Tab '{tab_name}' reclassified from WORKING to DETAIL: {content_reason}")
+            else:
+                should_process = False
+                skip_reason = "Working/draft tab - not final data"
         elif data_row_count == 0:
             should_process = False
             skip_reason = "Empty tab - no data rows found"
         elif role == TabRole.SUMMARY:
-            # Only for CURRENT YEAR summary tabs, check if they have individual records
-            # (Prior year summaries are already handled above)
+            # Summary tabs might actually have individual records
             if has_individual_records:
-                # Override! This current-year tab has individual asset data, must process it
-                notes.append(f"OVERRIDE: Tab has individual records ({content_reason})")
+                # Override! This tab has individual asset data, must process it
+                notes.append(f"OVERRIDE: Summary tab has individual records ({content_reason})")
                 role = TabRole.DETAIL  # Reclassify as detail
                 confidence = 0.85
                 should_process = True
@@ -747,6 +766,20 @@ def analyze_tabs(
             else:
                 should_process = False
                 skip_reason = "Summary tab - contains roll-up totals, not detail data"
+        elif role == TabRole.UNKNOWN:
+            # CRITICAL: For unknown tabs, ALWAYS check content
+            # If content has asset data, process it!
+            if has_individual_records or data_row_count >= 5:
+                notes.append(f"UNKNOWN tab with data - processing ({content_reason})")
+                role = TabRole.DETAIL  # Reclassify as detail
+                confidence = 0.70
+                logger.info(f"Tab '{tab_name}' reclassified from UNKNOWN to DETAIL: has data")
+            elif data_row_count > 0:
+                # Even if we're not sure, try processing tabs with some data
+                notes.append(f"UNKNOWN tab with {data_row_count} rows - processing to be safe")
+                role = TabRole.DETAIL
+                confidence = 0.50
+                logger.info(f"Tab '{tab_name}' treated as DETAIL: {data_row_count} rows present")
 
         # Add content analysis to notes
         if unique_id_count > 0:
