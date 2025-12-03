@@ -1700,7 +1700,7 @@ def _is_accounting_adjustment_row(desc: str) -> bool:
     return False
 
 
-def _is_budget_or_planning_row(desc: str, asset_id: str = "") -> bool:
+def _is_budget_or_planning_row(desc: str, asset_id: str = "", cost: float = None) -> bool:
     """
     Check if a row is a budget/planning entry that should not be imported.
 
@@ -1711,10 +1711,12 @@ def _is_budget_or_planning_row(desc: str, asset_id: str = "") -> bool:
         - "Budget" with "Office space" → Future plan, not actual asset
         - "Forecast - New equipment 2026"
         - "Pending - Warehouse expansion"
+        - No Asset ID + "Office space" + $200,000 → Planning row, not real asset
 
     Args:
         desc: Description text
         asset_id: Asset ID/number (might contain "Budget", "TBD", etc.)
+        cost: Optional cost value for detecting suspicious round amounts
 
     Returns:
         True if this appears to be a budget/planning row
@@ -1747,6 +1749,56 @@ def _is_budget_or_planning_row(desc: str, asset_id: str = "") -> bool:
             if keyword in words:
                 logger.debug(f"Skipping budget/planning row (keyword in short desc): {desc}")
                 return True
+
+    # =========================================================================
+    # ENHANCED CHECK: Missing Asset ID + generic description = likely planning
+    # =========================================================================
+    # If there's NO asset ID, check for vague/generic descriptions that suggest
+    # this is a placeholder or planning item, not an actual acquired asset.
+    #
+    # Real assets typically have: specific vendor, model, serial number, etc.
+    # Planning items are vague: "Office space", "Equipment", "Building"
+    #
+    no_asset_id = not asset_id_lower or asset_id_lower in ('none', 'nan', '', 'null')
+
+    if no_asset_id:
+        # Generic planning descriptions (no specific details = likely not real)
+        generic_planning_descriptions = [
+            "office space", "office expansion", "new office",
+            "building", "new building", "facility",
+            "equipment", "new equipment", "additional equipment",
+            "furniture", "new furniture",
+            "warehouse", "warehouse expansion",
+            "renovation", "remodel", "improvements",
+            "expansion", "upgrade", "upgrades",
+            "capital project", "capex", "cap ex",
+        ]
+
+        for pattern in generic_planning_descriptions:
+            if pattern in desc_lower:
+                logger.debug(f"Skipping planning row (no Asset ID + generic desc): {desc}")
+                return True
+
+        # Very short description (<=2 words) with no Asset ID is suspicious
+        if len(words) <= 2 and len(desc_lower) < 20:
+            logger.debug(f"Skipping suspicious row (no Asset ID + very short desc): {desc}")
+            return True
+
+        # Check for suspiciously round amounts (planning placeholders)
+        # e.g., $200,000, $500,000, $1,000,000 - these are usually estimates
+        if cost is not None:
+            try:
+                cost_val = float(cost)
+                # Round to nearest 10,000 and check if it matches exactly
+                if cost_val >= 50000 and cost_val % 10000 == 0:
+                    logger.debug(f"Skipping planning row (no Asset ID + round amount ${cost_val:,.0f}): {desc}")
+                    return True
+                # Also check for exact round amounts like $25,000, $75,000
+                if cost_val >= 25000 and cost_val % 25000 == 0:
+                    logger.debug(f"Skipping planning row (no Asset ID + round amount ${cost_val:,.0f}): {desc}")
+                    return True
+            except (ValueError, TypeError):
+                pass
 
     return False
 
@@ -1935,9 +1987,17 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
     if _is_accounting_adjustment_row(desc_raw):
         return None
 
-    # Skip budget/planning rows (e.g., "Budget" + "Office space")
+    # Cost - parse early so we can use it for budget detection and validation
+    cost = None
+    if col_map.get("cost"):
+        try:
+            cost = parse_number(row[col_map["cost"]])
+        except (ValueError, TypeError, KeyError) as e:
+            logger.debug(f"Error parsing cost: {e}")
+
+    # Skip budget/planning rows (e.g., "Office space" with no Asset ID + round amount)
     # These are future plans, not actual acquired assets
-    if _is_budget_or_planning_row(desc_raw, asset_id):
+    if _is_budget_or_planning_row(desc_raw, asset_id, cost):
         return None
 
     # Fix typos in description
@@ -1949,14 +2009,6 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
         cat_raw = row.get(col_map["category"], "")
         if pd.notna(cat_raw):
             category = typo_engine.correct_category(str(cat_raw))
-
-    # Cost - parse early so we can use it for description validation
-    cost = None
-    if col_map.get("cost"):
-        try:
-            cost = parse_number(row[col_map["cost"]])
-        except (ValueError, TypeError, KeyError) as e:
-            logger.debug(f"Error parsing cost: {e}")
 
     # QUALITY CHECK: Validate description is meaningful
     # This catches vague descriptions, placeholders, and non-asset rows
