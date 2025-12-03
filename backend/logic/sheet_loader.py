@@ -3046,16 +3046,18 @@ def build_unified_dataframe(
             if is_je:
                 logger.info(f"[{sheet_name}] Using JE format parser")
                 je_disposals = _parse_disposal_je_format(df_raw, sheet_name)
-                for disposal in je_disposals:
+                for idx, disposal in enumerate(je_disposals):
                     row_data = {
                         'description': disposal.get('description', ''),
                         'asset_id': disposal.get('asset_id'),
                         'cost': disposal.get('cost'),
                         'accumulated_depreciation': disposal.get('accum_dep'),
                         'disposal_date': disposal.get('disposal_date'),
+                        'in_service_date': disposal.get('disposal_date'),  # Use disposal_date as in_service for consistency
                         'proceeds': disposal.get('proceeds'),
-                        'source_sheet': sheet_name,
+                        'sheet_name': sheet_name,  # Match regular row field name
                         'sheet_role': 'disposals',
+                        'source_row': idx + 1,  # Track row position for sorting
                         'transaction_type': 'Disposal',
                     }
                     all_rows.append(row_data)
