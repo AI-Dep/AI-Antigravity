@@ -397,16 +397,86 @@ class ExporterService:
                 ws_deminimis.cell(row=total_row, column=2, value=de_minimis_expenses_df['Cost'].sum())
                 ws_deminimis.cell(row=total_row, column=1).font = ws_deminimis.cell(row=total_row, column=1).font.copy(bold=True)
 
-            # Sheet 3: Audit Trail (full data with Book/State)
+            # =====================================================================
+            # AUDIT PROTECTION SHEETS - Separate tabs by transaction type
+            # =====================================================================
+
+            # Split audit data by transaction type for clear audit trail
+            additions_df = audit_df[audit_df['Transaction Type'] == 'Addition'].copy() if 'Transaction Type' in audit_df.columns else pd.DataFrame()
+            disposals_df = audit_df[audit_df['Transaction Type'] == 'Disposal'].copy() if 'Transaction Type' in audit_df.columns else pd.DataFrame()
+            transfers_df = audit_df[audit_df['Transaction Type'] == 'Transfer'].copy() if 'Transaction Type' in audit_df.columns else pd.DataFrame()
+            existing_df = audit_df[~audit_df['Transaction Type'].isin(['Addition', 'Disposal', 'Transfer'])].copy() if 'Transaction Type' in audit_df.columns else audit_df.copy()
+
+            # Sheet 3: Current Year Additions (for audit)
+            if not additions_df.empty:
+                additions_df.to_excel(writer, sheet_name='Current_Year_Addition', index=False)
+                ws_add = writer.sheets['Current_Year_Addition']
+                _apply_professional_formatting(ws_add, additions_df)
+
+            # Sheet 4: Current Year Disposals (for audit) - WITH GAIN/LOSS INFO
+            if not disposals_df.empty:
+                # Ensure disposal-specific columns are included
+                disposal_cols = ['Asset #', 'Description', 'Date In Service', 'Tax Cost',
+                                'Disposal Date', 'Gross Proceeds', 'Accumulated Depreciation',
+                                'Adjusted Basis at Disposal', '§1245 Recapture', '§1250 Recapture',
+                                'Capital Gain/Loss', 'Transaction Type', 'Confidence Score']
+                # Only keep columns that exist
+                disposal_cols = [c for c in disposal_cols if c in disposals_df.columns]
+                disposals_export = disposals_df[disposal_cols] if disposal_cols else disposals_df
+                disposals_export.to_excel(writer, sheet_name='Current_Year_Disposal', index=False)
+                ws_disp = writer.sheets['Current_Year_Disposal']
+                _apply_professional_formatting(ws_disp, disposals_export)
+
+            # Sheet 5: Transfers (for audit)
+            if not transfers_df.empty:
+                transfer_cols = ['Asset #', 'Description', 'Date In Service', 'Tax Cost',
+                                'Transfer Date', 'From Location', 'To Location',
+                                'Transaction Type', 'Confidence Score']
+                transfer_cols = [c for c in transfer_cols if c in transfers_df.columns]
+                transfers_export = transfers_df[transfer_cols] if transfer_cols else transfers_df
+                transfers_export.to_excel(writer, sheet_name='Transfers', index=False)
+                ws_trans = writer.sheets['Transfers']
+                _apply_professional_formatting(ws_trans, transfers_export)
+
+            # Sheet 6: Existing Assets (no action needed - prior year assets)
+            if not existing_df.empty:
+                existing_df.to_excel(writer, sheet_name='Existing_Asset', index=False)
+                ws_exist = writer.sheets['Existing_Asset']
+                _apply_professional_formatting(ws_exist, existing_df)
+
+            # Sheet 7: Full Audit Trail (all data for complete audit record)
             audit_df.to_excel(writer, sheet_name='Audit Trail', index=False)
 
-            # Sheet 4: Change Log - Shows what changed from original data
+            # Sheet 8: Change Log - Shows what changed from original data
             change_log_df = self._build_change_log(df, export_df, assets)
             if change_log_df is not None and not change_log_df.empty:
                 change_log_df.to_excel(writer, sheet_name='Change Log', index=False)
                 # Apply formatting to Change Log sheet
                 ws_changelog = writer.sheets['Change Log']
                 _apply_professional_formatting(ws_changelog, change_log_df)
+
+            # Sheet 9: Summary - Quick overview for CPA review
+            summary_data = {
+                'Category': ['Current Year Additions', 'Current Year Disposals', 'Transfers', 'Existing Assets', 'De Minimis Expenses', 'TOTAL'],
+                'Count': [
+                    len(additions_df),
+                    len(disposals_df),
+                    len(transfers_df),
+                    len(existing_df),
+                    len(de_minimis_expenses_df) if de_minimis_expenses_df is not None else 0,
+                    len(audit_df)
+                ],
+                'Total Cost': [
+                    additions_df['Tax Cost'].sum() if 'Tax Cost' in additions_df.columns and not additions_df.empty else 0,
+                    disposals_df['Tax Cost'].sum() if 'Tax Cost' in disposals_df.columns and not disposals_df.empty else 0,
+                    transfers_df['Tax Cost'].sum() if 'Tax Cost' in transfers_df.columns and not transfers_df.empty else 0,
+                    existing_df['Tax Cost'].sum() if 'Tax Cost' in existing_df.columns and not existing_df.empty else 0,
+                    de_minimis_expenses_df['Cost'].sum() if de_minimis_expenses_df is not None and not de_minimis_expenses_df.empty else 0,
+                    audit_df['Tax Cost'].sum() if 'Tax Cost' in audit_df.columns else 0
+                ]
+            }
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
 
         output.seek(0)
         return output

@@ -2663,6 +2663,9 @@ async def get_depreciation_preview(request: Request, response: Response):
     179/Bonus Election Preview.
     Shows estimated Year 1 depreciation breakdown before export.
 
+    FIXED: Now reads actual depreciation_election from each asset
+    instead of using arbitrary cost thresholds.
+
     Returns:
     - Section 179 eligible amount
     - Bonus depreciation (80% for 2024, 100% for 2025+ OBBBA)
@@ -2692,6 +2695,19 @@ async def get_depreciation_preview(request: Request, response: Response):
     section_179_total = 0
     bonus_total = 0
     regular_macrs_total = 0
+    de_minimis_total = 0
+
+    # First year MACRS rate (approximation)
+    first_year_rates = {
+        3: 0.3333,
+        5: 0.20,
+        7: 0.1429,
+        10: 0.10,
+        15: 0.05,
+        20: 0.0375,
+        27.5: 0.03636,
+        39: 0.02564,
+    }
 
     for asset in assets:
         # Only CY additions are eligible for 179/Bonus
@@ -2702,52 +2718,47 @@ async def get_depreciation_preview(request: Request, response: Response):
         if cost <= 0:
             continue
 
-        is_bonus_eligible = getattr(asset, 'is_bonus_eligible', True)
         life = asset.macrs_life or 7
-
-        # First year MACRS rate (approximation)
-        first_year_rates = {
-            3: 0.3333,
-            5: 0.20,
-            7: 0.1429,
-            10: 0.10,
-            15: 0.05,
-            20: 0.0375,
-            27.5: 0.03636,
-            39: 0.02564,
-        }
-
         first_year_rate = first_year_rates.get(life, 0.1429)
 
-        if is_bonus_eligible:
-            # Assume 179 election for smaller assets
-            if cost <= 2500:
-                # De minimis - expense fully
-                section_179_total += cost
-            elif cost <= 50000 and section_179_total + cost <= section_179_limit:
-                # 179 candidate
-                section_179_total += cost
-            else:
-                # Bonus depreciation
-                bonus_amount = cost * bonus_rate
-                remaining = cost - bonus_amount
-                regular = remaining * first_year_rate
-                bonus_total += bonus_amount
-                regular_macrs_total += regular
+        # READ THE ACTUAL USER ELECTION - not arbitrary thresholds!
+        election = getattr(asset, 'depreciation_election', None) or ''
+
+        if election == 'DeMinimis' or election == 'De Minimis':
+            # De minimis - expense fully (not depreciated)
+            de_minimis_total += cost
+        elif election == 'Section179' or election == '$179':
+            # Section 179 election - expense fully (up to limit)
+            section_179_total += cost
+        elif election == 'Bonus':
+            # Bonus depreciation
+            bonus_amount = cost * bonus_rate
+            remaining = cost - bonus_amount
+            regular = remaining * first_year_rate
+            bonus_total += bonus_amount
+            regular_macrs_total += regular
+        elif election == 'ADS':
+            # ADS - straight line over ADS life
+            ads_life = getattr(asset, 'ads_life', life * 1.5) or (life * 1.5)
+            regular_macrs_total += cost / ads_life
         else:
-            # Regular MACRS only (existing assets, not eligible)
+            # Regular MACRS (no election or MACRS selected)
             regular_macrs_total += cost * first_year_rate
 
-    total_year1 = section_179_total + bonus_total + regular_macrs_total
+    # Section 179 includes de minimis for display purposes
+    section_179_display = section_179_total + de_minimis_total
+
+    total_year1 = section_179_display + bonus_total + regular_macrs_total
 
     return {
-        "section_179": round(section_179_total, 2),
+        "section_179": round(section_179_display, 2),
         "bonus": round(bonus_total, 2),
         "regular_macrs": round(regular_macrs_total, 2),
         "total_year1": round(total_year1, 2),
         "tax_year": tax_year,
         "bonus_rate": bonus_rate,
         "section_179_limit": section_179_limit,
+        "de_minimis_included": round(de_minimis_total, 2),
         "summary": f"Estimated ${total_year1:,.0f} Year 1 depreciation"
     }
 
