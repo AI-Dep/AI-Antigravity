@@ -2966,15 +2966,24 @@ def build_unified_dataframe(
             use_precomputed_skips = False
 
     for sheet_name, df_raw in sheets.items():
-        # Check if this is a disposal sheet FIRST (never skip disposal sheets!)
+        # Check if this is a disposal sheet FIRST
         sheet_name_lower_check = sheet_name.lower()
         is_disposal_sheet_check = 'disposal' in sheet_name_lower_check or 'disposed' in sheet_name_lower_check
 
+        # For disposal sheets, check if it's for the CURRENT target year
+        # Only override skip for current year disposal sheets - prior years should be skipped
+        is_current_year_disposal = False
+        if is_disposal_sheet_check and target_tax_year:
+            disposal_fy = _extract_fiscal_year_from_sheet(sheet_name)
+            is_current_year_disposal = disposal_fy == target_tax_year
+            if is_disposal_sheet_check and not is_current_year_disposal:
+                logger.info(f"[{sheet_name}] Prior year disposal sheet (FY {disposal_fy}) - will skip")
+
         # FAST PATH: Use pre-computed skip decision if available
-        # CRITICAL: Never skip disposal sheets even if they're in the skip map!
+        # Only override skip for CURRENT YEAR disposal sheets
         if use_precomputed_skips and sheet_name in precomputed_skip_map:
-            if is_disposal_sheet_check:
-                logger.info(f"[{sheet_name}] *** DISPOSAL SHEET - OVERRIDING SKIP DECISION ***")
+            if is_current_year_disposal:
+                logger.info(f"[{sheet_name}] *** CURRENT YEAR DISPOSAL SHEET - OVERRIDING SKIP ***")
             else:
                 skip_reason = precomputed_skip_map[sheet_name]
                 logger.info(f"⏭️  Skipping sheet '{sheet_name}': {skip_reason}")
@@ -2985,8 +2994,8 @@ def build_unified_dataframe(
         logger.info(f"Processing sheet: {sheet_name}")
 
         # SLOW PATH: Full analysis if no pre-computed result available
-        # CRITICAL: Never skip disposal sheets!
-        if not use_precomputed_skips and not is_disposal_sheet_check:
+        # Only skip non-disposal sheets or prior year disposal sheets
+        if not use_precomputed_skips and not is_current_year_disposal:
             should_skip, skip_reason = _should_skip_sheet(sheet_name, target_tax_year)
             if should_skip:
                 logger.info(f"⏭️  Skipping sheet '{sheet_name}': {skip_reason}")
@@ -3014,14 +3023,10 @@ def build_unified_dataframe(
             skipped_sheets += 1
             continue
 
-        # Check if this is a disposal sheet FIRST (before any skip checks)
-        sheet_name_lower = sheet_name.lower()
-        is_disposal_sheet = 'disposal' in sheet_name_lower or 'disposed' in sheet_name_lower
-
         # CONTENT-BASED SKIP: Check if sheet is a rollforward/summary by examining content
         # Skip this expensive check if we already have pre-computed analysis
-        # CRITICAL: NEVER skip disposal sheets based on rollforward detection!
-        if not use_precomputed_skips and not is_disposal_sheet:
+        # Only skip non-disposal sheets or prior year disposal sheets via rollforward detection
+        if not use_precomputed_skips and not is_current_year_disposal:
             is_rollforward, rollforward_reason = _is_rollforward_sheet(df_raw, sheet_name)
             if is_rollforward:
                 logger.info(f"⏭️  Skipping sheet '{sheet_name}': {rollforward_reason}")
@@ -3029,10 +3034,10 @@ def build_unified_dataframe(
                 skipped_sheets += 1
                 continue
 
-        # SPECIAL HANDLING: Disposal sheets in JE (Journal Entry) format
+        # SPECIAL HANDLING: Current year disposal sheets in JE (Journal Entry) format
         # These have a non-standard format and need special parsing
-        if is_disposal_sheet:
-            logger.info(f"[{sheet_name}] *** DISPOSAL SHEET DETECTED *** Will NOT skip for rollforward reasons")
+        if is_current_year_disposal:
+            logger.info(f"[{sheet_name}] *** CURRENT YEAR DISPOSAL SHEET *** Processing JE format")
             logger.info(f"[{sheet_name}] Raw DataFrame shape: {df_raw.shape if df_raw is not None else 'None'}")
             # Log first 5 rows of raw data for debugging
             if df_raw is not None and not df_raw.empty:
