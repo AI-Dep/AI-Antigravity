@@ -1579,6 +1579,113 @@ def _is_accounting_adjustment_row(desc: str) -> bool:
     return False
 
 
+# Minimum requirements for a valid asset description
+MIN_DESCRIPTION_LENGTH = 3  # At least 3 characters
+MIN_DESCRIPTION_WORDS = 1   # At least 1 word with letters
+
+# Descriptions that are clearly NOT assets - just labels or placeholders
+INVALID_DESCRIPTION_PATTERNS = [
+    r'^none$',              # Just "None"
+    r'^n/?a$',              # "N/A" or "NA"
+    r'^-+$',                # Just dashes
+    r'^\d+$',               # Just numbers
+    r'^[#\.\,\s]+$',        # Just punctuation/spaces
+    r'^tbd$',               # "TBD"
+    r'^unknown$',           # "Unknown"
+    r'^see\s',              # "See attached", "See below"
+    r'^refer\s',            # "Refer to..."
+    r'^per\s',              # "Per client", "Per schedule"
+    r'^various$',           # "Various"
+    r'^misc\.?$',           # "Misc" or "Misc."
+    r'^other$',             # "Other"
+    r'^same\s',             # "Same as above"
+    r'^\(\d+\)$',           # Just "(1)" or "(123)"
+    r'^item\s*#?\d*$',      # "Item", "Item 1", "Item #5"
+]
+
+
+def _is_valid_asset_description(desc: str, cost: Optional[float] = None) -> Tuple[bool, str]:
+    """
+    Check if a description represents a valid fixed asset.
+
+    A valid asset description should:
+    1. Be at least MIN_DESCRIPTION_LENGTH characters
+    2. Contain at least one meaningful word (not just numbers/symbols)
+    3. Not match known invalid patterns (None, N/A, TBD, etc.)
+    4. For $0 cost items, require more meaningful descriptions
+
+    Args:
+        desc: Description text
+        cost: Optional cost value (for stricter validation on $0 items)
+
+    Returns:
+        Tuple of (is_valid, reason_if_invalid)
+    """
+    if not desc:
+        return False, "Empty description"
+
+    desc_clean = desc.strip()
+    desc_lower = desc_clean.lower()
+
+    # Check minimum length
+    if len(desc_clean) < MIN_DESCRIPTION_LENGTH:
+        return False, f"Description too short ({len(desc_clean)} chars)"
+
+    # Check for invalid patterns
+    for pattern in INVALID_DESCRIPTION_PATTERNS:
+        if re.match(pattern, desc_lower):
+            return False, f"Invalid pattern: {desc_clean}"
+
+    # Must contain at least one letter (not just numbers/symbols)
+    if not re.search(r'[a-zA-Z]', desc_clean):
+        return False, "No letters in description"
+
+    # Count meaningful words (words with letters, not just numbers)
+    words = [w for w in desc_clean.split() if re.search(r'[a-zA-Z]', w)]
+    if len(words) < MIN_DESCRIPTION_WORDS:
+        return False, f"No meaningful words in: {desc_clean}"
+
+    # For $0 cost items, require more substance (at least 2 words or 8 chars)
+    # $0 items with vague descriptions are likely placeholders
+    if cost is not None and cost == 0:
+        if len(words) < 2 and len(desc_clean) < 8:
+            return False, f"$0 cost with vague description: {desc_clean}"
+
+    return True, ""
+
+
+def _is_placeholder_row(desc: str, cost: Optional[float], asset_id: str) -> bool:
+    """
+    Check if a row is a placeholder that should be skipped.
+
+    Placeholder rows are often:
+    - $0 cost with no real description
+    - Rows with just numbers or short codes
+    - Empty rows that somehow passed earlier filters
+
+    Args:
+        desc: Description text
+        cost: Cost value
+        asset_id: Asset ID/number
+
+    Returns:
+        True if this appears to be a placeholder row
+    """
+    # $0 cost with very short/vague description
+    if cost is not None and cost == 0:
+        desc_clean = (desc or "").strip()
+        # Skip if description is very short or just numbers
+        if len(desc_clean) < 5:
+            logger.debug(f"Skipping $0 placeholder: '{desc_clean}'")
+            return True
+        # Skip if description is just a number or code
+        if re.match(r'^[\d\-\.]+$', desc_clean):
+            logger.debug(f"Skipping $0 numeric placeholder: '{desc_clean}'")
+            return True
+
+    return False
+
+
 def _is_totals_row(desc: str, asset_id: str = "") -> bool:
     """
     Check if a row is a totals/summary row that should be skipped.
@@ -1661,13 +1768,29 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
         if pd.notna(cat_raw):
             category = typo_engine.correct_category(str(cat_raw))
 
-    # Cost
+    # Cost - parse early so we can use it for description validation
     cost = None
     if col_map.get("cost"):
         try:
             cost = parse_number(row[col_map["cost"]])
         except (ValueError, TypeError, KeyError) as e:
             logger.debug(f"Error parsing cost: {e}")
+
+    # QUALITY CHECK: Validate description is meaningful
+    # This catches vague descriptions, placeholders, and non-asset rows
+    is_valid, invalid_reason = _is_valid_asset_description(description, cost)
+    if not is_valid:
+        logger.debug(f"Skipping invalid description: {invalid_reason}")
+        return None
+
+    # QUALITY CHECK: Skip placeholder rows ($0 cost with minimal description)
+    if _is_placeholder_row(description, cost, asset_id):
+        return None
+
+    # QUALITY CHECK: Skip negative cost items (these are credits/adjustments, not assets)
+    if cost is not None and cost < 0:
+        logger.debug(f"Skipping negative cost row: {description} (${cost})")
+        return None
 
     # Dates
     acq_date = None
