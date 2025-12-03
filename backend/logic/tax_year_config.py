@@ -341,25 +341,26 @@ def reload_config() -> bool:
 
 
 # ==============================================================================
-# BONUS DEPRECIATION - TCJA + OBBB ACT (Enacted July 4, 2025)
+# BONUS DEPRECIATION - CURRENT LAW: OBBBA (Enacted July 4, 2025)
 # ==============================================================================
-# The One Big Beautiful Bill Act (OBBBA) was signed into law on July 4, 2025.
-# It permanently restored 100% bonus depreciation for property acquired AND
-# placed in service after January 19, 2025.
+# The One Big Beautiful Bill Act (OBBBA) is the CURRENT LAW governing bonus
+# depreciation. It permanently restored 100% bonus depreciation for property
+# acquired AND placed in service after January 19, 2025.
+#
+# OBBBA supersedes the TCJA phase-down schedule for new acquisitions.
+# TCJA rates (60%, 40%, 20%, 0%) only apply to legacy property acquired
+# BEFORE January 20, 2025.
 #
 # Sources:
 # - https://www.kbkg.com/feature/obbb-tax-bill-makes-100-bonus-depreciation-permanent-what-you-need-to-know
 # - https://rsmus.com/insights/services/business-tax/obba-tax-bonus-depreciation.html
 
 # ==============================================================================
-# OBBBA CONFIGURATION FLAG (Issue 1.6 from IRS Audit Report)
+# OBBBA CONFIGURATION FLAG
 # ==============================================================================
 # This flag controls whether OBBBA provisions are applied.
-# Set to False to use pre-OBBBA TCJA phase-down schedule.
-# This is useful for:
-#   1. Tax planning scenarios before OBBBA passed
-#   2. Testing/comparison purposes
-#   3. If OBBBA provisions are later modified or repealed
+# Set to False ONLY for testing legacy/historical scenarios.
+# Default: True (OBBBA is current law)
 
 import os
 
@@ -432,30 +433,28 @@ def get_bonus_percentage(
     """
     Get bonus depreciation percentage for a given tax year and dates.
 
-    Per TCJA (Tax Cuts and Jobs Act) as modified by OBBBA (enacted July 4, 2025):
+    CURRENT LAW - OBBBA (One Big Beautiful Bill Act, enacted July 4, 2025):
+    - 100% PERMANENT bonus for property acquired AND placed in service after 1/19/2025
+    - This is the default for all 2025+ tax years
 
-    Historical Phase-Down (TCJA per IRC §168(k)(6) and Form 4562 Instructions):
-    - 2017-2022: 100%
+    OBBBA Eligibility Requirements:
+    1. Property must be acquired AFTER January 19, 2025
+    2. Property must be placed in service AFTER January 19, 2025
+    3. Both conditions must be met
+
+    Legacy Property (acquired BEFORE 1/20/2025):
+    Uses historical rates that were in effect at acquisition:
+    - 2022 and earlier: 100%
     - 2023: 80%
     - 2024: 60%
-    - 2025 (pre-OBBBA): 40%
-    - 2026 (pre-OBBBA): 20%
-    - 2027+: 0%
-
-    OBBBA (Enacted July 4, 2025):
-    - Property acquired AND placed in service after Jan 19, 2025: 100% (PERMANENT)
-
-    CRITICAL: To qualify for 100% under OBBBA, property must be BOTH:
-    1. Acquired after January 19, 2025
-    2. Placed in service after January 19, 2025
-
-    Pre-OBBBA acquisitions (acquired before Jan 20, 2025 or subject to binding
-    contract before that date) are NOT eligible for the new 100% rate.
+    - 2025 (legacy): 40%
+    - 2026 (legacy): 20%
+    - 2027+ (legacy): 0%
 
     Args:
         tax_year: Tax year (e.g., 2024, 2025)
-        acquisition_date: Date property acquired (required for 2025+ to determine eligibility)
-        in_service_date: Date property placed in service (required for 2025+)
+        acquisition_date: Date property acquired (determines OBBBA eligibility for 2025+)
+        in_service_date: Date property placed in service (determines OBBBA eligibility for 2025+)
 
     Returns:
         Bonus depreciation percentage as decimal (1.00 for 100%, 0.60 for 60%, etc.)

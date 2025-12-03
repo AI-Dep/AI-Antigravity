@@ -2666,14 +2666,17 @@ async def get_depreciation_preview(request: Request, response: Response):
     FIXED: Now reads actual depreciation_election from each asset
     instead of using arbitrary cost thresholds.
 
-    Bonus rates per TCJA phase-down (Form 4562 Instructions):
-    - 2022: 100%, 2023: 80%, 2024: 60%, 2025: 40%, 2026: 20%, 2027+: 0%
-    - OBBBA (enacted 7/4/2025): 100% for property acquired AND placed in service AFTER 1/19/2025
+    CURRENT LAW - OBBBA (enacted July 4, 2025):
+    - 100% PERMANENT bonus for property acquired AND placed in service after 1/19/2025
+    - Section 179: $2.5M limit, $4M phaseout (indexed)
+
+    Legacy property (acquired before 1/20/2025) uses historical rates:
+    - 2022: 100%, 2023: 80%, 2024: 60%, 2025 legacy: 40%, 2026 legacy: 20%
 
     Returns:
     - De Minimis expenses (separate - NOT Section 179!)
     - Section 179 deduction
-    - Bonus depreciation (rate depends on tax year and OBBBA eligibility)
+    - Bonus depreciation (100% under OBBBA for new acquisitions)
     - Regular MACRS depreciation
     - Total Year 1 depreciation
     """
