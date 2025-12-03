@@ -440,14 +440,14 @@ def _detect_tab_role(tab_name: str, target_year: Optional[int] = None) -> Tuple[
             return TabRole.PRIOR_YEAR, 0.95, notes
 
     # 3. Check for disposal patterns
+    # NOTE: Disposal sheets ARE year-specific - prior year disposals are already processed
+    # So we DO mark prior year disposal sheets for skipping (unlike regular asset tabs)
     for pattern in DISPOSAL_TAB_PATTERNS:
         if re.search(pattern, tab_lower):
             notes.append(f"Matched disposal pattern: {pattern}")
-            # Check if it's prior year disposals
-            # "Disposals FY 2023 2024" with target 2025 -> year 2024 < 2025 -> prior year
             tab_year = _extract_fiscal_year(tab_name)
             if tab_year and target_year and tab_year < target_year:
-                notes.append(f"Year {tab_year} is prior year (target: {target_year})")
+                notes.append(f"Prior year disposal sheet (FY {tab_year}) - skip, already processed")
                 return TabRole.PRIOR_YEAR, 0.90, notes
             return TabRole.DISPOSALS, 0.90, notes
 
@@ -467,12 +467,10 @@ def _detect_tab_role(tab_name: str, target_year: Optional[int] = None) -> Tuple[
     for pattern in SUMMARY_TAB_PATTERNS:
         if re.search(pattern, tab_lower):
             notes.append(f"Matched summary pattern: {pattern}")
-            # Check if it's a prior year summary
-            # "FY 2023 2024" with target 2025 -> year 2024 < 2025 -> prior year
             tab_year = _extract_fiscal_year(tab_name)
+            # Mark prior year summaries but DON'T skip - let row-level filtering handle it
             if tab_year and target_year and tab_year < target_year:
-                notes.append(f"Year {tab_year} is prior year (target: {target_year})")
-                return TabRole.PRIOR_YEAR, 0.95, notes
+                notes.append(f"Year {tab_year} < target {target_year} - will filter at row level")
             return TabRole.SUMMARY, 0.90, notes
 
     # 7. Check for DETAIL patterns (category-specific tabs)
@@ -481,12 +479,14 @@ def _detect_tab_role(tab_name: str, target_year: Optional[int] = None) -> Tuple[
             notes.append(f"Matched detail pattern: {pattern}")
             return TabRole.DETAIL, 0.85, notes
 
-    # 8. Check for year-based tabs that might be prior year
+    # 8. Check for year-based tabs - treat as DETAIL for row-level filtering
+    # Don't skip based on year - the row-level date filter will handle prior year rows
     tab_year = _extract_fiscal_year(tab_name)
     if tab_year and target_year:
         if tab_year < target_year:
-            notes.append(f"Year {tab_year} is prior year (target: {target_year})")
-            return TabRole.PRIOR_YEAR, 0.80, notes
+            notes.append(f"Year {tab_year} < target {target_year} - will process and filter at row level")
+            # Return DETAIL instead of PRIOR_YEAR - let row filtering decide
+            return TabRole.DETAIL, 0.70, notes
         elif tab_year == target_year:
             # Current year tab without specific role - might be summary
             # Check if it looks like just "FY XXXX XXXX"
