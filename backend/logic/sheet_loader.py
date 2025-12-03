@@ -2161,7 +2161,8 @@ def build_unified_dataframe(
     target_tax_year: Optional[int] = None,
     fy_start_month: int = 1,
     filter_by_date: bool = True,
-    client_id: Optional[str] = None
+    client_id: Optional[str] = None,
+    tab_analysis_result: Optional[Any] = None
 ) -> pd.DataFrame:
     """
     Build unified dataframe from multiple Excel sheets
@@ -2173,6 +2174,11 @@ def build_unified_dataframe(
     1. Sheet-level: Skips working/draft sheets, prior year archives
     2. Row-level: Only includes rows with dates in the target fiscal year
        (dramatically reduces data when category tabs have years of history)
+
+    PERFORMANCE OPTIMIZATION:
+    When tab_analysis_result is provided (from smart_tab_analyzer.analyze_tabs()),
+    the function uses pre-computed skip decisions instead of re-analyzing each sheet.
+    This eliminates redundant skip checks and significantly speeds up processing.
 
     CLIENT-SPECIFIC MAPPINGS:
     When client_id is provided, the function will:
@@ -2190,6 +2196,8 @@ def build_unified_dataframe(
                        Set to False to load all rows regardless of date.
         client_id: Optional client identifier for client-specific column mappings.
                   If provided, mappings from client_input_mappings.json will be used.
+        tab_analysis_result: Optional pre-computed tab analysis from smart_tab_analyzer.
+                            If provided, uses cached skip decisions for faster processing.
 
     Returns:
         Unified DataFrame with standardized column names
@@ -2244,16 +2252,40 @@ def build_unified_dataframe(
     logger.info(f"Processing {len(sheets)} Excel sheets")
     logger.info(f"Target: {fy_desc}, Date filtering: {'ON' if filter_by_date else 'OFF'}")
 
-    for sheet_name, df_raw in sheets.items():
-        logger.info(f"Processing sheet: {sheet_name}")
+    # PERFORMANCE: Build pre-computed skip map from tab_analysis_result
+    # This avoids redundant _should_skip_sheet() and _is_rollforward_sheet() calls
+    precomputed_skip_map: Dict[str, str] = {}  # sheet_name -> skip_reason
+    use_precomputed_skips = False
+    if tab_analysis_result is not None:
+        try:
+            for tab in tab_analysis_result.tabs:
+                if not tab.should_process and tab.skip_reason:
+                    precomputed_skip_map[tab.tab_name] = tab.skip_reason
+            use_precomputed_skips = True
+            logger.info(f"Using pre-computed skip list: {len(precomputed_skip_map)} sheets to skip")
+        except (AttributeError, TypeError) as e:
+            logger.warning(f"Could not use tab_analysis_result: {e}, falling back to full analysis")
+            use_precomputed_skips = False
 
-        # SMART SKIP: Check if sheet should be skipped entirely
-        should_skip, skip_reason = _should_skip_sheet(sheet_name, target_tax_year)
-        if should_skip:
+    for sheet_name, df_raw in sheets.items():
+        # FAST PATH: Use pre-computed skip decision if available
+        if use_precomputed_skips and sheet_name in precomputed_skip_map:
+            skip_reason = precomputed_skip_map[sheet_name]
             logger.info(f"⏭️  Skipping sheet '{sheet_name}': {skip_reason}")
             skipped_sheet_reasons.append(f"'{sheet_name}': {skip_reason}")
             skipped_sheets += 1
             continue
+
+        logger.info(f"Processing sheet: {sheet_name}")
+
+        # SLOW PATH: Full analysis if no pre-computed result available
+        if not use_precomputed_skips:
+            should_skip, skip_reason = _should_skip_sheet(sheet_name, target_tax_year)
+            if should_skip:
+                logger.info(f"⏭️  Skipping sheet '{sheet_name}': {skip_reason}")
+                skipped_sheet_reasons.append(f"'{sheet_name}': {skip_reason}")
+                skipped_sheets += 1
+                continue
 
         # CLIENT-SPECIFIC SKIP: Check client's skip_sheets patterns
         if client_skip_sheets:
@@ -2276,12 +2308,14 @@ def build_unified_dataframe(
             continue
 
         # CONTENT-BASED SKIP: Check if sheet is a rollforward/summary by examining content
-        is_rollforward, rollforward_reason = _is_rollforward_sheet(df_raw, sheet_name)
-        if is_rollforward:
-            logger.info(f"⏭️  Skipping sheet '{sheet_name}': {rollforward_reason}")
-            skipped_sheet_reasons.append(f"'{sheet_name}': {rollforward_reason}")
-            skipped_sheets += 1
-            continue
+        # Skip this expensive check if we already have pre-computed analysis
+        if not use_precomputed_skips:
+            is_rollforward, rollforward_reason = _is_rollforward_sheet(df_raw, sheet_name)
+            if is_rollforward:
+                logger.info(f"⏭️  Skipping sheet '{sheet_name}': {rollforward_reason}")
+                skipped_sheet_reasons.append(f"'{sheet_name}': {rollforward_reason}")
+                skipped_sheets += 1
+                continue
 
         # SPECIAL HANDLING: Disposal sheets in JE (Journal Entry) format
         # These have a non-standard format and need special parsing
