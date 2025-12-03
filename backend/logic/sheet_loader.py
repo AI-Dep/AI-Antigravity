@@ -1160,26 +1160,52 @@ def _is_disposal_je_format(df: pd.DataFrame) -> bool:
     Returns:
         True if this appears to be JE format
     """
-    if df is None or df.empty or len(df) < 5:
+    logger.info(f"[JE Format Check] Starting check - df is None: {df is None}, empty: {df.empty if df is not None else 'N/A'}, len: {len(df) if df is not None and not df.empty else 0}")
+
+    if df is None or df.empty or len(df) < 3:
+        logger.info(f"[JE Format Check] EARLY EXIT: df None/empty/too short (len < 3)")
         return False
 
-    # Look for "Asset #" pattern in first 20 rows
+    # Check more rows (50) and columns (10) to handle sheets with header text at top
+    rows_to_check = min(50, len(df))
+    cols_to_check = min(10, len(df.columns))
+    logger.info(f"[JE Format Check] Checking {rows_to_check} rows x {cols_to_check} columns")
+
+    # Look for "Asset #" pattern in first 50 rows
     je_indicators = 0
-    for i in range(min(20, len(df))):
-        for j in range(min(5, len(df.columns))):
+    found_patterns = []
+
+    for i in range(rows_to_check):
+        for j in range(cols_to_check):
             val = df.iloc[i, j]
             if pd.notna(val):
                 val_str = str(val).strip()
-                # Check for "Asset #XX" pattern
+                # Log first 15 non-empty values for debugging
+                if len(found_patterns) < 15 and val_str:
+                    logger.debug(f"[JE Format Check] Row {i}, Col {j}: '{val_str[:100]}'")
+
+                # Check for "Asset #XX" pattern (also match "Asset#XX" without space)
                 if re.search(r'Asset\s*#\s*\d+', val_str, re.IGNORECASE):
                     je_indicators += 1
-                # Check for "JE #" pattern
+                    found_patterns.append(f"Asset# at ({i},{j}): '{val_str[:50]}'")
+                    logger.info(f"[JE Format Check] FOUND 'Asset #' at row {i}, col {j}: '{val_str[:80]}'")
+                # Check for "JE #" or "JE#" pattern
                 if re.search(r'JE\s*#', val_str, re.IGNORECASE):
                     je_indicators += 1
-                # Check for "A/D" (accumulated depreciation) row
-                if val_str.upper() in ('A/D', 'A.D.', 'ACCUM DEP', 'ACC DEP'):
+                    found_patterns.append(f"JE# at ({i},{j})")
+                    logger.info(f"[JE Format Check] FOUND 'JE #' at row {i}, col {j}: '{val_str[:80]}'")
+                # Check for "A/D" (accumulated depreciation) row - also check for just "A/D" in longer strings
+                if val_str.upper() in ('A/D', 'A.D.', 'ACCUM DEP', 'ACC DEP') or re.search(r'\bA/D\b', val_str):
                     je_indicators += 1
+                    found_patterns.append(f"A/D at ({i},{j})")
+                    logger.info(f"[JE Format Check] FOUND 'A/D' at row {i}, col {j}: '{val_str}'")
+                # Also check for "disposed" or "disposal" keywords as additional indicator
+                if re.search(r'\bdisposed?\b', val_str, re.IGNORECASE):
+                    if je_indicators == 0:  # Only count if no other indicators found yet
+                        je_indicators += 0.5
+                    found_patterns.append(f"'disposed' at ({i},{j})")
 
+    logger.info(f"[JE Format Check] Result: je_indicators={je_indicators}, is_je={je_indicators >= 2}, patterns={found_patterns}")
     return je_indicators >= 2
 
 
@@ -1195,9 +1221,11 @@ def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[st
     Returns:
         List of disposal records with keys: asset_id, description, disposal_date, cost, accum_dep, proceeds
     """
+    logger.info(f"[{sheet_name}] JE Parser starting - df shape: {df.shape if df is not None else 'None'}")
     disposals = []
 
     if df is None or df.empty:
+        logger.info(f"[{sheet_name}] JE Parser: Empty DataFrame, returning []")
         return disposals
 
     current_disposal = None
@@ -1253,9 +1281,14 @@ def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[st
 
         row_text = row_text.strip()
 
+        # Log first 10 rows for debugging
+        if i < 10:
+            logger.info(f"[{sheet_name}] JE Parser row {i}: '{row_text[:150]}'")
+
         # Try Format 1 (newer): "Asset #51 - April 2024 - disposed of..."
         header_match = DISPOSAL_JE_HEADER_PATTERN.search(row_text)
         if header_match:
+            logger.info(f"[{sheet_name}] JE Parser: MATCHED Format 1 at row {i} - Asset #{header_match.group(1)}")
             # Save previous disposal(s)
             if current_disposal and current_disposal.get('description'):
                 disposals.append(current_disposal)
@@ -1274,6 +1307,7 @@ def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[st
         # Try Format 2 (older): "Aug 2019 - Disposed asset #350 description"
         alt_match = DISPOSAL_JE_HEADER_PATTERN_ALT.search(row_text)
         if alt_match:
+            logger.info(f"[{sheet_name}] JE Parser: MATCHED Format 2 at row {i} - Asset #{alt_match.group(2)}")
             # Save previous disposal(s)
             if current_disposal and current_disposal.get('description'):
                 disposals.append(current_disposal)
@@ -1292,6 +1326,7 @@ def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[st
         # Try Format 3 (multi): "Jan 2020 - Disposed of asset #'s 50, 52 and 66; description"
         multi_match = DISPOSAL_JE_HEADER_PATTERN_MULTI.search(row_text)
         if multi_match:
+            logger.info(f"[{sheet_name}] JE Parser: MATCHED Format 3 (multi) at row {i} - Assets: {multi_match.group(2)}")
             # Save previous disposal(s)
             if current_disposal and current_disposal.get('description'):
                 disposals.append(current_disposal)
@@ -2998,6 +3033,13 @@ def build_unified_dataframe(
         # These have a non-standard format and need special parsing
         if is_disposal_sheet:
             logger.info(f"[{sheet_name}] *** DISPOSAL SHEET DETECTED *** Will NOT skip for rollforward reasons")
+            logger.info(f"[{sheet_name}] Raw DataFrame shape: {df_raw.shape if df_raw is not None else 'None'}")
+            # Log first 5 rows of raw data for debugging
+            if df_raw is not None and not df_raw.empty:
+                logger.info(f"[{sheet_name}] Raw columns: {list(df_raw.columns)[:10]}")
+                for row_idx in range(min(5, len(df_raw))):
+                    row_values = [str(df_raw.iloc[row_idx, col_idx])[:50] for col_idx in range(min(5, len(df_raw.columns)))]
+                    logger.info(f"[{sheet_name}] Raw row {row_idx}: {row_values}")
             is_je = _is_disposal_je_format(df_raw)
             logger.info(f"[{sheet_name}] JE format detection result: {is_je}")
 
