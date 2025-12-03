@@ -1504,6 +1504,80 @@ TOTALS_ROW_KEYWORDS = [
     "summary", "totals", "accumulated"
 ]
 
+# Accounting adjustment row patterns - these are NOT actual fixed assets
+# They are journal entry descriptions or period adjustments
+ACCOUNTING_ADJUSTMENT_KEYWORDS = [
+    "bal",      # Balance (e.g., "April bal", "Beginning bal")
+    "depr",     # Depreciation entry (e.g., "April depr", "Monthly depr")
+    "adj",      # Adjustment (e.g., "May adj", "Year-end adj")
+    "je",       # Journal entry
+    "entry",    # Entry
+    "accrual",  # Accrual
+    "reversal", # Reversal
+    "reclass",  # Reclassification
+    "true-up",  # True-up
+    "trueup",   # True-up (no hyphen)
+    "correction", # Correction
+    "reconcile",  # Reconciliation entry
+    "reconciliation",
+]
+
+# Month names for detecting patterns like "April bal", "May adj"
+MONTH_NAMES = [
+    "jan", "january", "feb", "february", "mar", "march",
+    "apr", "april", "may", "jun", "june",
+    "jul", "july", "aug", "august", "sep", "september",
+    "oct", "october", "nov", "november", "dec", "december",
+    "q1", "q2", "q3", "q4",  # Quarters
+    "fy", "cy",  # Fiscal year, Calendar year
+]
+
+
+def _is_accounting_adjustment_row(desc: str) -> bool:
+    """
+    Check if a row is an accounting adjustment that should not be classified.
+
+    These are journal entry descriptions like "April bal", "May depr", "Q4 adj"
+    that appear in fixed asset schedules but are NOT actual fixed assets.
+
+    Args:
+        desc: Description text
+
+    Returns:
+        True if this appears to be an accounting adjustment row
+    """
+    if not desc:
+        return False
+
+    desc_lower = desc.lower().strip()
+    words = desc_lower.split()
+
+    # Very short descriptions (1-3 words) with accounting keywords are likely adjustments
+    if len(words) <= 3:
+        for keyword in ACCOUNTING_ADJUSTMENT_KEYWORDS:
+            if keyword in desc_lower:
+                logger.debug(f"Skipping accounting adjustment row: {desc}")
+                return True
+
+    # Pattern: Month + accounting keyword (e.g., "April bal", "May depr")
+    if len(words) >= 2:
+        first_word = words[0]
+        for month in MONTH_NAMES:
+            if first_word == month or first_word.startswith(month):
+                # Check if remaining words contain accounting keywords
+                remaining = " ".join(words[1:])
+                for keyword in ACCOUNTING_ADJUSTMENT_KEYWORDS:
+                    if keyword in remaining:
+                        logger.debug(f"Skipping month adjustment row: {desc}")
+                        return True
+
+    # Pattern: Just "bal", "depr", "adj" with no other meaningful content
+    if len(words) <= 2 and any(w in ACCOUNTING_ADJUSTMENT_KEYWORDS for w in words):
+        logger.debug(f"Skipping pure accounting keyword row: {desc}")
+        return True
+
+    return False
+
 
 def _is_totals_row(desc: str, asset_id: str = "") -> bool:
     """
@@ -1570,6 +1644,11 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
 
     # Skip totals/summary rows (not actual asset data)
     if _is_totals_row(desc_raw, asset_id):
+        return None
+
+    # Skip accounting adjustment rows (e.g., "April bal", "May depr", "Q4 adj")
+    # These are journal entries, not actual fixed assets
+    if _is_accounting_adjustment_row(desc_raw):
         return None
 
     # Fix typos in description
