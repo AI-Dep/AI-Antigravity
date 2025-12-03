@@ -417,6 +417,16 @@ function Review({ assets = [] }) {
             ));
             // Call backend to persist the election change
             await apiPost(`/assets/${uniqueId}/election`, { election: newElection });
+
+            // Refresh depreciation preview to reflect the new election
+            // This ensures the preview shows accurate 179/Bonus/MACRS totals
+            try {
+                const preview = await apiGet('/export/depreciation-preview');
+                setDepreciationPreview(preview);
+            } catch (previewError) {
+                console.warn("Failed to refresh depreciation preview:", previewError);
+                // Don't fail the whole operation if preview refresh fails
+            }
         } catch (error) {
             console.error("Failed to update election:", error);
         }
