@@ -138,8 +138,10 @@ function Review({ assets = [] }) {
         const newYear = parseInt(e.target.value, 10);
         setTaxYearLoading(true);
         try {
+            // CRITICAL: Preserve fiscal year start month when changing tax year!
             const data = await apiPost('/config/tax', {
-                tax_year: newYear
+                tax_year: newYear,
+                fy_start_month: fyStartMonth  // Preserve current fiscal year setting
             });
             setTaxYear(newYear);
 

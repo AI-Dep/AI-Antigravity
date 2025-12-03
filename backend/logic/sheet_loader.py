@@ -2931,18 +2931,27 @@ def build_unified_dataframe(
             use_precomputed_skips = False
 
     for sheet_name, df_raw in sheets.items():
+        # Check if this is a disposal sheet FIRST (never skip disposal sheets!)
+        sheet_name_lower_check = sheet_name.lower()
+        is_disposal_sheet_check = 'disposal' in sheet_name_lower_check or 'disposed' in sheet_name_lower_check
+
         # FAST PATH: Use pre-computed skip decision if available
+        # CRITICAL: Never skip disposal sheets even if they're in the skip map!
         if use_precomputed_skips and sheet_name in precomputed_skip_map:
-            skip_reason = precomputed_skip_map[sheet_name]
-            logger.info(f"⏭️  Skipping sheet '{sheet_name}': {skip_reason}")
-            skipped_sheet_reasons.append(f"'{sheet_name}': {skip_reason}")
-            skipped_sheets += 1
-            continue
+            if is_disposal_sheet_check:
+                logger.info(f"[{sheet_name}] *** DISPOSAL SHEET - OVERRIDING SKIP DECISION ***")
+            else:
+                skip_reason = precomputed_skip_map[sheet_name]
+                logger.info(f"⏭️  Skipping sheet '{sheet_name}': {skip_reason}")
+                skipped_sheet_reasons.append(f"'{sheet_name}': {skip_reason}")
+                skipped_sheets += 1
+                continue
 
         logger.info(f"Processing sheet: {sheet_name}")
 
         # SLOW PATH: Full analysis if no pre-computed result available
-        if not use_precomputed_skips:
+        # CRITICAL: Never skip disposal sheets!
+        if not use_precomputed_skips and not is_disposal_sheet_check:
             should_skip, skip_reason = _should_skip_sheet(sheet_name, target_tax_year)
             if should_skip:
                 logger.info(f"⏭️  Skipping sheet '{sheet_name}': {skip_reason}")
