@@ -968,6 +968,7 @@ ACCOUNT_CODE_PATTERN = re.compile(r'^\s*[A-Za-z\s&]+\s+\d{5}(?:-\d{2})?\s*$')
 
 # Disposal JE format patterns
 # Matches: "Asset #51 - April 2024 - disposed of B27 Grinding Wheel"
+# Also: "1. Asset #51 - April 2024 - disposed of..." (with numbering prefix)
 DISPOSAL_JE_HEADER_PATTERN = re.compile(
     r'Asset\s*#?\s*(\d+)\s*[-–]\s*(\w+\s+\d{4})\s*[-–]\s*(.+)',
     re.IGNORECASE
@@ -977,6 +978,12 @@ MONTH_YEAR_PATTERN = re.compile(
     r'(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|'
     r'Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)'
     r'\s+(\d{4})',
+    re.IGNORECASE
+)
+# Pattern to extract proceeds from narrative (e.g., "invoiced AAM 8,414.00")
+PROCEEDS_IN_NARRATIVE_PATTERN = re.compile(
+    r'(?:invoiced|sold\s+(?:for|to\s+\w+\s+for)?|proceeds?)\s*(?:\w+\s+)?'
+    r'[\$]?([\d,]+\.?\d*)',
     re.IGNORECASE
 )
 
@@ -1197,13 +1204,22 @@ def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[st
                 except Exception:
                     pass
 
+            # Check if proceeds are mentioned in the narrative (e.g., "invoiced AAM 8,414.00")
+            proceeds = None
+            proceeds_match = PROCEEDS_IN_NARRATIVE_PATTERN.search(row_text)
+            if proceeds_match:
+                try:
+                    proceeds = float(proceeds_match.group(1).replace(',', ''))
+                except ValueError:
+                    pass
+
             current_disposal = {
                 'asset_id': f"#{asset_num}",
                 'description': description,
                 'disposal_date': disposal_date,
                 'cost': None,
                 'accum_dep': None,
-                'proceeds': None,
+                'proceeds': proceeds,  # May be extracted from narrative
                 'source_sheet': sheet_name,
             }
             continue
@@ -1229,12 +1245,21 @@ def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[st
                     except ValueError:
                         pass
 
-            # Check for Proceeds
-            elif 'proceed' in row_text.lower():
+            # Check for Proceeds (only if not already set from narrative)
+            elif 'proceed' in row_text.lower() and current_disposal.get('proceeds') is None:
                 numbers = re.findall(r'[\d,]+\.?\d*', row_text)
                 if numbers:
                     try:
                         current_disposal['proceeds'] = float(numbers[0].replace(',', ''))
+                    except ValueError:
+                        pass
+
+            # Check for "invoiced" in supporting rows
+            elif 'invoiced' in row_text.lower() and current_disposal.get('proceeds') is None:
+                numbers = re.findall(r'[\d,]+\.?\d*', row_text)
+                if numbers:
+                    try:
+                        current_disposal['proceeds'] = float(numbers[-1].replace(',', ''))  # Usually last number
                     except ValueError:
                         pass
 
@@ -1569,6 +1594,37 @@ TOTALS_ROW_KEYWORDS = [
     "summary", "totals", "accumulated"
 ]
 
+# Budget/Planning row keywords - these are NOT actual assets
+# They are future plans, forecasts, or placeholder entries
+BUDGET_PLANNING_KEYWORDS = [
+    "budget",       # Budget items (not actual assets yet)
+    "forecast",     # Forecasted purchases
+    "planned",      # Planned acquisitions
+    "proposed",     # Proposed purchases
+    "pending",      # Pending approval
+    "future",       # Future purchase
+    "estimate",     # Estimated
+    "projected",    # Projected
+    "tbd",          # To be determined
+    "placeholder",  # Placeholder entry
+    "anticipated",  # Anticipated purchase
+    "tentative",    # Tentative
+    "draft",        # Draft entry
+    "reserved",     # Reserved for future
+]
+
+# Asset ID patterns that indicate non-asset rows
+NON_ASSET_ID_PATTERNS = [
+    r'^budget',     # "Budget", "Budget-2025"
+    r'^plan',       # "Planned", "Plan-123"
+    r'^future',     # "Future"
+    r'^tbd',        # "TBD"
+    r'^pending',    # "Pending"
+    r'^n/?a$',      # "N/A", "NA"
+    r'^-+$',        # Just dashes
+    r'^\*+$',       # Just asterisks
+]
+
 # Accounting adjustment row patterns - these are NOT actual fixed assets
 # They are journal entry descriptions or period adjustments
 ACCOUNTING_ADJUSTMENT_KEYWORDS = [
@@ -1640,6 +1696,57 @@ def _is_accounting_adjustment_row(desc: str) -> bool:
     if len(words) <= 2 and any(w in ACCOUNTING_ADJUSTMENT_KEYWORDS for w in words):
         logger.debug(f"Skipping pure accounting keyword row: {desc}")
         return True
+
+    return False
+
+
+def _is_budget_or_planning_row(desc: str, asset_id: str = "") -> bool:
+    """
+    Check if a row is a budget/planning entry that should not be imported.
+
+    These are future plans, forecasts, or placeholder entries that appear in
+    fixed asset schedules but are NOT actual assets that have been acquired.
+
+    Examples:
+        - "Budget" with "Office space" → Future plan, not actual asset
+        - "Forecast - New equipment 2026"
+        - "Pending - Warehouse expansion"
+
+    Args:
+        desc: Description text
+        asset_id: Asset ID/number (might contain "Budget", "TBD", etc.)
+
+    Returns:
+        True if this appears to be a budget/planning row
+    """
+    if not desc and not asset_id:
+        return False
+
+    desc_lower = (desc or "").lower().strip()
+    asset_id_lower = (asset_id or "").lower().strip()
+
+    # Check if asset_id itself indicates non-asset (e.g., "Budget", "TBD", "Pending")
+    for pattern in NON_ASSET_ID_PATTERNS:
+        if asset_id_lower and re.match(pattern, asset_id_lower):
+            logger.debug(f"Skipping non-asset row (ID pattern): {asset_id} - {desc}")
+            return True
+
+    # Check if description starts with budget/planning keyword
+    for keyword in BUDGET_PLANNING_KEYWORDS:
+        if desc_lower.startswith(keyword):
+            logger.debug(f"Skipping budget/planning row (desc starts with {keyword}): {desc}")
+            return True
+        if asset_id_lower.startswith(keyword):
+            logger.debug(f"Skipping budget/planning row (ID starts with {keyword}): {asset_id}")
+            return True
+
+    # Check for budget/planning keywords in short descriptions (< 5 words)
+    words = desc_lower.split()
+    if len(words) <= 5:
+        for keyword in BUDGET_PLANNING_KEYWORDS:
+            if keyword in words:
+                logger.debug(f"Skipping budget/planning row (keyword in short desc): {desc}")
+                return True
 
     return False
 
@@ -1826,6 +1933,11 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
     # Skip accounting adjustment rows (e.g., "April bal", "May depr", "Q4 adj")
     # These are journal entries, not actual fixed assets
     if _is_accounting_adjustment_row(desc_raw):
+        return None
+
+    # Skip budget/planning rows (e.g., "Budget" + "Office space")
+    # These are future plans, not actual acquired assets
+    if _is_budget_or_planning_row(desc_raw, asset_id):
         return None
 
     # Fix typos in description

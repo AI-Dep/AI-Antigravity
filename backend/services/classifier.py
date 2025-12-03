@@ -19,14 +19,45 @@ class ClassifierService:
     """
     Service to classify assets into MACRS categories using the advanced rule engine.
     Also handles transaction type classification (addition vs existing vs disposal vs transfer).
+
+    Supports fiscal years (e.g., Apr-Mar, Jul-Jun) in addition to calendar years.
     """
 
     def __init__(self):
         self.tax_year: int = date.today().year  # Default to current year
+        self.fy_start_month: int = 1  # Default to calendar year (January)
 
     def set_tax_year(self, year: int):
         """Set the tax year for transaction classification."""
         self.tax_year = year
+
+    def set_fy_start_month(self, month: int):
+        """
+        Set the fiscal year start month.
+
+        Args:
+            month: First month of fiscal year (1=Jan/calendar, 4=Apr, 7=Jul, 10=Oct)
+
+        Examples:
+            - set_fy_start_month(1): Calendar year (Jan-Dec)
+            - set_fy_start_month(4): Fiscal year Apr-Mar
+            - set_fy_start_month(7): Fiscal year Jul-Jun
+            - set_fy_start_month(10): Fiscal year Oct-Sep
+        """
+        if not 1 <= month <= 12:
+            raise ValueError(f"fy_start_month must be 1-12, got {month}")
+        self.fy_start_month = month
+
+    def set_fiscal_year_config(self, tax_year: int, fy_start_month: int = 1):
+        """
+        Set both tax year and fiscal year start month together.
+
+        Args:
+            tax_year: The tax/fiscal year (e.g., 2025)
+            fy_start_month: First month of fiscal year (1=Jan, 4=Apr, 7=Jul, 10=Oct)
+        """
+        self.set_tax_year(tax_year)
+        self.set_fy_start_month(fy_start_month)
 
     def classify_asset(self, asset: Asset) -> Asset:
         """
@@ -53,13 +84,22 @@ class ClassifierService:
             
         return asset
 
-    def classify_batch(self, assets: List[Asset], tax_year: Optional[int] = None) -> List[Asset]:
+    def classify_batch(
+        self,
+        assets: List[Asset],
+        tax_year: Optional[int] = None,
+        fy_start_month: Optional[int] = None
+    ) -> List[Asset]:
         """
         Classifies a list of assets for both MACRS categories AND transaction types.
+
+        Supports fiscal years (e.g., Apr-Mar, Jul-Jun) in addition to calendar years.
 
         Args:
             assets: List of Asset objects
             tax_year: Tax year for transaction classification (defaults to self.tax_year)
+            fy_start_month: First month of fiscal year (1=Jan, 4=Apr, 7=Jul, 10=Oct)
+                           Defaults to self.fy_start_month
 
         Returns:
             List of classified Asset objects
@@ -67,8 +107,9 @@ class ClassifierService:
         if not assets:
             return []
 
-        # Use provided tax_year or fall back to instance default
+        # Use provided values or fall back to instance defaults
         effective_tax_year = tax_year or self.tax_year
+        effective_fy_start_month = fy_start_month or self.fy_start_month
 
         # Convert to dicts for MACRS classification
         asset_dicts = []
@@ -87,12 +128,12 @@ class ClassifierService:
         for asset, result in zip(assets, results):
             self._apply_classification(asset, result, tax_year=effective_tax_year)
 
-        # Run transaction type classification
-        self._classify_transaction_types(assets, effective_tax_year)
+        # Run transaction type classification (with fiscal year support)
+        self._classify_transaction_types(assets, effective_tax_year, effective_fy_start_month)
 
         return assets
 
-    def _classify_transaction_types(self, assets: List[Asset], tax_year: int):
+    def _classify_transaction_types(self, assets: List[Asset], tax_year: int, fy_start_month: int = 1):
         """
         Classify transaction types (addition vs existing vs disposal vs transfer).
 
@@ -101,6 +142,13 @@ class ClassifierService:
         - Existing Assets: NOT eligible for Section 179/Bonus (only regular MACRS)
         - Disposals: Need gain/loss calculation
         - Transfers: Location/department change only
+
+        Supports fiscal years (e.g., Apr-Mar, Jul-Jun) in addition to calendar years.
+
+        Args:
+            assets: List of Asset objects
+            tax_year: The tax/fiscal year
+            fy_start_month: First month of fiscal year (1=Jan, 4=Apr, 7=Jul, 10=Oct)
         """
         import pandas as pd
 
@@ -117,9 +165,9 @@ class ClassifierService:
             }
             row = pd.Series(row_dict)
 
-            # Classify transaction type (returns type, reason, confidence)
+            # Classify transaction type with fiscal year support
             trans_type, reason, trans_confidence = transaction_classifier.classify_transaction_type(
-                row, tax_year, verbose=False
+                row, tax_year, fy_start_month, verbose=False
             )
 
             # Update asset with proper transaction type

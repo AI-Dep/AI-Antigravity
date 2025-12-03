@@ -9,6 +9,7 @@ from backend.logic.sheet_loader import (
     _is_valid_asset_description,
     _is_category_label,
     _is_accounting_adjustment_row,
+    _is_budget_or_planning_row,
     _is_placeholder_row,
     _is_totals_row,
     _is_header_repetition,
@@ -423,6 +424,10 @@ class ImporterService:
 
                 # Skip accounting adjustment rows (e.g., "April bal", "May depr")
                 if _is_accounting_adjustment_row(desc_str):
+                    continue
+
+                # Skip budget/planning rows (e.g., "Budget" + "Office space")
+                if _is_budget_or_planning_row(desc_str, asset_id_raw):
                     continue
 
                 # Parse cost early for validation
