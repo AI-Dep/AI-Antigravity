@@ -2274,7 +2274,7 @@ async def update_asset_election(
     - MACRS: Standard MACRS depreciation
     - DeMinimis: De minimis safe harbor (expense immediately if ≤$2,500)
     - Section179: Section 179 expense election
-    - Bonus: Bonus depreciation (80% for 2024, per Form 4562 Instructions)
+    - Bonus: Bonus depreciation (60% for 2024 per TCJA, 100% for 2025+ under OBBBA)
     - ADS: Alternative Depreciation System
 
     Note: This is a CPA decision based on client's income situation.
@@ -2666,10 +2666,17 @@ async def get_depreciation_preview(request: Request, response: Response):
     FIXED: Now reads actual depreciation_election from each asset
     instead of using arbitrary cost thresholds.
 
+    CURRENT LAW - OBBBA (enacted July 4, 2025):
+    - 100% PERMANENT bonus for property acquired AND placed in service after 1/19/2025
+    - Section 179: $2.5M limit, $4M phaseout (indexed)
+
+    Legacy property (acquired before 1/20/2025) uses historical rates:
+    - 2022: 100%, 2023: 80%, 2024: 60%, 2025 legacy: 40%, 2026 legacy: 20%
+
     Returns:
     - De Minimis expenses (separate - NOT Section 179!)
     - Section 179 deduction
-    - Bonus depreciation (60% for 2025 OBBBA)
+    - Bonus depreciation (100% under OBBBA for new acquisitions)
     - Regular MACRS depreciation
     - Total Year 1 depreciation
     """
@@ -2692,12 +2699,16 @@ async def get_depreciation_preview(request: Request, response: Response):
     # Get tax year limits from centralized config (OBBBA/TCJA compliant)
     section_179_config = tax_year_config.get_section_179_limits(tax_year)
     section_179_limit = section_179_config.get("max_deduction", 1220000)
-    bonus_rate = tax_year_config.get_bonus_percentage(tax_year)
+
+    # Get default bonus rate for display (without asset-specific dates)
+    # This is used for UI display, but actual calculation uses asset-specific rates
+    default_bonus_rate = tax_year_config.get_bonus_percentage(tax_year)
 
     de_minimis_total = 0
     section_179_total = 0
     bonus_total = 0
     regular_macrs_total = 0
+    bonus_rates_used = []  # Track actual rates used for weighted average
 
     # First year MACRS rate (approximation)
     first_year_rates = {
@@ -2733,12 +2744,21 @@ async def get_depreciation_preview(request: Request, response: Response):
             # Section 179 election - deduction (up to limit)
             section_179_total += cost
         elif election == 'Bonus':
-            # Bonus depreciation
-            bonus_amount = cost * bonus_rate
+            # Bonus depreciation - use asset-specific rate based on dates
+            # OBBBA: 100% only if acquired AND placed in service after 1/19/2025
+            # Otherwise: TCJA phase-down (2024=60%, 2025=40%, 2026=20%, 2027+=0%)
+            acquisition_date = getattr(asset, 'acquisition_date', None)
+            in_service_date = getattr(asset, 'in_service_date', None)
+            asset_bonus_rate = tax_year_config.get_bonus_percentage(
+                tax_year, acquisition_date, in_service_date
+            )
+
+            bonus_amount = cost * asset_bonus_rate
             remaining = cost - bonus_amount
             regular = remaining * first_year_rate
             bonus_total += bonus_amount
             regular_macrs_total += regular
+            bonus_rates_used.append((cost, asset_bonus_rate))
         elif election == 'ADS':
             # ADS - straight line over ADS life
             ads_life = getattr(asset, 'ads_life', life * 1.5) or (life * 1.5)
@@ -2746,6 +2766,13 @@ async def get_depreciation_preview(request: Request, response: Response):
         else:
             # Regular MACRS (no election or MACRS selected)
             regular_macrs_total += cost * first_year_rate
+
+    # Calculate weighted average bonus rate for display
+    if bonus_rates_used:
+        total_bonus_cost = sum(c for c, _ in bonus_rates_used)
+        weighted_bonus_rate = sum(c * r for c, r in bonus_rates_used) / total_bonus_cost if total_bonus_cost > 0 else default_bonus_rate
+    else:
+        weighted_bonus_rate = default_bonus_rate
 
     # Total Year 1 = all categories (De Minimis is expense, others are depreciation)
     total_year1 = de_minimis_total + section_179_total + bonus_total + regular_macrs_total
@@ -2757,7 +2784,8 @@ async def get_depreciation_preview(request: Request, response: Response):
         "regular_macrs": round(regular_macrs_total, 2),
         "total_year1": round(total_year1, 2),
         "tax_year": tax_year,
-        "bonus_rate": bonus_rate,
+        "bonus_rate": weighted_bonus_rate,  # Weighted average of actual rates used
+        "default_bonus_rate": default_bonus_rate,  # Default rate for tax year (without dates)
         "section_179_limit": section_179_limit,
         "summary": f"Estimated ${total_year1:,.0f} Year 1 deductions"
     }

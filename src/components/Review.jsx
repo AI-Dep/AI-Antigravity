@@ -339,25 +339,27 @@ function Review({ assets = [] }) {
     };
 
     // Tax year configuration for dynamic limits
-    // Sources: IRS Rev. Proc., OBBBA (One Big Beautiful Bill Act) effective 1/19/2025
+    // CURRENT LAW: OBBBA (One Big Beautiful Bill Act) - enacted July 4, 2025
+    // - 100% bonus depreciation PERMANENT for property acquired AND placed in service after 1/19/2025
+    // - Section 179: $2.5M limit, $4M phaseout threshold (indexed for inflation)
+    // Historical years (2024 and earlier) use rates that were in effect at filing time
     const TAX_YEAR_CONFIG = {
-        2020: { section179Limit: 1040000, bonusPercent: 100, source: "TCJA" },
-        2021: { section179Limit: 1050000, bonusPercent: 100, source: "TCJA" },
-        2022: { section179Limit: 1080000, bonusPercent: 100, source: "TCJA" },
-        2023: { section179Limit: 1160000, bonusPercent: 80, source: "TCJA phaseout" },
-        2024: { section179Limit: 1220000, bonusPercent: 80, source: "TCJA phaseout" },
-        2025: { section179Limit: 2500000, bonusPercent: 100, source: "OBBBA §179 & bonus restored" },
-        2026: { section179Limit: 2500000, bonusPercent: 60, source: "OBBBA §179, TCJA bonus phaseout" },
+        2020: { section179Limit: 1040000, bonusPercent: 100, source: "Historical" },
+        2021: { section179Limit: 1050000, bonusPercent: 100, source: "Historical" },
+        2022: { section179Limit: 1080000, bonusPercent: 100, source: "Historical" },
+        2023: { section179Limit: 1160000, bonusPercent: 80, source: "Historical" },
+        2024: { section179Limit: 1220000, bonusPercent: 60, source: "Historical (Form 4562)" },
+        2025: { section179Limit: 2500000, bonusPercent: 100, source: "OBBBA" },
+        2026: { section179Limit: 2560000, bonusPercent: 100, source: "OBBBA" },
     };
 
     // Get tax year limits (with fallback for unknown years)
+    // OBBBA: 100% bonus permanent for all new acquisitions (after 1/19/2025)
     const getTaxYearConfig = (year) => {
         if (TAX_YEAR_CONFIG[year]) return TAX_YEAR_CONFIG[year];
-        // Fallback: TCJA bonus phaseout continues, OBBBA §179 limits remain
-        if (year === 2027) return { section179Limit: 2500000, bonusPercent: 40, source: "TCJA phaseout" };
-        if (year === 2028) return { section179Limit: 2500000, bonusPercent: 20, source: "TCJA phaseout" };
-        if (year >= 2029) return { section179Limit: 2500000, bonusPercent: 0, source: "Bonus expired" };
-        return { section179Limit: 1000000, bonusPercent: 100, source: "Pre-TCJA" };
+        // OBBBA: 100% bonus permanent for 2027+ (indexed Section 179 limits)
+        if (year >= 2027) return { section179Limit: 2600000, bonusPercent: 100, source: "OBBBA" };
+        return { section179Limit: 1000000, bonusPercent: 100, source: "Historical" };
     };
 
     const currentYearConfig = getTaxYearConfig(taxYear);

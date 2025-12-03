@@ -48,8 +48,8 @@
   },
 
   "bonus_depreciation": {
-    "_description": "TCJA bonus depreciation phase-down, modified by OBBBA (enacted July 4, 2025). OBBBA: 100% permanent for property acquired AND placed in service after 1/19/2025.",
-    "tcja_phasedown": {
+    "_description": "CURRENT LAW: OBBBA (enacted July 4, 2025) - 100% PERMANENT bonus for property acquired AND placed in service after 1/19/2025. Legacy rates below only apply to property acquired BEFORE 1/20/2025.",
+    "legacy_rates": {
       "2022": 1.00,
       "2023": 0.80,
       "2024": 0.60,

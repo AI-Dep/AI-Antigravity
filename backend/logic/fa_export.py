@@ -1278,8 +1278,8 @@ def build_fa(
         )
 
         # Calculate bonus percentage for this specific asset
-        # OBBB Act: 100% if acquired AND placed in service after 1/19/2025
-        # Otherwise: TCJA phase-down (80% for 2024-2025, etc.)
+        # CURRENT LAW - OBBBA: 100% for property acquired AND placed in service after 1/19/2025
+        # Legacy property uses historical rates (2024=60%, 2025=40%, etc.)
         asset_bonus_pct = get_bonus_percentage(tax_year, acquisition, in_service)
 
         sec179 = 0.0
@@ -1330,9 +1330,8 @@ def build_fa(
             if strat.apply_bonus:
                 # Bonus for remainder (ONLY if eligible)
                 if bonus_eligible:
-                    # CRITICAL: Apply asset-specific bonus percentage
-                    # OBBB Act: 100% for property acquired AND placed in service after 1/19/2025
-                    # TCJA phase-down: 2024-2025: 80%, 2026: 60%, 2027: 40%, 2028: 20%, 2029+: 0%
+                    # CURRENT LAW - OBBBA: 100% PERMANENT for new acquisitions (after 1/19/2025)
+                    # Legacy property (acquired before 1/20/2025) uses historical rates
                     bonus = max(cost - sec179, 0.0) * asset_bonus_pct
                 else:
                     bonus = 0.0

@@ -56,29 +56,34 @@ def _safe_date(val):
 
 
 # ----------------------------------------------------------------------
-# BONUS PERCENTAGE LOGIC (TCJA + OBBBA)
+# BONUS PERCENTAGE LOGIC - CURRENT LAW: OBBBA
 # ----------------------------------------------------------------------
 
 def get_bonus_percentage(acq_date, insvc_date, tax_year):
     """
-    Determine bonus depreciation percentage using:
-    - TCJA phaseout (pre-OBBBA)
-    - OBBBA permanent 100% bonus for property acquired on/after 2025-01-20
+    Determine bonus depreciation percentage.
+
+    CURRENT LAW - OBBBA (enacted July 4, 2025):
+    - 100% PERMANENT for property acquired AND placed in service after 1/19/2025
+
+    Legacy property (acquired before 1/20/2025) uses historical rates.
     """
 
     # Ensure dates
     acq = acq_date
     insvc = insvc_date or acq_date or date(tax_year, 1, 1)
 
-    # --- OBBBA rule ---
+    # --- CURRENT LAW: OBBBA 100% permanent ---
     obbba_info = BONUS_RULES.get("obbba", {})
     obbba_start = _safe_date(obbba_info.get("start_date", ""))
 
     if acq and obbba_start and acq >= obbba_start:
         return obbba_info.get("bonus", 100)
 
-    # --- TCJA Phase-out before OBBBA ---
-    for band in BONUS_RULES.get("tcja_phaseout", []):
+    # --- Legacy property (acquired before OBBBA effective date) ---
+    # Try "legacy_rates" first, fall back to "tcja_phasedown" for compatibility
+    legacy_rates = BONUS_RULES.get("legacy_rates", BONUS_RULES.get("tcja_phasedown", []))
+    for band in legacy_rates:
         year = band.get("year")
         if not year:
             continue
