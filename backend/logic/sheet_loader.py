@@ -911,6 +911,11 @@ def _detect_sheet_role_from_name(sheet_name: str) -> Optional[SheetRole]:
     if any(kw in sheet_lower for kw in ["addition", "purchase", "acquisition", "new"]):
         return SheetRole.ADDITIONS
 
+    # NOTE: We intentionally do NOT detect "existing" from sheet names here.
+    # Sheet names like "Fixed Asset Detail" or "Asset Register" contain ALL assets,
+    # not just existing ones. The existing vs addition distinction is made at EXPORT time
+    # based on in_service_date vs tax_year comparison, not sheet name.
+
     # Summary indicators
     if any(kw in sheet_lower for kw in ["summary", "totals", "rollforward", "roll-forward", "master"]):
         return SheetRole.SUMMARY
@@ -3232,6 +3237,8 @@ def build_unified_dataframe(
                     trans_type = "disposal"
                 elif sheet_role == SheetRole.TRANSFERS:
                     trans_type = "transfer"
+                elif sheet_role == SheetRole.EXISTING:
+                    trans_type = "existing"
 
                 row_data = {
                     "sheet_name": sheet_name,
