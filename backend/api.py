@@ -1484,19 +1484,33 @@ async def get_warnings(request: Request, response: Response):
     warnings = []
     info_messages = []
     tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
+    fy_start_month = session.tax_config.get("fy_start_month", 1)
+
+    # Import fiscal year helper functions
+    from backend.logic.transaction_classifier import _is_date_in_fiscal_year, _get_fiscal_year_for_date
 
     # ===== CRITICAL WARNINGS =====
 
     # 1. Check for existing assets incorrectly classified as additions
+    # CRITICAL: Use FISCAL YEAR comparison, not calendar year!
+    # For FY 2025 with April start: Apr 1, 2024 - Mar 31, 2025
+    # An asset placed in service April 2024 IS within FY 2025!
     existing_as_additions = []
     for a in assets:
         if a.in_service_date:
-            asset_year = a.in_service_date.year
-            if asset_year < tax_year and "addition" in (a.transaction_type or "").lower():
+            # Use fiscal year logic, not simple calendar year
+            is_in_fy, _ = _is_date_in_fiscal_year(a.in_service_date, tax_year, fy_start_month)
+            asset_fy = _get_fiscal_year_for_date(a.in_service_date, fy_start_month)
+
+            # Asset is misclassified if:
+            # - NOT in current fiscal year AND classified as "addition"
+            if asset_fy and asset_fy < tax_year and "addition" in (a.transaction_type or "").lower():
                 existing_as_additions.append({
                     "asset_id": a.asset_id,
-                    "description": a.description[:50],
-                    "in_service_year": asset_year,
+                    "unique_id": a.unique_id,  # For filtering in UI
+                    "description": a.description[:50] if a.description else "",
+                    "in_service_date": str(a.in_service_date)[:10] if a.in_service_date else None,
+                    "in_service_fy": asset_fy,
                     "tax_year": tax_year
                 })
 
@@ -1507,6 +1521,7 @@ async def get_warnings(request: Request, response: Response):
             "impact": "Section 179 and Bonus depreciation NOT allowed on existing assets",
             "action": "Review transaction type classification and set correct tax year",
             "affected_count": len(existing_as_additions),
+            "affected_ids": [a["unique_id"] for a in existing_as_additions],  # For UI filtering
             "examples": existing_as_additions[:5]
         })
 
