@@ -659,6 +659,55 @@ async def get_stats(request: Request, response: Response):
     }
 
 
+@app.post("/session/clear")
+async def clear_session(request: Request, response: Response):
+    """
+    Clear all session data to start fresh.
+
+    This resets:
+    - All loaded assets
+    - Approved assets list
+    - Session metrics
+    - Parse warnings
+    - Tab analysis results
+
+    The session ID is preserved but all data is cleared.
+    """
+    session = await get_current_session(request)
+    add_session_to_response(response, session.session_id)
+
+    # Clear all data
+    session.assets.clear()
+    session.approved_assets.clear()
+    session.asset_id_counter = 0
+    session.last_upload_filename = None
+    session.tab_analysis_result = None
+    session.parse_warnings = []
+    session.parse_stats = {}
+    session.session_metrics = {
+        "import_start_time": None,
+        "import_end_time": None,
+        "import_duration_ms": 0,
+        "total_assets_imported": 0,
+        "high_confidence_count": 0,
+        "low_confidence_count": 0,
+        "assets_needing_review": 0,
+        "assets_auto_approved": 0,
+    }
+
+    # Save cleared session
+    manager = get_session_manager()
+    manager._save_session(session)
+
+    logger.info(f"[Session] Cleared session {session.session_id}")
+
+    return {
+        "success": True,
+        "message": "Session cleared. Ready for new import.",
+        "session_id": session.session_id
+    }
+
+
 @app.get("/assets")
 async def get_assets(request: Request, response: Response):
     """
