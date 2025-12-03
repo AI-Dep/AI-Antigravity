@@ -11,10 +11,15 @@ This caused:
 ❌ IRS audit risk
 
 SOLUTION: Proper classification based on in-service date vs tax year:
-✅ Current Year Addition: In-service date = current tax year
-✅ Existing Asset: In-service date < current tax year
+✅ Current Year Addition: In-service date within current fiscal year
+✅ Existing Asset: In-service date before current fiscal year
 ✅ Disposal: Transaction type or disposal date indicates sale
 ✅ Transfer: Transaction type indicates transfer/reclass
+
+FISCAL YEAR SUPPORT:
+- Supports both calendar year (Jan-Dec) and fiscal year (e.g., Apr-Mar, Jul-Jun)
+- fy_start_month=1 for calendar year, 4 for Apr-Mar, 7 for Jul-Jun, etc.
+- Example: FY 2025 with Apr start = Apr 1, 2024 to Mar 31, 2025
 
 CRITICAL TAX COMPLIANCE:
 - Section 179: ONLY for property placed in service in the current tax year (IRC §179)
@@ -44,6 +49,132 @@ def _get_year_from_date(date_value) -> Optional[int]:
     return None
 
 
+def _get_fiscal_year_boundaries(tax_year: int, fy_start_month: int = 1) -> Tuple[date, date]:
+    """
+    Calculate fiscal year start and end dates.
+
+    Args:
+        tax_year: The tax/fiscal year (e.g., 2025)
+        fy_start_month: First month of fiscal year (1=Jan/calendar, 4=Apr, 7=Jul, 10=Oct)
+
+    Returns:
+        Tuple of (fy_start_date, fy_end_date)
+
+    Examples:
+        Calendar year (fy_start_month=1):
+            tax_year=2025 -> Jan 1, 2025 to Dec 31, 2025
+
+        Fiscal year Apr-Mar (fy_start_month=4):
+            tax_year=2025 -> Apr 1, 2024 to Mar 31, 2025
+            (FY 2025 ends in calendar 2025)
+
+        Fiscal year Jul-Jun (fy_start_month=7):
+            tax_year=2025 -> Jul 1, 2024 to Jun 30, 2025
+    """
+    if fy_start_month == 1:
+        # Calendar year: Jan 1 to Dec 31
+        fy_start = date(tax_year, 1, 1)
+        fy_end = date(tax_year, 12, 31)
+    else:
+        # Fiscal year: starts in prior calendar year, ends in tax_year
+        # e.g., FY 2025 with Apr start = Apr 1, 2024 to Mar 31, 2025
+        fy_start = date(tax_year - 1, fy_start_month, 1)
+
+        # End is last day of month before fy_start_month in tax_year
+        end_month = fy_start_month - 1 if fy_start_month > 1 else 12
+        end_year = tax_year if fy_start_month > 1 else tax_year
+
+        # Get last day of end month
+        if end_month == 12:
+            fy_end = date(end_year, 12, 31)
+        else:
+            # Last day of month = first day of next month - 1 day
+            next_month = end_month + 1
+            fy_end = date(end_year, next_month, 1) - pd.Timedelta(days=1)
+            fy_end = date(fy_end.year, fy_end.month, fy_end.day)
+
+    return fy_start, fy_end
+
+
+def _is_date_in_fiscal_year(
+    date_val,
+    tax_year: int,
+    fy_start_month: int = 1
+) -> Tuple[bool, str]:
+    """
+    Check if a date falls within the target fiscal year.
+
+    Args:
+        date_val: Date value to check
+        tax_year: The tax year (e.g., 2025)
+        fy_start_month: First month of fiscal year (1=Jan/calendar, 4=Apr, 7=Jul, 10=Oct)
+
+    Returns:
+        Tuple of (is_in_fiscal_year, fiscal_year_description)
+    """
+    if date_val is None or pd.isna(date_val):
+        return False, "no date"
+
+    # Convert to date object
+    if hasattr(date_val, 'date'):
+        dt = date_val.date() if hasattr(date_val, 'date') else date_val
+    elif isinstance(date_val, datetime):
+        dt = date_val.date()
+    elif isinstance(date_val, date):
+        dt = date_val
+    else:
+        return False, "invalid date type"
+
+    fy_start, fy_end = _get_fiscal_year_boundaries(tax_year, fy_start_month)
+
+    if fy_start_month == 1:
+        fy_desc = f"CY {tax_year}"
+    else:
+        fy_desc = f"FY {tax_year} ({fy_start.strftime('%b %Y')} - {fy_end.strftime('%b %Y')})"
+
+    is_in_fy = fy_start <= dt <= fy_end
+    return is_in_fy, fy_desc
+
+
+def _get_fiscal_year_for_date(
+    date_val,
+    fy_start_month: int = 1
+) -> Optional[int]:
+    """
+    Determine which fiscal year a date belongs to.
+
+    Args:
+        date_val: Date value
+        fy_start_month: First month of fiscal year
+
+    Returns:
+        Fiscal year number, or None if date is invalid
+    """
+    if date_val is None or pd.isna(date_val):
+        return None
+
+    # Convert to date object
+    if hasattr(date_val, 'date'):
+        dt = date_val.date() if callable(getattr(date_val, 'date', None)) else date_val
+    elif isinstance(date_val, datetime):
+        dt = date_val.date()
+    elif isinstance(date_val, date):
+        dt = date_val
+    else:
+        return None
+
+    if fy_start_month == 1:
+        # Calendar year - simple
+        return dt.year
+    else:
+        # Fiscal year - if month >= fy_start_month, it's the NEXT fiscal year
+        # e.g., Apr 2024 with fy_start_month=4 -> FY 2025
+        if dt.month >= fy_start_month:
+            return dt.year + 1
+        else:
+            return dt.year
+
+
 # ==============================================================================
 # TRANSACTION TYPE CLASSIFICATION
 # ==============================================================================
@@ -51,19 +182,25 @@ def _get_year_from_date(date_value) -> Optional[int]:
 def classify_transaction_type(
     row: pd.Series,
     tax_year: int,
+    fy_start_month: int = 1,
     verbose: bool = False
 ) -> Tuple[str, str, float]:
     """
-    Properly classify transaction type based on in-service date and tax year.
+    Properly classify transaction type based on in-service date and fiscal year.
 
     CRITICAL FIX: This function properly distinguishes between:
-    - Current year additions (in-service date = tax year)
-    - Existing assets (in-service date < tax year)
-    - Current year disposals (disposal date = tax year) - ACTIONABLE
-    - Prior year disposals (disposal date < tax year) - NOT ACTIONABLE (already processed)
-    - Current year transfers (transfer date = tax year) - ACTIONABLE
-    - Prior year transfers (transfer date < tax year) - NOT ACTIONABLE (already processed)
+    - Current year additions (in-service date within fiscal year)
+    - Existing assets (in-service date before fiscal year)
+    - Current year disposals (disposal date within fiscal year) - ACTIONABLE
+    - Prior year disposals (disposal date before fiscal year) - NOT ACTIONABLE (already processed)
+    - Current year transfers (transfer date within fiscal year) - ACTIONABLE
+    - Prior year transfers (transfer date before fiscal year) - NOT ACTIONABLE (already processed)
     - Unknown (missing date) - requires manual review
+
+    FISCAL YEAR SUPPORT:
+    - fy_start_month=1: Calendar year (Jan 1 - Dec 31)
+    - fy_start_month=4: Fiscal year Apr-Mar (Apr 1, 2024 - Mar 31, 2025 for FY 2025)
+    - fy_start_month=7: Fiscal year Jul-Jun (Jul 1, 2024 - Jun 30, 2025 for FY 2025)
 
     Date Priority:
     1. Uses "In Service Date" if available
@@ -73,6 +210,7 @@ def classify_transaction_type(
     Args:
         row: Asset row with transaction data
         tax_year: Current tax year for processing
+        fy_start_month: First month of fiscal year (1=Jan, 4=Apr, 7=Jul, 10=Oct)
         verbose: Print classification details
 
     Returns:
@@ -134,17 +272,26 @@ def classify_transaction_type(
         "no longer in use", "fully depreciated and removed", "taken out of service"
     ]
 
+    # Get fiscal year description for messages
+    fy_start, fy_end = _get_fiscal_year_boundaries(tax_year, fy_start_month)
+    if fy_start_month == 1:
+        fy_desc = f"CY {tax_year}"
+    else:
+        fy_desc = f"FY {tax_year} ({fy_start.strftime('%b %Y')} - {fy_end.strftime('%b %Y')})"
+
     # Helper function to determine disposal type based on date
     def _get_disposal_type(disp_date, reason: str, confidence: float) -> Tuple[str, str, float]:
         """Classify as current year or prior year disposal based on disposal date."""
-        disp_year = _get_year_from_date(disp_date)
-        if disp_year is not None:
-            if disp_year == tax_year:
-                return "Current Year Disposal", f"{reason} (disposed in {tax_year})", confidence
-            elif disp_year < tax_year:
-                return "Prior Year Disposal", f"{reason} (disposed in {disp_year}, prior to tax year {tax_year})", confidence
+        is_in_fy, _ = _is_date_in_fiscal_year(disp_date, tax_year, fy_start_month)
+        disp_fy = _get_fiscal_year_for_date(disp_date, fy_start_month)
+
+        if disp_fy is not None:
+            if is_in_fy:
+                return "Current Year Disposal", f"{reason} (disposed in {fy_desc})", confidence
+            elif disp_fy < tax_year:
+                return "Prior Year Disposal", f"{reason} (disposed in FY {disp_fy}, prior to {fy_desc})", confidence
             else:
-                return "Future Disposal (Data Error)", f"{reason} (disposal date {disp_year} is after tax year {tax_year})", 0.50
+                return "Future Disposal (Data Error)", f"{reason} (disposal in FY {disp_fy} is after {fy_desc})", 0.50
         # No disposal date available - can't determine year, mark as current year disposal
         # (conservative approach - requires review)
         return "Disposal", f"{reason} (disposal date not available for year check)", confidence * 0.9
@@ -193,14 +340,16 @@ def classify_transaction_type(
     # Helper function to determine transfer type based on date
     def _get_transfer_type(xfer_date, reason: str, confidence: float) -> Tuple[str, str, float]:
         """Classify as current year or prior year transfer based on transfer date."""
-        xfer_year = _get_year_from_date(xfer_date)
-        if xfer_year is not None:
-            if xfer_year == tax_year:
-                return "Current Year Transfer", f"{reason} (transferred in {tax_year})", confidence
-            elif xfer_year < tax_year:
-                return "Prior Year Transfer", f"{reason} (transferred in {xfer_year}, prior to tax year {tax_year})", confidence
+        is_in_fy, _ = _is_date_in_fiscal_year(xfer_date, tax_year, fy_start_month)
+        xfer_fy = _get_fiscal_year_for_date(xfer_date, fy_start_month)
+
+        if xfer_fy is not None:
+            if is_in_fy:
+                return "Current Year Transfer", f"{reason} (transferred in {fy_desc})", confidence
+            elif xfer_fy < tax_year:
+                return "Prior Year Transfer", f"{reason} (transferred in FY {xfer_fy}, prior to {fy_desc})", confidence
             else:
-                return "Future Transfer (Data Error)", f"{reason} (transfer date {xfer_year} is after tax year {tax_year})", 0.50
+                return "Future Transfer (Data Error)", f"{reason} (transfer in FY {xfer_fy} is after {fy_desc})", 0.50
         # No transfer date available - can't determine year, mark as current year transfer
         # (conservative approach - requires review)
         return "Transfer", f"{reason} (transfer date not available for year check)", confidence * 0.9
@@ -245,32 +394,33 @@ def classify_transaction_type(
         # Return "Unknown" to force manual review
         return "Unknown (Missing Date)", "No in-service or acquisition date - manual review required", 0.0
 
-    # Get year from the date
-    if isinstance(date_to_use, (date, datetime)):
-        date_year = date_to_use.year
-    else:
-        # Can't determine year - return Unknown
-        return "Unknown (Missing Date)", f"Cannot determine year from {date_source} - manual review required", 0.0
+    # ===================================================================
+    # CRITICAL DECISION: Current year vs existing (FISCAL YEAR AWARE)
+    # ===================================================================
+    # Use fiscal year comparison instead of simple calendar year
+    is_in_fy, _ = _is_date_in_fiscal_year(date_to_use, tax_year, fy_start_month)
+    asset_fy = _get_fiscal_year_for_date(date_to_use, fy_start_month)
 
-    # ===================================================================
-    # CRITICAL DECISION: Current year vs existing
-    # ===================================================================
-    if date_year == tax_year:
-        # CURRENT YEAR ADDITION
+    if asset_fy is None:
+        # Can't determine fiscal year - return Unknown
+        return "Unknown (Missing Date)", f"Cannot determine fiscal year from {date_source} - manual review required", 0.0
+
+    if is_in_fy:
+        # CURRENT YEAR ADDITION - asset placed in service within fiscal year
         # Eligible for Section 179 and Bonus depreciation
-        return "Current Year Addition", f"Placed in service in {tax_year} based on {date_source} (current tax year)", date_confidence
+        return "Current Year Addition", f"Placed in service in {fy_desc} based on {date_source} (current fiscal year)", date_confidence
 
-    elif date_year < tax_year:
-        # EXISTING ASSET (placed in service in prior year)
+    elif asset_fy < tax_year:
+        # EXISTING ASSET (placed in service in prior fiscal year)
         # NOT eligible for Section 179 or Bonus depreciation
         # Only regular MACRS continuing depreciation
-        years_ago = tax_year - date_year
-        return "Existing Asset", f"Placed in service in {date_year} based on {date_source} ({years_ago} years ago) - existing asset", date_confidence
+        years_ago = tax_year - asset_fy
+        return "Existing Asset", f"Placed in service in FY {asset_fy} based on {date_source} ({years_ago} years ago) - existing asset", date_confidence
 
     else:
-        # FUTURE YEAR (date_year > tax year)
+        # FUTURE YEAR (asset_fy > tax year)
         # This is a data error - asset can't be placed in service in the future
-        return "Future Asset (Data Error)", f"{date_source.capitalize()} {date_year} is after tax year {tax_year} - likely data entry error", 0.50
+        return "Future Asset (Data Error)", f"{date_source.capitalize()} is in FY {asset_fy}, after {fy_desc} - likely data entry error", 0.50
 
 
 # ==============================================================================
@@ -280,14 +430,18 @@ def classify_transaction_type(
 def classify_all_transactions(
     df: pd.DataFrame,
     tax_year: int,
+    fy_start_month: int = 1,
     verbose: bool = True
 ) -> pd.DataFrame:
     """
     Classify all transactions in dataframe with proper current year vs existing logic.
 
+    Supports fiscal years (e.g., Apr-Mar, Jul-Jun) in addition to calendar years.
+
     Args:
         df: Asset dataframe
         tax_year: Current tax year
+        fy_start_month: First month of fiscal year (1=Jan, 4=Apr, 7=Jul, 10=Oct)
         verbose: Print classification summary
 
     Returns:
@@ -301,7 +455,7 @@ def classify_all_transactions(
     classification_confidences = []
 
     for idx, row in df.iterrows():
-        trans_type, reason, confidence = classify_transaction_type(row, tax_year, verbose=False)
+        trans_type, reason, confidence = classify_transaction_type(row, tax_year, fy_start_month, verbose=False)
         transaction_types.append(trans_type)
         classification_reasons.append(reason)
         classification_confidences.append(confidence)
@@ -395,21 +549,31 @@ def classify_all_transactions(
 
 def validate_transaction_classification(
     df: pd.DataFrame,
-    tax_year: int
+    tax_year: int,
+    fy_start_month: int = 1
 ) -> Tuple[bool, list]:
     """
     Validate that existing assets are not being treated as current year additions.
 
-    CRITICAL: This catches the bug where 2020 assets were being treated as 2024 additions.
+    CRITICAL: This catches the bug where prior-year assets were being treated as additions.
+    Supports fiscal years (e.g., Apr-Mar, Jul-Jun).
 
     Args:
         df: Asset dataframe
         tax_year: Current tax year
+        fy_start_month: First month of fiscal year (1=Jan, 4=Apr, 7=Jul, 10=Oct)
 
     Returns:
         Tuple of (is_valid, error_list)
     """
     errors = []
+
+    # Get fiscal year description for messages
+    fy_start, fy_end = _get_fiscal_year_boundaries(tax_year, fy_start_month)
+    if fy_start_month == 1:
+        fy_desc = f"CY {tax_year}"
+    else:
+        fy_desc = f"FY {tax_year} ({fy_start.strftime('%b %Y')} - {fy_end.strftime('%b %Y')})"
 
     for idx, row in df.iterrows():
         trans_type = str(row.get("Transaction Type", ""))
@@ -440,22 +604,18 @@ def validate_transaction_classification(
             # No date available - skip validation (matches classify logic)
             continue
 
-        # Extract year from date
-        asset_year = None
-        if isinstance(date_to_use, (date, datetime)):
-            asset_year = date_to_use.year
-        elif hasattr(date_to_use, 'year'):
-            # Handle any other date-like object with .year attribute
-            asset_year = date_to_use.year
+        # Determine fiscal year for the asset
+        asset_fy = _get_fiscal_year_for_date(date_to_use, fy_start_month)
+        is_in_fy, _ = _is_date_in_fiscal_year(date_to_use, tax_year, fy_start_month)
 
-        if asset_year is None:
+        if asset_fy is None:
             continue
 
         # ===================================================================
         # CRITICAL CHECK: Existing asset misclassified as addition?
         # ===================================================================
-        if asset_year < tax_year:
-            # This is an existing asset (placed in service in prior year)
+        if not is_in_fy and asset_fy < tax_year:
+            # This is an existing asset (placed in service in prior fiscal year)
 
             # Check if it's being treated as a current year addition
             if "addition" in trans_type.lower() and "existing" not in trans_type.lower():
@@ -464,26 +624,28 @@ def validate_transaction_classification(
                     "asset_id": row.get("Asset ID", ""),
                     "description": row.get("Description", ""),
                     "in_service_date": date_to_use,
-                    "in_service_year": asset_year,
+                    "in_service_year": asset_fy,
                     "tax_year": tax_year,
+                    "fiscal_year_desc": fy_desc,
                     "transaction_type": trans_type,
-                    "issue": f"Asset placed in service in {asset_year} but classified as '{trans_type}' - should be 'Existing Asset'",
-                    "impact": f"Would incorrectly claim Section 179/Bonus for {tax_year - asset_year} year old asset"
+                    "issue": f"Asset placed in service in FY {asset_fy} but classified as '{trans_type}' - should be 'Existing Asset'",
+                    "impact": f"Would incorrectly claim Section 179/Bonus for {tax_year - asset_fy} year old asset"
                 })
 
         # ===================================================================
         # CHECK: Future year asset?
         # ===================================================================
-        if asset_year > tax_year:
+        if asset_fy > tax_year:
             errors.append({
                 "row": idx + 2,
                 "asset_id": row.get("Asset ID", ""),
                 "description": row.get("Description", ""),
                 "in_service_date": date_to_use,
-                "in_service_year": asset_year,
+                "in_service_year": asset_fy,
                 "tax_year": tax_year,
+                "fiscal_year_desc": fy_desc,
                 "transaction_type": trans_type,
-                "issue": f"Asset has FUTURE in-service date {asset_year} (tax year is {tax_year})",
+                "issue": f"Asset has FUTURE in-service date in FY {asset_fy} ({fy_desc} is current)",
                 "impact": "Likely data entry error - cannot depreciate future assets"
             })
 

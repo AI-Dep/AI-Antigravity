@@ -420,10 +420,27 @@ FACS_CONFIG = {
 from datetime import date
 TAX_CONFIG = {
     "tax_year": date.today().year,
+    "fy_start_month": 1,  # Fiscal year start month (1=Jan/calendar, 4=Apr, 7=Jul, 10=Oct)
     "de_minimis_threshold": 2500,
     "has_afs": False,
     "bonus_rate": None,
     "section_179_limit": None,
+}
+
+# Fiscal year start month labels for UI
+FY_START_MONTH_OPTIONS = {
+    1: "Calendar Year (Jan-Dec)",
+    2: "Feb-Jan Fiscal Year",
+    3: "Mar-Feb Fiscal Year",
+    4: "Apr-Mar Fiscal Year",
+    5: "May-Apr Fiscal Year",
+    6: "Jun-May Fiscal Year",
+    7: "Jul-Jun Fiscal Year",
+    8: "Aug-Jul Fiscal Year",
+    9: "Sep-Aug Fiscal Year",
+    10: "Oct-Sep Fiscal Year",
+    11: "Nov-Oct Fiscal Year",
+    12: "Dec-Nov Fiscal Year",
 }
 
 # Import tax year config for bonus rates
@@ -1146,6 +1163,12 @@ async def get_tax_config(request: Request, response: Response):
         config["bonus_rate"] = 80 if tax_year <= 2024 else 40 if tax_year == 2025 else 20 if tax_year == 2026 else 0
         config["section_179_limit"] = 1220000 if tax_year < 2025 else 2500000
 
+    # Add fiscal year info
+    fy_start_month = config.get("fy_start_month", 1)
+    config["fy_start_month"] = fy_start_month
+    config["fy_start_month_label"] = FY_START_MONTH_OPTIONS.get(fy_start_month, f"Month {fy_start_month}")
+    config["fy_start_month_options"] = FY_START_MONTH_OPTIONS
+
     return config
 
 
@@ -1154,6 +1177,7 @@ async def set_tax_config(
     request: Request,
     response: Response,
     tax_year: int = Body(..., embed=True, ge=2020, le=2030),
+    fy_start_month: int = Body(1, ge=1, le=12),
     de_minimis_threshold: int = Body(2500, ge=0, le=5000),
     has_afs: bool = Body(False),
     user: AuthUser = Depends(optional_auth)
@@ -1167,12 +1191,17 @@ async def set_tax_config(
 
     Args:
         tax_year: Tax year for depreciation calculations (2020-2030)
+        fy_start_month: First month of fiscal year (1=Jan/calendar, 4=Apr, 7=Jul, 10=Oct)
+                       - 1: Calendar year (Jan-Dec) - DEFAULT
+                       - 4: Apr-Mar fiscal year (FY 2025 = Apr 2024 - Mar 2025)
+                       - 7: Jul-Jun fiscal year (FY 2025 = Jul 2024 - Jun 2025)
+                       - 10: Oct-Sep fiscal year (federal government)
         de_minimis_threshold: De minimis safe harbor threshold ($0-$5000)
                              - $2,500 for taxpayers WITHOUT audited financial statements
                              - $5,000 for taxpayers WITH audited financial statements
         has_afs: Whether taxpayer has Audited Financial Statements
 
-    IMPORTANT: Setting tax year will RECLASSIFY all loaded assets!
+    IMPORTANT: Setting tax year or fiscal year will RECLASSIFY all loaded assets!
     """
     session = await get_current_session(request)
     add_session_to_response(response, session.session_id)
@@ -1185,13 +1214,18 @@ async def set_tax_config(
     try:
         # Update session tax config (isolated per user)
         session.tax_config["tax_year"] = tax_year
+        session.tax_config["fy_start_month"] = fy_start_month
         session.tax_config["de_minimis_threshold"] = de_minimis_threshold
         session.tax_config["has_afs"] = has_afs
 
-        # Update classifier's tax year
-        classifier.set_tax_year(tax_year)
+        # Update classifier's tax year and fiscal year
+        classifier.set_fiscal_year_config(tax_year, fy_start_month)
 
-        # Reclassify loaded assets with new tax year
+        # Log fiscal year info
+        fy_label = FY_START_MONTH_OPTIONS.get(fy_start_month, f"Month {fy_start_month}")
+        logger.info(f"[Tax Config] Tax year: {tax_year}, Fiscal year: {fy_label}")
+
+        # Reclassify loaded assets with new tax year and fiscal year
         # CRITICAL: We must preserve ALL assets - never filter or remove any
         trans_types = {}
         errors_count = 0
@@ -1203,10 +1237,10 @@ async def set_tax_config(
             asset_count_before = len(session.assets)
             assets = list(session.assets.values())
             logger.info(f"[Tax Year Change] Starting with {asset_count_before} assets in session")
-            logger.info(f"[Tax Year Change] Reclassifying {len(assets)} assets for tax year {tax_year}")
+            logger.info(f"[Tax Year Change] Reclassifying {len(assets)} assets for tax year {tax_year} ({fy_label})")
 
-            # Reclassify transaction types
-            classifier._classify_transaction_types(assets, tax_year)
+            # Reclassify transaction types with fiscal year support
+            classifier._classify_transaction_types(assets, tax_year, fy_start_month)
 
             # Re-run validation for each asset with new tax year
             # This will flag assets with dates after the tax year as errors
