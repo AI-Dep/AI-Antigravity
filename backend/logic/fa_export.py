@@ -1331,8 +1331,8 @@ def build_fa(
                 # Bonus for remainder (ONLY if eligible)
                 if bonus_eligible:
                     # CRITICAL: Apply asset-specific bonus percentage
-                    # OBBB Act: 100% for property acquired AND placed in service after 1/19/2025
-                    # TCJA phase-down: 2024-2025: 80%, 2026: 60%, 2027: 40%, 2028: 20%, 2029+: 0%
+                    # OBBBA (7/4/2025): 100% for property acquired AND placed in service after 1/19/2025
+                    # TCJA phase-down (Form 4562): 2023: 80%, 2024: 60%, 2025: 40%, 2026: 20%, 2027+: 0%
                     bonus = max(cost - sec179, 0.0) * asset_bonus_pct
                 else:
                     bonus = 0.0

@@ -434,11 +434,13 @@ def get_bonus_percentage(
 
     Per TCJA (Tax Cuts and Jobs Act) as modified by OBBBA (enacted July 4, 2025):
 
-    Historical Phase-Down (TCJA):
+    Historical Phase-Down (TCJA per IRC §168(k)(6) and Form 4562 Instructions):
     - 2017-2022: 100%
     - 2023: 80%
-    - 2024: 80% (per Form 4562 Instructions)
-    - Jan 1-19, 2025: 40%
+    - 2024: 60%
+    - 2025 (pre-OBBBA): 40%
+    - 2026 (pre-OBBBA): 20%
+    - 2027+: 0%
 
     OBBBA (Enacted July 4, 2025):
     - Property acquired AND placed in service after Jan 19, 2025: 100% (PERMANENT)
