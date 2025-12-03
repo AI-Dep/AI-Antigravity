@@ -479,6 +479,7 @@ def _detect_tab_role(tab_name: str, target_year: Optional[int] = None) -> Tuple[
     for pattern in DETAIL_TAB_PATTERNS:
         if re.search(pattern, tab_lower):
             notes.append(f"Matched detail pattern: {pattern}")
+            logger.info(f"[TabRole] '{tab_name}' ('{tab_lower}') -> DETAIL (matched '{pattern}')")
             return TabRole.DETAIL, 0.85, notes
 
     # 8. Check for year-based tabs - treat as DETAIL for row-level filtering
@@ -721,18 +722,29 @@ def analyze_tabs(
         # Check if tab actually has individual asset records (not just name-based)
         has_individual_records, unique_id_count, content_reason = _has_individual_asset_records(df)
 
+        # Check if this is a disposal-related tab (for special handling)
+        tab_lower_check = tab_name.lower()
+        is_disposal_tab = 'disposal' in tab_lower_check or 'disposed' in tab_lower_check
+
         # Determine if should process
         # PHILOSOPHY: Process ANY tab with asset-like data, regardless of name
+        # EXCEPTION: Prior year DISPOSAL sheets - those disposals are already processed
         should_process = True
         skip_reason = None
 
-        logger.info(f"Tab '{tab_name}': role={role.value}, data_rows={data_row_count}, has_records={has_individual_records}, reason={content_reason}")
+        logger.info(f"Tab '{tab_name}': role={role.value}, data_rows={data_row_count}, has_records={has_individual_records}, is_disposal={is_disposal_tab}")
 
-        # PRIORITY ORDER: Prior year check comes FIRST (never process prior year data)
+        # PRIORITY ORDER: Prior year check comes FIRST
         if role == TabRole.PRIOR_YEAR:
-            # Prior year tabs are NEVER processed, regardless of content
-            # EXCEPTION: If tab has individual records, maybe it's miscategorized
-            if has_individual_records and data_row_count >= 5:
+            # CRITICAL: Prior year DISPOSAL sheets are ALWAYS skipped
+            # (those disposals were already processed in their disposal year)
+            if is_disposal_tab:
+                should_process = False
+                skip_reason = f"Prior year disposal sheet - disposals already processed"
+                logger.info(f"Tab '{tab_name}': SKIP - prior year disposal sheet")
+            # For non-disposal prior year tabs, check if they have current year data
+            elif has_individual_records and data_row_count >= 5:
+                # This might be an asset tab with mixed years - process and filter at row level
                 notes.append(f"OVERRIDE: Prior year tab has individual records ({content_reason}) - will process")
                 role = TabRole.DETAIL
                 confidence = 0.75

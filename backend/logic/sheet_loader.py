@@ -3106,6 +3106,7 @@ def build_unified_dataframe(
             df = df.iloc[1:].reset_index(drop=True)
 
             logger.info(f"[{sheet_name}] Header detected at row {header_idx}, {len(df)} data rows")
+            logger.info(f"[{sheet_name}] Columns found: {list(df.columns)[:8]}")
 
             # STEP 3: Map columns with validation (using client mappings and sheet role)
             col_map, column_mappings, warnings_list = _map_columns_with_validation(
@@ -3150,6 +3151,10 @@ def build_unified_dataframe(
                         header_idx = multi_start
                         use_multi_row = True
                         warnings_list.append("Multi-row header detection applied")
+
+            # Log column mapping results
+            critical_mappings = {k: v for k, v in col_map.items() if k in ["description", "cost", "in_service_date", "asset_id"]}
+            logger.info(f"[{sheet_name}] Column mapping: {critical_mappings}")
 
             # Log warnings
             for warning in warnings_list:
