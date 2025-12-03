@@ -281,6 +281,11 @@ class ImporterService:
         source_row = row.get('source_row', idx + 2)
         sheet_name = row.get('sheet_name', 'Unknown')
         transaction_type = row.get('transaction_type', 'addition')
+        # Handle NaN transaction_type (can happen when DataFrame has mixed row types)
+        if pd.isna(transaction_type) or not isinstance(transaction_type, str):
+            transaction_type = 'addition'
+        else:
+            transaction_type = str(transaction_type).strip()
 
         # Infer MACRS class from sheet name if not provided in data
         # This helps when files don't have explicit MACRS class columns
