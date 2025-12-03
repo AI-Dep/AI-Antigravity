@@ -2970,9 +2970,14 @@ def build_unified_dataframe(
             skipped_sheets += 1
             continue
 
+        # Check if this is a disposal sheet FIRST (before any skip checks)
+        sheet_name_lower = sheet_name.lower()
+        is_disposal_sheet = 'disposal' in sheet_name_lower or 'disposed' in sheet_name_lower
+
         # CONTENT-BASED SKIP: Check if sheet is a rollforward/summary by examining content
         # Skip this expensive check if we already have pre-computed analysis
-        if not use_precomputed_skips:
+        # CRITICAL: NEVER skip disposal sheets based on rollforward detection!
+        if not use_precomputed_skips and not is_disposal_sheet:
             is_rollforward, rollforward_reason = _is_rollforward_sheet(df_raw, sheet_name)
             if is_rollforward:
                 logger.info(f"⏭️  Skipping sheet '{sheet_name}': {rollforward_reason}")
@@ -2982,31 +2987,34 @@ def build_unified_dataframe(
 
         # SPECIAL HANDLING: Disposal sheets in JE (Journal Entry) format
         # These have a non-standard format and need special parsing
-        sheet_name_lower = sheet_name.lower()
-        is_disposal_sheet = 'disposal' in sheet_name_lower or 'disposed' in sheet_name_lower
         if is_disposal_sheet:
-            logger.info(f"[{sheet_name}] *** DISPOSAL SHEET DETECTED *** Checking for JE format...")
+            logger.info(f"[{sheet_name}] *** DISPOSAL SHEET DETECTED *** Will NOT skip for rollforward reasons")
             is_je = _is_disposal_je_format(df_raw)
             logger.info(f"[{sheet_name}] JE format detection result: {is_je}")
-        if is_disposal_sheet and _is_disposal_je_format(df_raw):
-            logger.info(f"[{sheet_name}] Detected JE format disposal sheet - using special parser")
-            je_disposals = _parse_disposal_je_format(df_raw, sheet_name)
-            for disposal in je_disposals:
-                row_data = {
-                    'description': disposal.get('description', ''),
-                    'asset_id': disposal.get('asset_id'),
-                    'cost': disposal.get('cost'),
-                    'accumulated_depreciation': disposal.get('accum_dep'),
-                    'disposal_date': disposal.get('disposal_date'),
-                    'proceeds': disposal.get('proceeds'),
-                    'source_sheet': sheet_name,
-                    'sheet_role': 'disposals',
-                    'transaction_type': 'Disposal',
-                }
-                all_rows.append(row_data)
-            processed_sheets += 1
-            logger.info(f"[{sheet_name}] Added {len(je_disposals)} disposals from JE format")
-            continue
+
+            if is_je:
+                logger.info(f"[{sheet_name}] Using JE format parser")
+                je_disposals = _parse_disposal_je_format(df_raw, sheet_name)
+                for disposal in je_disposals:
+                    row_data = {
+                        'description': disposal.get('description', ''),
+                        'asset_id': disposal.get('asset_id'),
+                        'cost': disposal.get('cost'),
+                        'accumulated_depreciation': disposal.get('accum_dep'),
+                        'disposal_date': disposal.get('disposal_date'),
+                        'proceeds': disposal.get('proceeds'),
+                        'source_sheet': sheet_name,
+                        'sheet_role': 'disposals',
+                        'transaction_type': 'Disposal',
+                    }
+                    all_rows.append(row_data)
+                processed_sheets += 1
+                logger.info(f"[{sheet_name}] Added {len(je_disposals)} disposals from JE format")
+                continue
+            else:
+                # Not JE format - let it fall through to standard processing
+                # The standard processing will set transaction_type based on sheet_role
+                logger.info(f"[{sheet_name}] Not JE format - will use standard processing with disposal role")
 
         try:
             # STEP 1: Detect sheet role FIRST (for contextual column mapping)
