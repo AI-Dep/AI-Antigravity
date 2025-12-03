@@ -97,21 +97,42 @@ def _load_json(path: Path, default: Any):
     return default
 
 
-def load_rules():
-    """Load classification rules from rules.json"""
-    return _load_json(RULES_PATH, {"rules": [], "minimum_rule_score": MIN_RULE_SCORE})
+# PERFORMANCE: Module-level cache for rules and overrides
+# Avoids repeated disk I/O on every classification call
+_rules_cache: Optional[Dict] = None
+_overrides_cache: Optional[Dict] = None
 
 
-def load_overrides():
-    """Load user overrides from overrides.json"""
-    return _load_json(OVERRIDES_PATH, {"by_asset_id": {}, "by_client_category": {}})
+def load_rules(force_reload: bool = False) -> Dict:
+    """Load classification rules from rules.json (cached in memory)"""
+    global _rules_cache
+    if _rules_cache is None or force_reload:
+        _rules_cache = _load_json(RULES_PATH, {"rules": [], "minimum_rule_score": MIN_RULE_SCORE})
+    return _rules_cache
+
+
+def load_overrides(force_reload: bool = False) -> Dict:
+    """Load user overrides from overrides.json (cached in memory)"""
+    global _overrides_cache
+    if _overrides_cache is None or force_reload:
+        _overrides_cache = _load_json(OVERRIDES_PATH, {"by_asset_id": {}, "by_client_category": {}})
+    return _overrides_cache
+
+
+def invalidate_cache():
+    """Invalidate rules and overrides cache (call after modifications)"""
+    global _rules_cache, _overrides_cache
+    _rules_cache = None
+    _overrides_cache = None
 
 
 def save_overrides(overrides: Dict[str, Any]):
-    """Save overrides to overrides.json"""
+    """Save overrides to overrides.json and invalidate cache"""
+    global _overrides_cache
     try:
         with OVERRIDES_PATH.open("w", encoding="utf-8") as f:
             json.dump(overrides, f, indent=2, ensure_ascii=False)
+        _overrides_cache = overrides  # Update cache with new value
         logger.info(f"Saved {len(overrides.get('by_asset_id', {}))} asset overrides")
     except Exception as e:
         logger.error(f"Failed to save overrides: {e}")
@@ -794,13 +815,16 @@ def classify_assets_batch(
     model: str = "gpt-4o-mini",
     rules: Optional[Dict] = None,
     overrides: Optional[Dict] = None,
-    batch_size: int = 30
+    batch_size: int = 50
 ) -> List[Dict]:
     """
     Classify multiple assets in batches for improved performance.
 
     Processes assets in batches of batch_size to reduce API calls.
-    A batch of 30 assets = 1 API call instead of 30 calls (30x reduction).
+    A batch of 50 assets = 1 API call instead of 50 calls (50x reduction).
+
+    PERFORMANCE: Uses parallel processing for rule matching phase,
+    then parallel GPT calls for remaining assets.
 
     Args:
         assets: List of asset dicts with Description, Cost, etc.
@@ -808,33 +832,48 @@ def classify_assets_batch(
         model: GPT model to use
         rules: Rules dict (will load if not provided)
         overrides: Overrides dict (will load if not provided)
-        batch_size: Number of assets per batch (default: 30)
+        batch_size: Number of assets per batch (default: 50)
 
     Returns:
         List of classification dicts in same order as input
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     if not assets:
         return []
 
     rules = rules or load_rules()
     overrides = overrides or load_overrides()
 
-    results = []
+    # PARALLEL RULE MATCHING: Process all assets concurrently
+    # This is CPU-bound work, so we use a modest thread pool
+    def classify_single(args):
+        i, asset = args
+        result = _try_fast_classification(asset, rules, overrides)
+        return (i, asset, result)
 
-    # Process assets that need GPT (not matched by rules/overrides)
+    # Use parallel processing for large batches (>50 assets)
+    if len(assets) > 50:
+        max_workers = min(8, len(assets) // 10 + 1)  # Scale workers with asset count
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            classification_results = list(executor.map(classify_single, enumerate(assets)))
+    else:
+        # Sequential for small batches (overhead not worth it)
+        classification_results = [classify_single((i, a)) for i, a in enumerate(assets)]
+
+    # Separate matched vs needs-GPT
+    results = []
     gpt_needed = []
     gpt_indices = []
 
-    for i, asset in enumerate(assets):
-        # Try rule-based first (fast)
-        result = _try_fast_classification(asset, rules, overrides)
+    for i, asset, result in classification_results:
         if result:
             results.append((i, result))
         else:
             gpt_needed.append(asset)
             gpt_indices.append(i)
 
-    # Batch GPT calls for remaining assets
+    # Batch GPT calls for remaining assets (already parallelized)
     if gpt_needed and OPENAI_AVAILABLE:
         gpt_results = _batch_gpt_classify(gpt_needed, model, batch_size)
         for idx, result in zip(gpt_indices, gpt_results):
@@ -931,9 +970,9 @@ def _batch_gpt_classify(assets: List[Dict], model: str, batch_size: int) -> List
     PERFORMANCE: Uses ThreadPoolExecutor to run multiple GPT batch calls
     in parallel, dramatically reducing wall-clock time for large asset lists.
 
-    Example: 100 assets with batch_size=30
-    - Sequential: 4 batches × 2s each = 8 seconds
-    - Parallel:   4 batches in parallel = ~2 seconds (4x faster)
+    Example: 150 assets with batch_size=50
+    - Sequential: 3 batches × 2s each = 6 seconds
+    - Parallel:   3 batches in parallel = ~2 seconds (3x faster)
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
