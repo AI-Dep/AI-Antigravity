@@ -217,11 +217,22 @@ function Import({ onUploadSuccess }) {
                             )}
                         </div>
 
-                        {/* Warnings */}
+                        {/* Warnings and Auto-Detection Messages */}
                         {tabAnalysis.warnings?.length > 0 && (
                             <div className="mb-4 space-y-2">
                                 {tabAnalysis.warnings.map((warning, idx) => (
-                                    <div key={idx} className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                                    <div
+                                        key={idx}
+                                        className={cn(
+                                            "p-3 rounded-lg text-sm border",
+                                            warning.includes("Auto-detected fiscal year")
+                                                ? "bg-blue-50 border-blue-200 text-blue-800"
+                                                : "bg-yellow-50 border-yellow-200 text-yellow-800"
+                                        )}
+                                    >
+                                        {warning.includes("Auto-detected fiscal year") && (
+                                            <span className="font-semibold">🎯 </span>
+                                        )}
                                         {warning}
                                     </div>
                                 ))}
