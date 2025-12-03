@@ -4,7 +4,15 @@ from dataclasses import dataclass, field
 from threading import local
 from backend.models.asset import Asset
 from backend.logic import sheet_loader
-from backend.logic.sheet_loader import infer_macrs_class_from_sheet_name
+from backend.logic.sheet_loader import (
+    infer_macrs_class_from_sheet_name,
+    _is_valid_asset_description,
+    _is_category_label,
+    _is_accounting_adjustment_row,
+    _is_placeholder_row,
+    _is_totals_row,
+    _is_header_repetition,
+)
 
 
 @dataclass
@@ -384,7 +392,7 @@ class ImporterService:
         # Detect column mappings
         col_map, mappings, warnings = detect_columns(column_headers)
                 
-        # 4. Extract Data
+        # 4. Extract Data with FULL validation (matching sheet_loader quality)
         assets = []
         for idx, row in df.iterrows():
             if self._is_empty_row(row):
@@ -393,19 +401,55 @@ class ImporterService:
             try:
                 desc = row.get(col_map.get("description"))
 
-                # CHANGED: Only require description, not cost
+                # Basic null/empty check
                 if pd.isna(desc) or str(desc).strip() == '':
                     continue
 
+                desc_str = str(desc).strip()
+
+                # === QUALITY VALIDATION (matches sheet_loader.py) ===
+                # Skip header repetitions (Excel sometimes repeats headers)
+                if _is_header_repetition(desc_str):
+                    continue
+
+                # Skip category labels (e.g., "Assets", "Vehicles", "FY 2024")
+                if _is_category_label(desc_str):
+                    continue
+
+                # Skip totals/summary rows
+                asset_id_raw = str(row.get(col_map.get("asset_id"), "")).strip() if col_map.get("asset_id") else ""
+                if _is_totals_row(desc_str, asset_id_raw):
+                    continue
+
+                # Skip accounting adjustment rows (e.g., "April bal", "May depr")
+                if _is_accounting_adjustment_row(desc_str):
+                    continue
+
+                # Parse cost early for validation
                 cost = row.get(col_map.get("cost"))
                 if pd.isna(cost) or not self._is_valid_number(cost):
                     cost = 0.0
+                else:
+                    cost = float(cost)
+
+                # Validate description is meaningful (not "None", "N/A", etc.)
+                is_valid, invalid_reason = _is_valid_asset_description(desc_str, cost)
+                if not is_valid:
+                    continue
+
+                # Skip placeholder rows ($0 cost with minimal description)
+                if _is_placeholder_row(desc_str, cost, asset_id_raw):
+                    continue
+
+                # Skip negative cost items (credits/adjustments, not assets)
+                if cost < 0:
+                    continue
 
                 asset = Asset(
                     row_index=idx + header_row_idx + 2,
-                    asset_id=str(row.get(col_map.get("asset_id"))) if col_map.get("asset_id") and not pd.isna(row.get(col_map.get("asset_id"))) else None,
-                    description=str(desc),
-                    cost=float(cost),
+                    asset_id=asset_id_raw if asset_id_raw else None,
+                    description=desc_str,
+                    cost=cost,
                     acquisition_date=row.get(col_map.get("acquisition_date")),
                     in_service_date=row.get(col_map.get("in_service_date")),
                     macrs_life=float(row.get(col_map.get("life"))) if col_map.get("life") and self._is_valid_number(row.get(col_map.get("life"))) else None,
