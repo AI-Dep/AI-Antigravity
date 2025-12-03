@@ -301,20 +301,40 @@ def _detect_fiscal_year_from_headers(df: pd.DataFrame, tab_name: str = "") -> Tu
                 if row_idx + 1 < len(df):
                     below_cell = df.iloc[row_idx + 1, col_idx] if col_idx < len(df.columns) else None
                     if below_cell is not None and not pd.isna(below_cell):
-                        below_str = str(below_cell).strip()
-                        date_match = re.search(date_pattern, below_str)
-                        if date_match:
-                            month = int(date_match.group(1))
-                            day = int(date_match.group(2))
-                            year = int(date_match.group(3))
+                        month, day, year = None, None, None
+
+                        # Handle datetime objects directly (Excel often stores dates as datetime)
+                        if hasattr(below_cell, 'month') and hasattr(below_cell, 'day'):
+                            month = below_cell.month
+                            day = below_cell.day
+                            year = below_cell.year
+                            logger.info(f"[FY Detection] Found datetime object: {below_cell} -> month={month}, day={day}")
+                        else:
+                            # Try parsing as string (format: "4/1/2024" or "2024-04-01")
+                            below_str = str(below_cell).strip()
+                            # Try MM/DD/YYYY or MM-DD-YYYY format
+                            date_match = re.search(date_pattern, below_str)
+                            if date_match:
+                                month = int(date_match.group(1))
+                                day = int(date_match.group(2))
+                                year = int(date_match.group(3))
+                            else:
+                                # Try YYYY-MM-DD format (ISO format from datetime str)
+                                iso_match = re.search(r'(\d{4})-(\d{2})-(\d{2})', below_str)
+                                if iso_match:
+                                    year = int(iso_match.group(1))
+                                    month = int(iso_match.group(2))
+                                    day = int(iso_match.group(3))
+                                    logger.info(f"[FY Detection] Parsed ISO date from string: {below_str}")
+
+                        if month and day and year:
                             if year < 100:
                                 year += 2000
-
                             # Beginning balance on 1st of month = fiscal year start
                             if day == 1 and 1 <= month <= 12:
                                 detected_start_month = month
                                 source = f"'{tab_name}' header row: 'Beg Balance' with date {month}/1/{year} below"
-                                logger.info(f"[FY Detection] Found start month {month} from header+date pattern: {cell_str} -> {below_str}")
+                                logger.info(f"[FY Detection] Found start month {month} from header+date pattern: {cell_str}")
                                 break
 
             # Check if this cell is an "End Balance" header (without date)
@@ -323,15 +343,33 @@ def _detect_fiscal_year_from_headers(df: pd.DataFrame, tab_name: str = "") -> Tu
                 if row_idx + 1 < len(df):
                     below_cell = df.iloc[row_idx + 1, col_idx] if col_idx < len(df.columns) else None
                     if below_cell is not None and not pd.isna(below_cell):
-                        below_str = str(below_cell).strip()
-                        date_match = re.search(date_pattern, below_str)
-                        if date_match:
-                            month = int(date_match.group(1))
-                            day = int(date_match.group(2))
-                            year = int(date_match.group(3))
+                        month, day, year = None, None, None
+
+                        # Handle datetime objects directly (Excel often stores dates as datetime)
+                        if hasattr(below_cell, 'month') and hasattr(below_cell, 'day'):
+                            month = below_cell.month
+                            day = below_cell.day
+                            year = below_cell.year
+                            logger.info(f"[FY Detection] Found end balance datetime: {below_cell}")
+                        else:
+                            # Try parsing as string
+                            below_str = str(below_cell).strip()
+                            date_match = re.search(date_pattern, below_str)
+                            if date_match:
+                                month = int(date_match.group(1))
+                                day = int(date_match.group(2))
+                                year = int(date_match.group(3))
+                            else:
+                                # Try YYYY-MM-DD format
+                                iso_match = re.search(r'(\d{4})-(\d{2})-(\d{2})', below_str)
+                                if iso_match:
+                                    year = int(iso_match.group(1))
+                                    month = int(iso_match.group(2))
+                                    day = int(iso_match.group(3))
+
+                        if month and day and year:
                             if year < 100:
                                 year += 2000
-
                             # End of fiscal year - infer start month
                             # End 3/31 -> start month is 4 (April)
                             # End 12/31 -> start month is 1 (January/calendar)
@@ -341,7 +379,7 @@ def _detect_fiscal_year_from_headers(df: pd.DataFrame, tab_name: str = "") -> Tu
                                 inferred_start = (month % 12) + 1
                                 detected_start_month = inferred_start
                                 source = f"'{tab_name}' header row: 'End Balance' with date {month}/{day}/{year} below -> start month {inferred_start}"
-                                logger.info(f"[FY Detection] Inferred start month {inferred_start} from end balance: {cell_str} -> {below_str}")
+                                logger.info(f"[FY Detection] Inferred start month {inferred_start} from end balance: month={month}, day={day}")
 
             # Strategy 2: Look for "Beg Balance 4/1/2024" pattern in same cell
             beg_with_date = re.search(r'(?:beg(?:inning)?\.?\s*(?:bal(?:ance)?\.?)?|opening)\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})', cell_str)
