@@ -1259,12 +1259,16 @@ function Review({ assets = [] }) {
                                             )}>
                                                 <div className="flex flex-col">
                                                     <span>${(asset.cost || 0).toLocaleString()}</span>
-                                                    {/* Disposal gain/loss preview */}
+                                                    {/* Disposal gain/loss preview with detailed tooltip */}
                                                     {isDisposal(asset.transaction_type) && (
                                                         <span className={cn(
-                                                            "text-[10px]",
+                                                            "text-[10px] cursor-help",
                                                             // Calculate estimated gain/loss
                                                             (() => {
+                                                                // Use client-provided gain/loss if available
+                                                                if (asset.gain_loss !== null && asset.gain_loss !== undefined) {
+                                                                    return asset.gain_loss >= 0 ? "text-green-600" : "text-red-600";
+                                                                }
                                                                 const proceeds = asset.sale_proceeds || asset.proceeds || 0;
                                                                 const accumDepr = asset.accumulated_depreciation || asset.accum_depr || 0;
                                                                 const bookValue = (asset.cost || 0) - accumDepr;
@@ -1276,10 +1280,35 @@ function Review({ assets = [] }) {
                                                                 const proceeds = asset.sale_proceeds || asset.proceeds || 0;
                                                                 const accumDepr = asset.accumulated_depreciation || asset.accum_depr || 0;
                                                                 const bookValue = (asset.cost || 0) - accumDepr;
-                                                                return `Cost: $${(asset.cost || 0).toLocaleString()}\nAccum Depr: $${accumDepr.toLocaleString()}\nBook Value: $${bookValue.toLocaleString()}\nProceeds: $${proceeds.toLocaleString()}`;
+                                                                const gainLoss = proceeds - bookValue;
+                                                                const nbv = asset.net_book_value || bookValue;
+
+                                                                // Build detailed calculation tooltip
+                                                                let tooltip = "═══ GAIN/LOSS CALCULATION ═══\n\n";
+                                                                tooltip += `Cost:           $${(asset.cost || 0).toLocaleString()}\n`;
+                                                                tooltip += `- Accum Depr:   $${accumDepr.toLocaleString()}\n`;
+                                                                tooltip += `────────────────────────\n`;
+                                                                tooltip += `= NBV:          $${nbv.toLocaleString()}\n\n`;
+                                                                tooltip += `Proceeds:       $${proceeds.toLocaleString()}\n`;
+                                                                tooltip += `- NBV:          $${nbv.toLocaleString()}\n`;
+                                                                tooltip += `────────────────────────\n`;
+                                                                tooltip += `= ${gainLoss >= 0 ? 'GAIN' : 'LOSS'}:         $${Math.abs(gainLoss).toLocaleString()}\n`;
+
+                                                                if (asset.gain_loss !== null && asset.gain_loss !== undefined) {
+                                                                    tooltip += `\n(Client provided: $${asset.gain_loss.toLocaleString()})`;
+                                                                }
+
+                                                                return tooltip;
                                                             })()}
                                                         >
                                                             {(() => {
+                                                                // Use client-provided gain/loss if available
+                                                                if (asset.gain_loss !== null && asset.gain_loss !== undefined) {
+                                                                    return asset.gain_loss >= 0
+                                                                        ? `Gain: $${asset.gain_loss.toLocaleString()}`
+                                                                        : `Loss: ($${Math.abs(asset.gain_loss).toLocaleString()})`;
+                                                                }
+
                                                                 const proceeds = asset.sale_proceeds || asset.proceeds || 0;
                                                                 const accumDepr = asset.accumulated_depreciation || asset.accum_depr || 0;
                                                                 const bookValue = (asset.cost || 0) - accumDepr;
