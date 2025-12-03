@@ -595,6 +595,18 @@ HEADER_KEYS = {
         "tax basis", "federal basis"
     ],
 
+    # Gain/Loss on disposal
+    "gain_loss": [
+        "gain/loss", "gain loss", "gain or loss", "gain (loss)",
+        "book gain/loss", "book gain loss", "book gain (loss)",
+        "tax gain/loss", "tax gain loss", "tax gain (loss)",
+        "realized gain/loss", "realized gain loss",
+        "disposal gain/loss", "disposal gain loss",
+        "sale gain/loss", "sale gain loss",
+        "gain", "loss", "profit/loss", "profit loss",
+        "net gain", "net loss", "total gain", "total loss"
+    ],
+
     # Transfer-specific fields
     "transfer_date": ["transfer date", "xfer date", "date transferred"],
     "from_location": ["from location", "old location", "prior location", "source location"],
@@ -612,7 +624,7 @@ CATEGORY_LOCATION_FIELDS = ["category", "location", "department"]
 OPTIONAL_FIELDS = [
     "method", "life", "transaction_type", "business_use_pct", "proceeds",
     "accumulated_depreciation", "section_179_taken", "bonus_taken",
-    "net_book_value", "tax_life", "book_life", "tax_method", "book_method"
+    "net_book_value", "gain_loss", "tax_life", "book_life", "tax_method", "book_method"
 ]
 TRANSFER_FIELDS = [
     "transfer_date", "from_location", "to_location",
