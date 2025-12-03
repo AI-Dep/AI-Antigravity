@@ -838,10 +838,12 @@ def classify_assets_batch(
         List of classification dicts in same order as input
     """
     from concurrent.futures import ThreadPoolExecutor
+    import time
 
     if not assets:
         return []
 
+    start_time = time.time()
     rules = rules or load_rules()
     overrides = overrides or load_overrides()
 
@@ -853,6 +855,7 @@ def classify_assets_batch(
         result = _try_fast_classification(asset, rules, overrides, skip_memory=True)
         return (i, asset, result)
 
+    rule_start = time.time()
     # Use parallel processing for large batches (>50 assets)
     if len(assets) > 50:
         max_workers = min(8, len(assets) // 10 + 1)  # Scale workers with asset count
@@ -861,6 +864,8 @@ def classify_assets_batch(
     else:
         # Sequential for small batches (overhead not worth it)
         classification_results = [classify_single((i, a)) for i, a in enumerate(assets)]
+
+    rule_time = time.time() - rule_start
 
     # Separate matched vs needs-GPT
     results = []
@@ -874,15 +879,24 @@ def classify_assets_batch(
             gpt_needed.append(asset)
             gpt_indices.append(i)
 
+    logger.info(f"[PERF] Rule matching: {len(assets)} assets in {rule_time:.2f}s - {len(results)} matched, {len(gpt_needed)} need GPT")
+
     # Batch GPT calls for remaining assets (already parallelized)
+    gpt_time = 0
     if gpt_needed and OPENAI_AVAILABLE:
+        gpt_start = time.time()
         gpt_results = _batch_gpt_classify(gpt_needed, model, batch_size)
+        gpt_time = time.time() - gpt_start
         for idx, result in zip(gpt_indices, gpt_results):
             results.append((idx, result))
+        logger.info(f"[PERF] GPT classification: {len(gpt_needed)} assets in {gpt_time:.2f}s")
     elif gpt_needed:
         # Fallback to keyword classification
         for idx, asset in zip(gpt_indices, gpt_needed):
             results.append((idx, _keyword_fallback_classification(asset)))
+
+    total_time = time.time() - start_time
+    logger.info(f"[PERF] Total classification: {len(assets)} assets in {total_time:.2f}s")
 
     # Sort by original index and return just results
     results.sort(key=lambda x: x[0])
@@ -997,8 +1011,8 @@ def _batch_gpt_classify(assets: List[Dict], model: str, batch_size: int) -> List
         return _call_gpt_batch(batches[0], model)
 
     # PARALLEL EXECUTION: Run all batches concurrently
-    # Max workers = number of batches, capped at 5 to avoid rate limits
-    max_workers = min(len(batches), 5)
+    # Max workers = number of batches, capped at 10 (OpenAI handles this well)
+    max_workers = min(len(batches), 10)
     results_by_batch = [None] * len(batches)
 
     logger.info(f"[GPT] Parallel classification: {len(assets)} assets in {len(batches)} batches (max {max_workers} concurrent)")
