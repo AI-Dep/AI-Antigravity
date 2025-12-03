@@ -265,10 +265,15 @@ class ClassifierService:
         """
         Suggest optimal depreciation election based on asset characteristics.
 
-        De Minimis Safe Harbor: Assets <= $2,500 can be expensed immediately
-        Section 179: Up to $1,220,000 (2024) / $2,500,000 (2025 OBBBA) for qualifying property
-        Bonus: 80% (2024) / 100% (2025+ OBBBA) of cost for qualifying property
-        MACRS: Standard depreciation
+        Priority Order (tax-optimal defaults):
+        1. De Minimis Safe Harbor: Assets <= $2,500 - expense immediately
+        2. Section 179: ALL eligible property > $2,500 - preferred for carryforward protection
+        3. MACRS: Real property (27.5/39 year) or non-eligible assets
+
+        Why Section 179 over Bonus as default:
+        - Section 179 excess carries forward; Bonus is use-it-or-lose-it
+        - CPA can change to Bonus if client has losses or prefers it
+        - More flexible for tax planning
 
         Note: These are SUGGESTIONS only. CPA makes final decision based on client income.
         """
@@ -285,28 +290,28 @@ class ClassifierService:
             asset.election_reason = "Existing asset - continuing prior depreciation"
             return
 
+        # Real property (27.5/39 year) - no bonus/179 available
+        # Check this FIRST before other elections
+        if asset.macrs_life and asset.macrs_life >= 27.5:
+            election = "MACRS"
+            reason = "Real property - standard straight-line MACRS (179/Bonus not available)"
+            asset.depreciation_election = election
+            asset.election_reason = reason
+            return
+
         # De Minimis Safe Harbor - assets under $2,500
         if 0 < cost <= de_minimis_threshold:
             election = "DeMinimis"
             reason = f"Cost ${cost:,.0f} qualifies for de minimis safe harbor (≤$2,500)"
 
-        # Section 179 candidates - mid-range assets
-        elif de_minimis_threshold < cost <= 50000 and asset.is_bonus_eligible:
-            election = "Section179"
-            reason = f"Cost ${cost:,.0f} - consider Section 179 for immediate deduction"
-
-        # Bonus depreciation candidates - larger qualifying property
+        # Section 179 - ALL eligible property over $2,500
+        # Preferred over Bonus because unused 179 carries forward (Bonus doesn't)
         elif asset.is_bonus_eligible:
-            # Use centralized tax config for OBBBA/TCJA compliant bonus rates
-            bonus_rate = tax_year_config.get_bonus_percentage(tax_year)
-            bonus_pct = int(bonus_rate * 100)
-            election = "Bonus"
-            reason = f"Qualifying property - {bonus_pct}% bonus depreciation available"
-
-        # Real property - no bonus/179
-        elif asset.macrs_life and asset.macrs_life >= 27.5:
-            election = "MACRS"
-            reason = "Real property - standard straight-line MACRS"
+            # Get 179 limit for display in reason
+            section_179_config = tax_year_config.get_section_179_limits(tax_year)
+            limit = section_179_config.get("max_deduction", 2500000)
+            election = "Section179"
+            reason = f"Section 179 deduction (limit ${limit:,.0f}) - preferred for carryforward protection"
 
         asset.depreciation_election = election
         asset.election_reason = reason

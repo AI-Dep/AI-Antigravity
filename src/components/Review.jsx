@@ -1743,7 +1743,13 @@ function Review({ assets = [] }) {
                                 <p className="text-xs text-blue-700 mb-3">
                                     Based on current elections, FA CS will calculate:
                                 </p>
-                                <div className="grid grid-cols-3 gap-4">
+                                <div className="grid grid-cols-4 gap-3">
+                                    <div className="bg-white rounded-lg p-3 shadow-sm">
+                                        <div className="text-xs text-slate-500 mb-1">De Minimis Expense</div>
+                                        <div className="text-lg font-bold text-emerald-600">
+                                            ${(depreciationPreview.de_minimis || 0).toLocaleString()}
+                                        </div>
+                                    </div>
                                     <div className="bg-white rounded-lg p-3 shadow-sm">
                                         <div className="text-xs text-slate-500 mb-1">Section 179</div>
                                         <div className="text-lg font-bold text-green-600">
@@ -1751,8 +1757,8 @@ function Review({ assets = [] }) {
                                         </div>
                                     </div>
                                     <div className="bg-white rounded-lg p-3 shadow-sm">
-                                        <div className="text-xs text-slate-500 mb-1">Bonus (60%)</div>
-                                        <div className="text-lg font-bold text-blue-600">
+                                        <div className="text-xs text-slate-500 mb-1">Bonus ({Math.round((depreciationPreview.bonus_rate || 0.6) * 100)}%)</div>
+                                        <div className="text-lg font-bold text-purple-600">
                                             ${(depreciationPreview.bonus || 0).toLocaleString()}
                                         </div>
                                     </div>
@@ -1765,7 +1771,7 @@ function Review({ assets = [] }) {
                                 </div>
                                 <div className="mt-3 pt-3 border-t border-blue-200">
                                     <div className="flex justify-between items-center">
-                                        <span className="text-sm font-medium text-blue-900">Total Year 1 Depreciation</span>
+                                        <span className="text-sm font-medium text-blue-900">Total Year 1 Deductions</span>
                                         <span className="text-xl font-bold text-blue-600">
                                             ${(depreciationPreview.total_year1 || 0).toLocaleString()}
                                         </span>
