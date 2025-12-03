@@ -847,9 +847,10 @@ def classify_assets_batch(
 
     # PARALLEL RULE MATCHING: Process all assets concurrently
     # This is CPU-bound work, so we use a modest thread pool
+    # NOTE: skip_memory=True avoids slow embedding API calls per asset
     def classify_single(args):
         i, asset = args
-        result = _try_fast_classification(asset, rules, overrides)
+        result = _try_fast_classification(asset, rules, overrides, skip_memory=True)
         return (i, asset, result)
 
     # Use parallel processing for large batches (>50 assets)
@@ -888,7 +889,7 @@ def classify_assets_batch(
     return [r[1] for r in results]
 
 
-def _try_fast_classification(asset: Dict, rules: Dict, overrides: Dict) -> Optional[Dict]:
+def _try_fast_classification(asset: Dict, rules: Dict, overrides: Dict, skip_memory: bool = False) -> Optional[Dict]:
     """
     Try to classify asset using rules/overrides/memory/keywords (no GPT needed).
     Returns None if GPT is needed.
@@ -896,9 +897,15 @@ def _try_fast_classification(asset: Dict, rules: Dict, overrides: Dict) -> Optio
     Classification order (MUST match classify_asset for consistency):
     1. User overrides (100% confidence)
     2. Rule engine (80-98% confidence) - BEFORE quick keywords for consistency
-    3. Memory engine (up to 90% confidence)
+    3. Memory engine (up to 90% confidence) - SKIPPED if skip_memory=True
     4. Quick keyword fallback (75% confidence) - Only if rules don't match
     Returns None → triggers GPT fallback
+
+    Args:
+        asset: Asset dict with Description, Cost, etc.
+        rules: Rules dict
+        overrides: Overrides dict
+        skip_memory: If True, skip memory engine (for batch mode - avoids slow API calls)
     """
     # Check override first
     aid = _normalize(_safe_get(asset, ["Asset ID", "asset_id"], ""))
@@ -939,7 +946,8 @@ def _try_fast_classification(asset: Dict, rules: Dict, overrides: Dict) -> Optio
             }
 
     # Check memory engine for learned patterns
-    if MEMORY_ENABLED:
+    # SKIP in batch mode - memory engine makes slow embedding API calls
+    if MEMORY_ENABLED and not skip_memory:
         try:
             memory_match = memory_engine.query_similar(desc, threshold=0.82)
             if memory_match:
