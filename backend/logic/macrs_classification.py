@@ -815,13 +815,13 @@ def classify_assets_batch(
     model: str = "gpt-4o-mini",
     rules: Optional[Dict] = None,
     overrides: Optional[Dict] = None,
-    batch_size: int = 50
+    batch_size: int = 25
 ) -> List[Dict]:
     """
     Classify multiple assets in batches for improved performance.
 
     Processes assets in batches of batch_size to reduce API calls.
-    A batch of 50 assets = 1 API call instead of 50 calls (50x reduction).
+    A batch of 25 assets = 1 API call instead of 25 calls (25x reduction).
 
     PERFORMANCE: Uses parallel processing for rule matching phase,
     then parallel GPT calls for remaining assets.
@@ -832,7 +832,7 @@ def classify_assets_batch(
         model: GPT model to use
         rules: Rules dict (will load if not provided)
         overrides: Overrides dict (will load if not provided)
-        batch_size: Number of assets per batch (default: 50)
+        batch_size: Number of assets per batch (default: 25)
 
     Returns:
         List of classification dicts in same order as input

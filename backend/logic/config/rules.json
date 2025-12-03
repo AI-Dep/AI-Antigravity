@@ -1474,6 +1474,259 @@
       "bonus": true,
       "qip": false,
       "weight": 2.6
+    },
+
+    {
+      "name": "Office Appliances and Break Room",
+      "keywords": [
+        "microwave", "coffee maker", "coffee machine", "keurig", "espresso",
+        "water cooler", "water dispenser", "refrigerator office", "office fridge",
+        "mini fridge", "break room", "breakroom", "vending", "toaster",
+        "ice maker office", "beverage dispenser"
+      ],
+      "exclude": ["walk-in", "commercial"],
+      "class": "Office Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.0
+    },
+
+    {
+      "name": "Safety and Emergency Equipment",
+      "keywords": [
+        "fire extinguisher", "extinguisher", "first aid", "aed", "defibrillator",
+        "safety equipment", "ppe", "eye wash", "eyewash", "safety shower",
+        "hard hat", "harness", "fall protection", "safety cabinet",
+        "spill kit", "emergency equipment", "exit sign", "emergency light"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.0
+    },
+
+    {
+      "name": "Communication Equipment - Radio and Two-Way",
+      "keywords": [
+        "radio", "two-way radio", "walkie talkie", "walkie-talkie",
+        "motorola radio", "kenwood radio", "handheld radio",
+        "radio system", "repeater", "base station radio",
+        "intercom", "paging system", "pa system", "public address"
+      ],
+      "exclude": ["satellite radio", "radio advertising"],
+      "class": "Office Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.2
+    },
+
+    {
+      "name": "Safes and Security Storage",
+      "keywords": [
+        "safe", "vault", "gun safe", "fireproof safe", "floor safe",
+        "wall safe", "drop safe", "cash safe", "document safe",
+        "key cabinet", "key box", "lockbox", "lock box",
+        "secure storage", "security cabinet"
+      ],
+      "exclude": [],
+      "class": "Office Furniture",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.1
+    },
+
+    {
+      "name": "Generic Refrigeration Equipment",
+      "keywords": [
+        "refrigerator", "freezer", "cooler", "cold storage",
+        "refrigeration", "fridge", "chiller", "cooling unit"
+      ],
+      "exclude": ["walk-in", "hvac"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 1.8
+    },
+
+    {
+      "name": "Pumps and Motors",
+      "keywords": [
+        "pump", "motor", "electric motor", "hydraulic pump",
+        "submersible pump", "sump pump", "water pump", "fuel pump",
+        "vacuum pump", "blower", "fan motor", "drive motor",
+        "gear motor", "servo motor", "variable frequency drive", "vfd"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.0
+    },
+
+    {
+      "name": "Tanks and Containers - Industrial",
+      "keywords": [
+        "tank", "storage tank", "fuel tank", "water tank",
+        "propane tank", "chemical tank", "holding tank",
+        "pressure vessel", "container", "bulk container",
+        "ibc", "tote", "industrial container", "drum"
+      ],
+      "exclude": ["fish tank", "septic"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.0
+    },
+
+    {
+      "name": "Carts and Mobile Equipment",
+      "keywords": [
+        "cart", "hand cart", "utility cart", "service cart",
+        "platform cart", "dolly", "hand truck", "trolley",
+        "rolling cart", "mobile cart", "supply cart",
+        "mail cart", "library cart", "av cart"
+      ],
+      "exclude": ["golf cart", "medical cart", "crash cart"],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 1.8
+    },
+
+    {
+      "name": "Ladders and Access Equipment",
+      "keywords": [
+        "ladder", "step ladder", "extension ladder", "platform ladder",
+        "rolling ladder", "scaffold", "scaffolding", "work platform",
+        "step stool", "safety ladder", "attic ladder"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 1.9
+    },
+
+    {
+      "name": "Containers and Bins - Storage",
+      "keywords": [
+        "bin", "storage bin", "parts bin", "hopper", "dumpster",
+        "trash container", "waste container", "recycling bin",
+        "tub", "crate", "plastic container", "stackable bin"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 1.5
+    },
+
+    {
+      "name": "Scales and Weighing Equipment",
+      "keywords": [
+        "scale", "floor scale", "bench scale", "pallet scale",
+        "counting scale", "shipping scale", "postal scale",
+        "weighing", "load cell", "crane scale", "platform scale"
+      ],
+      "exclude": [],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.1
+    },
+
+    {
+      "name": "Doors - Overhead and Industrial",
+      "keywords": [
+        "overhead door", "roll-up door", "rollup door", "dock door",
+        "garage door", "loading dock door", "sectional door",
+        "high speed door", "rapid door", "industrial door",
+        "dock leveler", "dock plate", "dock equipment"
+      ],
+      "exclude": ["interior door"],
+      "class": "Building Equipment",
+      "life": 15,
+      "method": "150DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.3
+    },
+
+    {
+      "name": "Awnings and Canopies",
+      "keywords": [
+        "awning", "canopy", "shade structure", "patio cover",
+        "carport", "tent structure", "fabric structure", "pergola"
+      ],
+      "exclude": [],
+      "class": "Land Improvement",
+      "life": 15,
+      "method": "150DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 2.0
+    },
+
+    {
+      "name": "Generic 7-Year Equipment Catch-All",
+      "keywords": [
+        "equipment", "unit", "system", "machine", "apparatus",
+        "device", "instrument", "appliance", "mechanism"
+      ],
+      "exclude": [
+        "computer", "laptop", "server", "desktop", "monitor", "printer",
+        "vehicle", "car", "truck", "auto", "van",
+        "building", "roof", "hvac", "electrical", "plumbing",
+        "land", "parking", "fence", "landscaping", "paving",
+        "furniture", "desk", "chair", "cabinet", "shelving",
+        "software", "license", "subscription",
+        "improvement", "remodel", "renovation", "buildout",
+        "interior", "flooring", "ceiling", "wall", "lighting"
+      ],
+      "class": "Machinery & Equipment",
+      "life": 7,
+      "method": "200DB",
+      "convention": "HY",
+      "bonus": true,
+      "qip": false,
+      "weight": 0.8,
+      "notes": "Low-weight catch-all for generic equipment terms - more specific rules should take precedence"
     }
 
   ]
