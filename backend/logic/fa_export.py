@@ -1278,8 +1278,8 @@ def build_fa(
         )
 
         # Calculate bonus percentage for this specific asset
-        # OBBB Act: 100% if acquired AND placed in service after 1/19/2025
-        # Otherwise: TCJA phase-down (80% for 2024-2025, etc.)
+        # CURRENT LAW - OBBBA: 100% for property acquired AND placed in service after 1/19/2025
+        # Legacy property uses historical rates (2024=60%, 2025=40%, etc.)
         asset_bonus_pct = get_bonus_percentage(tax_year, acquisition, in_service)
 
         sec179 = 0.0
