@@ -2667,8 +2667,9 @@ async def get_depreciation_preview(request: Request, response: Response):
     instead of using arbitrary cost thresholds.
 
     Returns:
-    - Section 179 eligible amount
-    - Bonus depreciation (80% for 2024, 100% for 2025+ OBBBA)
+    - De Minimis expenses (separate - NOT Section 179!)
+    - Section 179 deduction
+    - Bonus depreciation (60% for 2025 OBBBA)
     - Regular MACRS depreciation
     - Total Year 1 depreciation
     """
@@ -2677,6 +2678,7 @@ async def get_depreciation_preview(request: Request, response: Response):
 
     if not session.assets:
         return {
+            "de_minimis": 0,
             "section_179": 0,
             "bonus": 0,
             "regular_macrs": 0,
@@ -2692,10 +2694,10 @@ async def get_depreciation_preview(request: Request, response: Response):
     section_179_limit = section_179_config.get("max_deduction", 1220000)
     bonus_rate = tax_year_config.get_bonus_percentage(tax_year)
 
+    de_minimis_total = 0
     section_179_total = 0
     bonus_total = 0
     regular_macrs_total = 0
-    de_minimis_total = 0
 
     # First year MACRS rate (approximation)
     first_year_rates = {
@@ -2725,10 +2727,10 @@ async def get_depreciation_preview(request: Request, response: Response):
         election = getattr(asset, 'depreciation_election', None) or ''
 
         if election == 'DeMinimis' or election == 'De Minimis':
-            # De minimis - expense fully (not depreciated)
+            # De minimis - EXPENSE (not depreciation, not 179!)
             de_minimis_total += cost
         elif election == 'Section179' or election == '$179':
-            # Section 179 election - expense fully (up to limit)
+            # Section 179 election - deduction (up to limit)
             section_179_total += cost
         elif election == 'Bonus':
             # Bonus depreciation
@@ -2745,21 +2747,19 @@ async def get_depreciation_preview(request: Request, response: Response):
             # Regular MACRS (no election or MACRS selected)
             regular_macrs_total += cost * first_year_rate
 
-    # Section 179 includes de minimis for display purposes
-    section_179_display = section_179_total + de_minimis_total
-
-    total_year1 = section_179_display + bonus_total + regular_macrs_total
+    # Total Year 1 = all categories (De Minimis is expense, others are depreciation)
+    total_year1 = de_minimis_total + section_179_total + bonus_total + regular_macrs_total
 
     return {
-        "section_179": round(section_179_display, 2),
+        "de_minimis": round(de_minimis_total, 2),
+        "section_179": round(section_179_total, 2),
         "bonus": round(bonus_total, 2),
         "regular_macrs": round(regular_macrs_total, 2),
         "total_year1": round(total_year1, 2),
         "tax_year": tax_year,
         "bonus_rate": bonus_rate,
         "section_179_limit": section_179_limit,
-        "de_minimis_included": round(de_minimis_total, 2),
-        "summary": f"Estimated ${total_year1:,.0f} Year 1 depreciation"
+        "summary": f"Estimated ${total_year1:,.0f} Year 1 deductions"
     }
 
 
