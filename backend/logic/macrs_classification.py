@@ -926,14 +926,59 @@ def _try_fast_classification(asset: Dict, rules: Dict, overrides: Dict) -> Optio
 
 def _batch_gpt_classify(assets: List[Dict], model: str, batch_size: int) -> List[Dict]:
     """
-    Classify assets using batched GPT calls.
-    """
-    results = []
+    Classify assets using batched GPT calls with parallel execution.
 
+    PERFORMANCE: Uses ThreadPoolExecutor to run multiple GPT batch calls
+    in parallel, dramatically reducing wall-clock time for large asset lists.
+
+    Example: 100 assets with batch_size=30
+    - Sequential: 4 batches × 2s each = 8 seconds
+    - Parallel:   4 batches in parallel = ~2 seconds (4x faster)
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    if not assets:
+        return []
+
+    # Split assets into batches
+    batches = []
     for i in range(0, len(assets), batch_size):
-        batch = assets[i:i + batch_size]
-        batch_results = _call_gpt_batch(batch, model)
-        results.extend(batch_results)
+        batches.append(assets[i:i + batch_size])
+
+    if len(batches) == 1:
+        # Single batch - no parallelization needed
+        return _call_gpt_batch(batches[0], model)
+
+    # PARALLEL EXECUTION: Run all batches concurrently
+    # Max workers = number of batches, capped at 5 to avoid rate limits
+    max_workers = min(len(batches), 5)
+    results_by_batch = [None] * len(batches)
+
+    logger.info(f"[GPT] Parallel classification: {len(assets)} assets in {len(batches)} batches (max {max_workers} concurrent)")
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all batch jobs
+        future_to_idx = {
+            executor.submit(_call_gpt_batch, batch, model): idx
+            for idx, batch in enumerate(batches)
+        }
+
+        # Collect results as they complete
+        for future in as_completed(future_to_idx):
+            batch_idx = future_to_idx[future]
+            try:
+                results_by_batch[batch_idx] = future.result()
+            except Exception as e:
+                logger.warning(f"[GPT] Batch {batch_idx} failed: {e} - using fallback")
+                # Fallback for failed batch
+                results_by_batch[batch_idx] = [
+                    _keyword_fallback_classification(a) for a in batches[batch_idx]
+                ]
+
+    # Flatten results in original order
+    results = []
+    for batch_result in results_by_batch:
+        results.extend(batch_result)
 
     return results
 
