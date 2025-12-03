@@ -1682,8 +1682,9 @@ async def upload_file(
         with os.fdopen(temp_fd, 'wb') as buffer:
             buffer.write(file_content)  # Use already-read content
 
-        # Get tax year from session config (needed for both try and except paths)
+        # Get tax year and fiscal year config from session (needed for both try and except paths)
         current_tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
+        current_fy_start_month = session.tax_config.get("fy_start_month", TAX_CONFIG.get("fy_start_month", 1))
 
         # Perform tab analysis before processing
         try:
@@ -1707,6 +1708,7 @@ async def upload_file(
             assets = importer.parse_excel(
                 temp_file,
                 target_tax_year=current_tax_year,
+                fy_start_month=current_fy_start_month,  # CRITICAL: Pass fiscal year config
                 preloaded_sheets=sheets,
                 tab_analysis_result=session.tab_analysis_result
             )
@@ -1714,7 +1716,11 @@ async def upload_file(
             logger.warning(f"Tab analysis error (non-fatal): {tab_err}")
             session.tab_analysis_result = None
             # Fallback: parse without pre-loaded data
-            assets = importer.parse_excel(temp_file, target_tax_year=current_tax_year)
+            assets = importer.parse_excel(
+                temp_file,
+                target_tax_year=current_tax_year,
+                fy_start_month=current_fy_start_month  # CRITICAL: Pass fiscal year config
+            )
         parse_report = importer.get_last_parse_report()
 
         # Store parse warnings in session for later retrieval
@@ -1722,8 +1728,12 @@ async def upload_file(
         session.parse_stats = parse_report.get('stats', {})
 
         # 2. Classify Assets (MACRS + Transaction Types)
-        tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
-        classified_assets = classifier.classify_batch(assets, tax_year=tax_year)
+        # Use already-extracted values for consistency
+        classified_assets = classifier.classify_batch(
+            assets,
+            tax_year=current_tax_year,
+            fy_start_month=current_fy_start_month  # CRITICAL: Pass fiscal year config
+        )
 
         # 3. Store in session using unique IDs to prevent overwrites
         session.assets.clear()

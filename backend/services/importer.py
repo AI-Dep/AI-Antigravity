@@ -86,6 +86,7 @@ class ImporterService:
         file_path: str,
         filter_by_date: bool = False,
         target_tax_year: Optional[int] = None,
+        fy_start_month: int = 1,
         preloaded_sheets: Optional[Dict[str, 'pd.DataFrame']] = None,
         tab_analysis_result: Optional[Any] = None
     ) -> List[Asset]:
@@ -109,6 +110,9 @@ class ImporterService:
                            Default is False to include ALL assets.
             target_tax_year: Tax year to process (e.g., 2025). Sheets from prior years
                             will be skipped for performance. If None, uses current year.
+            fy_start_month: First month of fiscal year (1=Jan/calendar, 4=Apr, 7=Jul, 10=Oct).
+                           CRITICAL for clients with non-calendar fiscal years.
+                           Example: Apr-Mar FY uses fy_start_month=4.
             preloaded_sheets: Optional dict of sheet_name -> DataFrame. If provided,
                              skips reading the Excel file (already loaded by caller).
             tab_analysis_result: Optional pre-computed tab analysis result. If provided,
@@ -165,6 +169,7 @@ class ImporterService:
             df_unified = sheet_loader.build_unified_dataframe(
                 sheets,
                 target_tax_year=effective_tax_year,  # Skip prior year sheets for performance
+                fy_start_month=fy_start_month,  # CRITICAL: Pass fiscal year start month
                 filter_by_date=filter_by_date,  # Default False - include all assets
                 client_id=None,
                 tab_analysis_result=tab_analysis_result  # Use pre-computed skip decisions
@@ -426,16 +431,17 @@ class ImporterService:
                 if _is_accounting_adjustment_row(desc_str):
                     continue
 
-                # Skip budget/planning rows (e.g., "Budget" + "Office space")
-                if _is_budget_or_planning_row(desc_str, asset_id_raw):
-                    continue
-
-                # Parse cost early for validation
+                # Parse cost early for validation and budget detection
                 cost = row.get(col_map.get("cost"))
                 if pd.isna(cost) or not self._is_valid_number(cost):
                     cost = 0.0
                 else:
                     cost = float(cost)
+
+                # Skip budget/planning rows (e.g., "Office space" with no Asset ID)
+                # Now includes cost check for suspicious round amounts
+                if _is_budget_or_planning_row(desc_str, asset_id_raw, cost):
+                    continue
 
                 # Validate description is meaningful (not "None", "N/A", etc.)
                 is_valid, invalid_reason = _is_valid_asset_description(desc_str, cost)

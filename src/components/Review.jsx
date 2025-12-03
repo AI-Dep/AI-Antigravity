@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
-import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2, Shield, Wand2, DollarSign, Calculator } from 'lucide-react';
+import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2, Shield, Wand2, DollarSign, Calculator, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 // Import API types for consistent contract
@@ -487,6 +487,34 @@ function Review({ assets = [] }) {
         }
     };
 
+    // Remove asset from session (for incorrectly imported rows)
+    const handleRemove = async (uniqueId, assetDescription) => {
+        // Confirm before deletion
+        const confirmed = window.confirm(
+            `Remove "${assetDescription || 'this asset'}" from the import?\n\n` +
+            `This will remove it from the current session. It won't affect the original Excel file.`
+        );
+        if (!confirmed) return;
+
+        try {
+            await apiDelete(`/assets/${uniqueId}`);
+            // Remove from local state
+            setLocalAssets(prev => prev.filter(a => a.unique_id !== uniqueId));
+            // Also remove from approved set if it was approved
+            setApprovedIds(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(uniqueId);
+                return newSet;
+            });
+            // Refresh warnings and export status
+            fetchWarnings();
+            fetchExportStatusOnly();
+        } catch (error) {
+            console.error("Failed to remove asset:", error);
+            alert(`Failed to remove: ${error.message || 'Unknown error'}`);
+        }
+    };
+
     const handleApproveAllHighConfidence = async () => {
         try {
             // Get all high confidence asset IDs
@@ -901,7 +929,7 @@ function Review({ assets = [] }) {
                                             <span className="text-[9px] bg-blue-100 text-blue-700 px-1 rounded">179/Bonus</span>
                                         </span>
                                     </th>
-                                    <th className={cn(tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '60px' }}>Actions</th>
+                                    <th className={cn(tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '85px' }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1461,6 +1489,16 @@ function Review({ assets = [] }) {
                                                                 title="Edit"
                                                             >
                                                                 <Edit2 className={tableCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleRemove(asset.unique_id, asset.description)}
+                                                                className={cn(
+                                                                    "hover:bg-red-100 text-red-500 rounded",
+                                                                    tableCompact ? "p-1" : "p-1.5"
+                                                                )}
+                                                                title="Remove from import"
+                                                            >
+                                                                <Trash2 className={tableCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
                                                             </button>
                                                         </>
                                                     )}

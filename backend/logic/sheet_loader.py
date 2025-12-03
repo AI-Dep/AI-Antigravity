@@ -967,10 +967,44 @@ ROLLFORWARD_INDICATORS = [
 ACCOUNT_CODE_PATTERN = re.compile(r'^\s*[A-Za-z\s&]+\s+\d{5}(?:-\d{2})?\s*$')
 
 # Disposal JE format patterns
-# Matches: "Asset #51 - April 2024 - disposed of B27 Grinding Wheel"
+# Format 1 (newer): "Asset #51 - April 2024 - disposed of B27 Grinding Wheel"
 # Also: "1. Asset #51 - April 2024 - disposed of..." (with numbering prefix)
 DISPOSAL_JE_HEADER_PATTERN = re.compile(
     r'Asset\s*#?\s*(\d+)\s*[-–]\s*(\w+\s+\d{4})\s*[-–]\s*(.+)',
+    re.IGNORECASE
+)
+# Format 2 (older): "Aug 2019 - Disposed asset #350 KLUS0061 Criss HLNYX52"
+# Date first, then "Disposed asset #XXX", then description
+DISPOSAL_JE_HEADER_PATTERN_ALT = re.compile(
+    r'(\w+\s+\d{4})\s*[-–]\s*(?:Disposed?(?:\s+of)?)\s+asset\s*#?\s*(\d+(?:,\s*\d+)*)\s*[-–]?\s*(.+)?',
+    re.IGNORECASE
+)
+# Format 3: "Jan 2020 - Disposed of asset #'s 50, 52 and 66; Grinding Wheels..."
+# For multiple assets disposed at once
+DISPOSAL_JE_HEADER_PATTERN_MULTI = re.compile(
+    r'(\w+\s+\d{4})\s*[-–]\s*(?:Disposed?(?:\s+of)?)\s+asset\s*#[\'\"]?s?\s*([\d,\s;and]+)\s*[-–;]?\s*(.+)?',
+    re.IGNORECASE
+)
+# Format 4: "Asset #164 KLSUS0009 Sullivan 3V7GWW1" (asset ID at start, description follows)
+# More permissive pattern that captures everything after the asset number
+# Description extraction happens post-match to strip trailing dates/numbers
+DISPOSAL_JE_HEADER_SIMPLE = re.compile(
+    r'(?:^\s*\d+\.\s*)?Asset\s*#(\d+)\s+([A-Za-z][^\d]*[A-Za-z0-9\s\-()]*)',
+    re.IGNORECASE
+)
+# Format 5: Batch header - "Disposed misc computers on 5/19/2017" or "Disposed ... on MM/DD/YYYY"
+DISPOSAL_BATCH_HEADER_PATTERN = re.compile(
+    r'(?:Disposed?(?:\s+of)?)\s+(.+?)\s+(?:on\s+)?(\d{1,2}[/.]\d{1,2}[/.]\d{2,4})',
+    re.IGNORECASE
+)
+# Format 6: "Asset #313/#335 Cisco Router" (multiple assets with / separator)
+DISPOSAL_JE_MULTI_SLASH = re.compile(
+    r'Asset\s*#([\d/]+)\s+(.+)',
+    re.IGNORECASE
+)
+# Simple Asset # pattern for extracting asset numbers from any format
+ASSET_NUM_EXTRACT = re.compile(
+    r'Asset\s*#(\d+)',
     re.IGNORECASE
 )
 # Matches month year: "April 2024", "Mar 2025"
@@ -1153,11 +1187,10 @@ def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[st
     """
     Parse disposal sheet in Journal Entry format.
 
-    Extracts disposal information from JE entries like:
-        1. Asset #51 - April 2024 - disposed of B27 Grinding Wheel E0423
-           JE # 16133
-           A/D     6,080.33    15059-00
-           Asset   6,080.33    15050-00
+    Supports multiple formats:
+        Format 1 (newer): Asset #51 - April 2024 - disposed of B27 Grinding Wheel
+        Format 2 (older): Aug 2019 - Disposed asset #350 KLUS0061 Criss HLNYX52
+        Format 3 (multi): Jan 2020 - Disposed of asset #'s 50, 52 and 66; Grinding Wheels
 
     Returns:
         List of disposal records with keys: asset_id, description, disposal_date, cost, accum_dep, proceeds
@@ -1168,6 +1201,48 @@ def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[st
         return disposals
 
     current_disposal = None
+    pending_disposals = []  # For multi-asset entries, track all until we get cost/A/D
+    batch_context = None  # For batch disposal headers like "Disposed misc computers on 5/19/2017"
+
+    def _parse_date(date_str: str):
+        """Parse month/year to date."""
+        month_match = MONTH_YEAR_PATTERN.search(date_str)
+        if month_match:
+            month_str = month_match.group(1)
+            year_str = month_match.group(2)
+            try:
+                return pd.to_datetime(f"{month_str} 1, {year_str}")
+            except Exception:
+                pass
+        return None
+
+    def _extract_proceeds(text: str):
+        """Extract proceeds from narrative text."""
+        proceeds_match = PROCEEDS_IN_NARRATIVE_PATTERN.search(text)
+        if proceeds_match:
+            try:
+                return float(proceeds_match.group(1).replace(',', ''))
+            except ValueError:
+                pass
+        return None
+
+    def _create_disposal(asset_num: str, date_str: str, description: str, row_text: str):
+        """Create a disposal record dict."""
+        # Clean up description
+        description = re.sub(
+            r'^(disposed?\s*(?:of)?|sold\s+to|transferred)\s*',
+            '', description or '', flags=re.IGNORECASE
+        ).strip()
+
+        return {
+            'asset_id': f"#{asset_num}",
+            'description': description,
+            'disposal_date': _parse_date(date_str),
+            'cost': None,
+            'accum_dep': None,
+            'proceeds': _extract_proceeds(row_text),
+            'source_sheet': sheet_name,
+        }
 
     for i in range(len(df)):
         row_text = ""
@@ -1178,50 +1253,180 @@ def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[st
 
         row_text = row_text.strip()
 
-        # Check for disposal header: "Asset #51 - April 2024 - disposed of..."
-        # Also match: "1. Asset #51 - April 2024 - disposed of..."
+        # Try Format 1 (newer): "Asset #51 - April 2024 - disposed of..."
         header_match = DISPOSAL_JE_HEADER_PATTERN.search(row_text)
         if header_match:
-            # Save previous disposal if exists
+            # Save previous disposal(s)
             if current_disposal and current_disposal.get('description'):
                 disposals.append(current_disposal)
+            for disp in pending_disposals:
+                if disp.get('description'):
+                    disposals.append(disp)
+            pending_disposals = []
 
             asset_num = header_match.group(1)
             date_str = header_match.group(2)
             description = header_match.group(3).strip()
 
-            # Clean up description - remove "disposed of", "sold to", etc.
-            description = re.sub(r'^(disposed\s+of|sold\s+to|transferred)\s*', '', description, flags=re.IGNORECASE)
+            current_disposal = _create_disposal(asset_num, date_str, description, row_text)
+            continue
 
-            # Parse the month/year to a date
-            disposal_date = None
-            month_match = MONTH_YEAR_PATTERN.search(date_str)
-            if month_match:
-                month_str = month_match.group(1)
-                year_str = month_match.group(2)
-                try:
-                    disposal_date = pd.to_datetime(f"{month_str} 1, {year_str}")
-                except Exception:
-                    pass
+        # Try Format 2 (older): "Aug 2019 - Disposed asset #350 description"
+        alt_match = DISPOSAL_JE_HEADER_PATTERN_ALT.search(row_text)
+        if alt_match:
+            # Save previous disposal(s)
+            if current_disposal and current_disposal.get('description'):
+                disposals.append(current_disposal)
+            for disp in pending_disposals:
+                if disp.get('description'):
+                    disposals.append(disp)
+            pending_disposals = []
 
-            # Check if proceeds are mentioned in the narrative (e.g., "invoiced AAM 8,414.00")
-            proceeds = None
-            proceeds_match = PROCEEDS_IN_NARRATIVE_PATTERN.search(row_text)
-            if proceeds_match:
+            date_str = alt_match.group(1)
+            asset_num = alt_match.group(2).strip()
+            description = (alt_match.group(3) or "").strip()
+
+            current_disposal = _create_disposal(asset_num, date_str, description, row_text)
+            continue
+
+        # Try Format 3 (multi): "Jan 2020 - Disposed of asset #'s 50, 52 and 66; description"
+        multi_match = DISPOSAL_JE_HEADER_PATTERN_MULTI.search(row_text)
+        if multi_match:
+            # Save previous disposal(s)
+            if current_disposal and current_disposal.get('description'):
+                disposals.append(current_disposal)
+            for disp in pending_disposals:
+                if disp.get('description'):
+                    disposals.append(disp)
+            pending_disposals = []
+
+            date_str = multi_match.group(1)
+            asset_nums_str = multi_match.group(2)
+            description = (multi_match.group(3) or "").strip()
+
+            # Parse multiple asset numbers (e.g., "50, 52 and 66")
+            asset_nums = re.findall(r'\d+', asset_nums_str)
+            for asset_num in asset_nums:
+                pending_disposals.append(
+                    _create_disposal(asset_num, date_str, description, row_text)
+                )
+            # Set current_disposal to the first one for cost/A/D assignment
+            if pending_disposals:
+                current_disposal = pending_disposals[0]
+            continue
+
+        # Try Format 5: Batch header "Disposed misc computers on 5/19/2017"
+        batch_match = DISPOSAL_BATCH_HEADER_PATTERN.search(row_text)
+        if batch_match:
+            # Save previous disposal(s)
+            if current_disposal and current_disposal.get('description'):
+                disposals.append(current_disposal)
+            for disp in pending_disposals:
+                if disp.get('description'):
+                    disposals.append(disp)
+            pending_disposals = []
+            current_disposal = None
+
+            batch_description = batch_match.group(1).strip()
+            date_str = batch_match.group(2)
+            # Parse MM/DD/YYYY date
+            try:
+                batch_date = pd.to_datetime(date_str)
+            except Exception:
+                batch_date = None
+
+            # Store batch context for subsequent Asset # lines
+            batch_context = {'description': batch_description, 'date': batch_date}
+            continue
+
+        # Try Format 6: Multi-asset with slash "Asset #313/#335 Cisco Router"
+        slash_match = DISPOSAL_JE_MULTI_SLASH.search(row_text)
+        if slash_match and '/' in slash_match.group(1):
+            asset_nums = slash_match.group(1).split('/')
+            description = slash_match.group(2).strip()
+            # Clean up description - remove trailing numbers (cost/depr)
+            description = re.sub(r'\s+[\d,.]+\s*$', '', description).strip()
+        else:
+            # Try Format 4: Simple "Asset #164 description"
+            simple_match = DISPOSAL_JE_HEADER_SIMPLE.search(row_text)
+            if simple_match:
+                asset_nums = [simple_match.group(1)]
+                description = simple_match.group(2).strip()
+                # Clean up description - remove trailing numbers and date fragments
+                description = re.sub(r'\s+\d{4}-\d{2}-\d{2}.*$', '', description).strip()
+                description = re.sub(r'\s+[\d,.]+\s*$', '', description).strip()
+            else:
+                # Neither pattern matched - skip this row
+                slash_match = None
+                simple_match = None
+
+        if slash_match or simple_match:
+
+            # Look for date in other columns (common in FY 2016-2017 format)
+            row_date = None
+            for j in range(len(df.columns)):
+                val = df.iloc[i, j]
+                if pd.notna(val):
+                    # Check if it's already a datetime object
+                    import datetime
+                    if isinstance(val, (datetime.datetime, pd.Timestamp)):
+                        row_date = val
+                        break
+                    # Check for datetime-like strings
+                    val_str = str(val).strip()
+                    if re.match(r'\d{4}-\d{2}-\d{2}', val_str) or re.match(r'\d{1,2}/\d{1,2}/\d{2,4}', val_str):
+                        try:
+                            row_date = pd.to_datetime(val)
+                            break
+                        except Exception:
+                            pass
+
+            # Look for cost/depr values in same row (FY 2017-2018 format)
+            row_cost = None
+            row_depr = None
+            numbers_in_row = re.findall(r'[\d,]+\.?\d*', row_text)
+            # Filter out asset numbers from the numbers list
+            numeric_values = []
+            for n in numbers_in_row:
                 try:
-                    proceeds = float(proceeds_match.group(1).replace(',', ''))
+                    val = float(n.replace(',', ''))
+                    if val > 0 and str(int(val)) not in asset_nums:
+                        numeric_values.append(val)
                 except ValueError:
                     pass
 
-            current_disposal = {
-                'asset_id': f"#{asset_num}",
-                'description': description,
-                'disposal_date': disposal_date,
-                'cost': None,
-                'accum_dep': None,
-                'proceeds': proceeds,  # May be extracted from narrative
-                'source_sheet': sheet_name,
-            }
+            if len(numeric_values) >= 2:
+                row_cost = numeric_values[0]
+                row_depr = numeric_values[1]
+            elif len(numeric_values) == 1:
+                row_cost = numeric_values[0]
+                row_depr = numeric_values[0]  # Assume fully depreciated
+
+            # Use batch context date if available, otherwise row date
+            use_date = row_date
+            if batch_context and batch_context.get('date'):
+                use_date = batch_context['date']
+
+            # Create disposals for each asset number
+            for asset_num in asset_nums:
+                asset_num = asset_num.strip()
+                if asset_num:
+                    disp = {
+                        'asset_id': f"#{asset_num}",
+                        'description': description,
+                        'disposal_date': use_date,
+                        'cost': row_cost,
+                        'accum_dep': row_depr,
+                        'proceeds': _extract_proceeds(row_text),
+                        'source_sheet': sheet_name,
+                    }
+                    # Add to pending if we might get more info, otherwise add directly
+                    if row_cost is not None or row_depr is not None:
+                        disposals.append(disp)
+                    else:
+                        pending_disposals.append(disp)
+                        if not current_disposal:
+                            current_disposal = disp
             continue
 
         # If we have a current disposal, look for A/D, Asset, and Proceeds rows
@@ -1232,7 +1437,13 @@ def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[st
                 numbers = re.findall(r'[\d,]+\.?\d*', row_text)
                 if numbers:
                     try:
-                        current_disposal['accum_dep'] = float(numbers[0].replace(',', ''))
+                        accum_dep = float(numbers[0].replace(',', ''))
+                        current_disposal['accum_dep'] = accum_dep
+                        # Apply to all pending disposals (multi-asset case)
+                        # Note: In multi-asset, the A/D is often a total; we can't split it
+                        for disp in pending_disposals:
+                            if disp.get('accum_dep') is None:
+                                disp['accum_dep'] = accum_dep  # Same for all (placeholder)
                     except ValueError:
                         pass
 
@@ -1241,7 +1452,12 @@ def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[st
                 numbers = re.findall(r'[\d,]+\.?\d*', row_text)
                 if numbers:
                     try:
-                        current_disposal['cost'] = float(numbers[0].replace(',', ''))
+                        cost = float(numbers[0].replace(',', ''))
+                        current_disposal['cost'] = cost
+                        # Apply to all pending disposals
+                        for disp in pending_disposals:
+                            if disp.get('cost') is None:
+                                disp['cost'] = cost  # Same for all (placeholder)
                     except ValueError:
                         pass
 
@@ -1250,7 +1466,11 @@ def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[st
                 numbers = re.findall(r'[\d,]+\.?\d*', row_text)
                 if numbers:
                     try:
-                        current_disposal['proceeds'] = float(numbers[0].replace(',', ''))
+                        proceeds = float(numbers[0].replace(',', ''))
+                        current_disposal['proceeds'] = proceeds
+                        for disp in pending_disposals:
+                            if disp.get('proceeds') is None:
+                                disp['proceeds'] = proceeds
                     except ValueError:
                         pass
 
@@ -1259,13 +1479,20 @@ def _parse_disposal_je_format(df: pd.DataFrame, sheet_name: str) -> List[Dict[st
                 numbers = re.findall(r'[\d,]+\.?\d*', row_text)
                 if numbers:
                     try:
-                        current_disposal['proceeds'] = float(numbers[-1].replace(',', ''))  # Usually last number
+                        proceeds = float(numbers[-1].replace(',', ''))  # Usually last number
+                        current_disposal['proceeds'] = proceeds
+                        for disp in pending_disposals:
+                            if disp.get('proceeds') is None:
+                                disp['proceeds'] = proceeds
                     except ValueError:
                         pass
 
-    # Don't forget the last disposal
+    # Don't forget the last disposal(s)
     if current_disposal and current_disposal.get('description'):
         disposals.append(current_disposal)
+    for disp in pending_disposals:
+        if disp.get('description') and disp not in disposals:
+            disposals.append(disp)
 
     logger.info(f"[{sheet_name}] Parsed {len(disposals)} disposals from JE format")
     return disposals
@@ -1700,7 +1927,7 @@ def _is_accounting_adjustment_row(desc: str) -> bool:
     return False
 
 
-def _is_budget_or_planning_row(desc: str, asset_id: str = "") -> bool:
+def _is_budget_or_planning_row(desc: str, asset_id: str = "", cost: float = None) -> bool:
     """
     Check if a row is a budget/planning entry that should not be imported.
 
@@ -1711,10 +1938,12 @@ def _is_budget_or_planning_row(desc: str, asset_id: str = "") -> bool:
         - "Budget" with "Office space" → Future plan, not actual asset
         - "Forecast - New equipment 2026"
         - "Pending - Warehouse expansion"
+        - No Asset ID + "Office space" + $200,000 → Planning row, not real asset
 
     Args:
         desc: Description text
         asset_id: Asset ID/number (might contain "Budget", "TBD", etc.)
+        cost: Optional cost value for detecting suspicious round amounts
 
     Returns:
         True if this appears to be a budget/planning row
@@ -1747,6 +1976,56 @@ def _is_budget_or_planning_row(desc: str, asset_id: str = "") -> bool:
             if keyword in words:
                 logger.debug(f"Skipping budget/planning row (keyword in short desc): {desc}")
                 return True
+
+    # =========================================================================
+    # ENHANCED CHECK: Missing Asset ID + generic description = likely planning
+    # =========================================================================
+    # If there's NO asset ID, check for vague/generic descriptions that suggest
+    # this is a placeholder or planning item, not an actual acquired asset.
+    #
+    # Real assets typically have: specific vendor, model, serial number, etc.
+    # Planning items are vague: "Office space", "Equipment", "Building"
+    #
+    no_asset_id = not asset_id_lower or asset_id_lower in ('none', 'nan', '', 'null')
+
+    if no_asset_id:
+        # Generic planning descriptions (no specific details = likely not real)
+        generic_planning_descriptions = [
+            "office space", "office expansion", "new office",
+            "building", "new building", "facility",
+            "equipment", "new equipment", "additional equipment",
+            "furniture", "new furniture",
+            "warehouse", "warehouse expansion",
+            "renovation", "remodel", "improvements",
+            "expansion", "upgrade", "upgrades",
+            "capital project", "capex", "cap ex",
+        ]
+
+        for pattern in generic_planning_descriptions:
+            if pattern in desc_lower:
+                logger.debug(f"Skipping planning row (no Asset ID + generic desc): {desc}")
+                return True
+
+        # Very short description (<=2 words) with no Asset ID is suspicious
+        if len(words) <= 2 and len(desc_lower) < 20:
+            logger.debug(f"Skipping suspicious row (no Asset ID + very short desc): {desc}")
+            return True
+
+        # Check for suspiciously round amounts (planning placeholders)
+        # e.g., $200,000, $500,000, $1,000,000 - these are usually estimates
+        if cost is not None:
+            try:
+                cost_val = float(cost)
+                # Round to nearest 10,000 and check if it matches exactly
+                if cost_val >= 50000 and cost_val % 10000 == 0:
+                    logger.debug(f"Skipping planning row (no Asset ID + round amount ${cost_val:,.0f}): {desc}")
+                    return True
+                # Also check for exact round amounts like $25,000, $75,000
+                if cost_val >= 25000 and cost_val % 25000 == 0:
+                    logger.debug(f"Skipping planning row (no Asset ID + round amount ${cost_val:,.0f}): {desc}")
+                    return True
+            except (ValueError, TypeError):
+                pass
 
     return False
 
@@ -1935,9 +2214,17 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
     if _is_accounting_adjustment_row(desc_raw):
         return None
 
-    # Skip budget/planning rows (e.g., "Budget" + "Office space")
+    # Cost - parse early so we can use it for budget detection and validation
+    cost = None
+    if col_map.get("cost"):
+        try:
+            cost = parse_number(row[col_map["cost"]])
+        except (ValueError, TypeError, KeyError) as e:
+            logger.debug(f"Error parsing cost: {e}")
+
+    # Skip budget/planning rows (e.g., "Office space" with no Asset ID + round amount)
     # These are future plans, not actual acquired assets
-    if _is_budget_or_planning_row(desc_raw, asset_id):
+    if _is_budget_or_planning_row(desc_raw, asset_id, cost):
         return None
 
     # Fix typos in description
@@ -1949,14 +2236,6 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
         cat_raw = row.get(col_map["category"], "")
         if pd.notna(cat_raw):
             category = typo_engine.correct_category(str(cat_raw))
-
-    # Cost - parse early so we can use it for description validation
-    cost = None
-    if col_map.get("cost"):
-        try:
-            cost = parse_number(row[col_map["cost"]])
-        except (ValueError, TypeError, KeyError) as e:
-            logger.debug(f"Error parsing cost: {e}")
 
     # QUALITY CHECK: Validate description is meaningful
     # This catches vague descriptions, placeholders, and non-asset rows
