@@ -22,7 +22,7 @@ function Review({ assets = [] }) {
     const [taxYear, setTaxYear] = useState(new Date().getFullYear());
     const [taxYearLoading, setTaxYearLoading] = useState(false); // Loading state for tax year change
     const [tableCompact, setTableCompact] = useState(false); // Table density: false = comfortable, true = compact
-    const [showTechnicalCols, setShowTechnicalCols] = useState(false); // Asset ID, FA CS #
+    const [showTechnicalCols, setShowTechnicalCols] = useState(true); // Asset ID, FA CS # - shown by default
     const [showMacrsCols, setShowMacrsCols] = useState(true); // Class, Life, Method, Election
     const [exportStatus, setExportStatus] = useState({ ready: false, reason: null }); // Track export readiness
     const [compatibilityCheck, setCompatibilityCheck] = useState(null); // FA CS compatibility check results

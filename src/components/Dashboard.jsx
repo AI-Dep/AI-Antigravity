@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../co
 import {
     Activity, FileText, CheckCircle, AlertCircle, RefreshCw, Monitor, MonitorOff,
     TrendingUp, Scale, Brain, ChevronDown, ChevronUp, Cpu, Database, Loader2,
-    Clock, Zap, Copy
+    Clock, Zap, Copy, Trash2
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
@@ -87,6 +87,22 @@ function Dashboard() {
             setSystemStatus("Backend Online (Confirm FA CS)");
         } catch (error) {
             console.error("Failed to disconnect FA CS");
+        }
+    };
+
+    const clearSession = async () => {
+        if (!window.confirm("Clear all data and start a new session?")) return;
+        try {
+            await apiPost('/session/clear');
+            if (!mountedRef.current) return;
+            // Reset all state
+            setStats({ total: 0, errors: 0, needs_review: 0, high_confidence: 0, approved: 0, ready_for_export: false });
+            setSessionMetrics({ import_duration_ms: 0, total_assets_imported: 0, high_confidence_count: 0, assets_needing_review: 0, file_name: null });
+            setQuality({ grade: '-', score: 0, checks: [], cross_sheet_duplicates: [] });
+            setRollforward({ is_balanced: true, expected_ending: 0 });
+            setProjection({ years: [], depreciation: [], current_year: 0 });
+        } catch (error) {
+            console.error("Failed to clear session:", error);
         }
     };
 
@@ -641,6 +657,20 @@ function Dashboard() {
                                 }
                             </p>
                         </div>
+                        {stats.total > 0 && (
+                            <div
+                                className="p-4 border border-red-200 rounded-lg hover:bg-red-50 cursor-pointer transition-colors"
+                                onClick={clearSession}
+                            >
+                                <p className="font-medium text-red-600 flex items-center gap-2">
+                                    <Trash2 className="w-4 h-4" />
+                                    New Session
+                                </p>
+                                <p className="text-sm text-muted-foreground">
+                                    Clear all data and start fresh
+                                </p>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
 
