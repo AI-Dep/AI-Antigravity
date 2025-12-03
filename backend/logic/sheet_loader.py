@@ -3146,6 +3146,12 @@ def build_unified_dataframe(
             logger.info(f"[{sheet_name}] Header detected at row {header_idx}, {len(df)} data rows")
             logger.info(f"[{sheet_name}] Columns found: {list(df.columns)[:8]}")
 
+            # Trace logging for F&F - show exact Excel row range
+            if sheet_name.lower() in ['f&f', 'f & f', 'furniture', 'furniture & fixtures']:
+                first_excel_row = header_idx + 2  # +1 for 1-indexed, +1 to skip header
+                last_excel_row = header_idx + len(df) + 1  # last data row
+                logger.info(f"[TRACE {sheet_name}] DataFrame spans Excel rows {first_excel_row} to {last_excel_row}")
+
             # STEP 3: Map columns with validation (using client mappings and sheet role)
             col_map, column_mappings, warnings_list = _map_columns_with_validation(
                 df, sheet_name,
