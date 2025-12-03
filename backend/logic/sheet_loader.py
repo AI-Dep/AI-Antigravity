@@ -1476,7 +1476,7 @@ def _detect_transaction_type(
 
 def _is_header_repetition(desc: str) -> bool:
     """
-    Check if a description value is actually a repeated header
+    Check if a description value is actually a repeated header or category label
 
     Args:
         desc: Description string to check
@@ -1484,11 +1484,76 @@ def _is_header_repetition(desc: str) -> bool:
     Returns:
         True if this appears to be a header row that slipped through
     """
-    desc_lower = desc.lower()
-    header_keywords = ["description", "asset description", "property", "item", "equipment"]
+    desc_lower = desc.lower().strip()
+
+    # Header column names
+    header_keywords = [
+        "description", "asset description", "property", "item",
+        "equipment", "asset id", "asset #", "asset no"
+    ]
 
     if any(keyword in desc_lower for keyword in header_keywords):
         if len(desc) < HEADER_REPETITION_MAX_LENGTH:
+            return True
+
+    return False
+
+
+# Category labels and sheet names that are NOT actual asset descriptions
+# These often appear when column mapping goes wrong or data is misaligned
+CATEGORY_LABEL_PATTERNS = [
+    # Single-word category labels (exact match)
+    r'^assets?$',           # "Asset" or "Assets"
+    r'^vehicles?$',         # "Vehicle" or "Vehicles"
+    r'^furniture$',         # "Furniture"
+    r'^tooling$',           # "Tooling"
+    r'^buildings?$',        # "Building" or "Buildings"
+    r'^land$',              # "Land"
+    r'^equipment$',         # "Equipment"
+    r'^software$',          # "Software"
+    r'^improvements?$',     # "Improvement" or "Improvements"
+    r'^disposals?$',        # "Disposal" or "Disposals"
+    r'^transfers?$',        # "Transfer" or "Transfers"
+    r'^additions?$',        # "Addition" or "Additions"
+
+    # Fiscal year / period labels
+    r'^fy\s*\d{2,4}',       # "FY 2024", "FY2024", "FY 24"
+    r'^cy\s*\d{2,4}',       # "CY 2024", "CY2024"
+    r'^\d{4}\s*-?\s*\d{4}$', # "2024-2025", "2024 2025"
+    r'^q[1-4]\s*\d{2,4}',   # "Q1 2024", "Q4 24"
+
+    # Common category combinations (short phrases)
+    r'^office\s*&?\s*computer',    # "Office & Computer"
+    r'^plant\s*equip',             # "Plant Equip"
+    r'^f\s*&\s*f$',                # "F&F" (Furniture & Fixtures)
+    r'^lh\s*improv',               # "LH Improvement"
+    r'^office\s*equip',            # "Office Equip"
+    r'^comp\s*equip',              # "Comp Equip"
+]
+
+
+def _is_category_label(desc: str) -> bool:
+    """
+    Check if a description is actually a category label or sheet name.
+
+    These appear when column mapping goes wrong or when category headers
+    are misidentified as asset descriptions.
+
+    Args:
+        desc: Description string to check
+
+    Returns:
+        True if this is a category label, not an asset description
+    """
+    if not desc:
+        return False
+
+    desc_lower = desc.lower().strip()
+
+    # Check against category label patterns
+    for pattern in CATEGORY_LABEL_PATTERNS:
+        if re.match(pattern, desc_lower):
+            logger.debug(f"Skipping category label: {desc}")
             return True
 
     return False
@@ -1503,6 +1568,187 @@ TOTALS_ROW_KEYWORDS = [
     "ending balance", "beginning balance",
     "summary", "totals", "accumulated"
 ]
+
+# Accounting adjustment row patterns - these are NOT actual fixed assets
+# They are journal entry descriptions or period adjustments
+ACCOUNTING_ADJUSTMENT_KEYWORDS = [
+    "bal",      # Balance (e.g., "April bal", "Beginning bal")
+    "depr",     # Depreciation entry (e.g., "April depr", "Monthly depr")
+    "adj",      # Adjustment (e.g., "May adj", "Year-end adj")
+    "je",       # Journal entry
+    "entry",    # Entry
+    "accrual",  # Accrual
+    "reversal", # Reversal
+    "reclass",  # Reclassification
+    "true-up",  # True-up
+    "trueup",   # True-up (no hyphen)
+    "correction", # Correction
+    "reconcile",  # Reconciliation entry
+    "reconciliation",
+]
+
+# Month names for detecting patterns like "April bal", "May adj"
+MONTH_NAMES = [
+    "jan", "january", "feb", "february", "mar", "march",
+    "apr", "april", "may", "jun", "june",
+    "jul", "july", "aug", "august", "sep", "september",
+    "oct", "october", "nov", "november", "dec", "december",
+    "q1", "q2", "q3", "q4",  # Quarters
+    "fy", "cy",  # Fiscal year, Calendar year
+]
+
+
+def _is_accounting_adjustment_row(desc: str) -> bool:
+    """
+    Check if a row is an accounting adjustment that should not be classified.
+
+    These are journal entry descriptions like "April bal", "May depr", "Q4 adj"
+    that appear in fixed asset schedules but are NOT actual fixed assets.
+
+    Args:
+        desc: Description text
+
+    Returns:
+        True if this appears to be an accounting adjustment row
+    """
+    if not desc:
+        return False
+
+    desc_lower = desc.lower().strip()
+    words = desc_lower.split()
+
+    # Very short descriptions (1-3 words) with accounting keywords are likely adjustments
+    if len(words) <= 3:
+        for keyword in ACCOUNTING_ADJUSTMENT_KEYWORDS:
+            if keyword in desc_lower:
+                logger.debug(f"Skipping accounting adjustment row: {desc}")
+                return True
+
+    # Pattern: Month + accounting keyword (e.g., "April bal", "May depr")
+    if len(words) >= 2:
+        first_word = words[0]
+        for month in MONTH_NAMES:
+            if first_word == month or first_word.startswith(month):
+                # Check if remaining words contain accounting keywords
+                remaining = " ".join(words[1:])
+                for keyword in ACCOUNTING_ADJUSTMENT_KEYWORDS:
+                    if keyword in remaining:
+                        logger.debug(f"Skipping month adjustment row: {desc}")
+                        return True
+
+    # Pattern: Just "bal", "depr", "adj" with no other meaningful content
+    if len(words) <= 2 and any(w in ACCOUNTING_ADJUSTMENT_KEYWORDS for w in words):
+        logger.debug(f"Skipping pure accounting keyword row: {desc}")
+        return True
+
+    return False
+
+
+# Minimum requirements for a valid asset description
+MIN_DESCRIPTION_LENGTH = 3  # At least 3 characters
+MIN_DESCRIPTION_WORDS = 1   # At least 1 word with letters
+
+# Descriptions that are clearly NOT assets - just labels or placeholders
+INVALID_DESCRIPTION_PATTERNS = [
+    r'^none$',              # Just "None"
+    r'^n/?a$',              # "N/A" or "NA"
+    r'^-+$',                # Just dashes
+    r'^\d+$',               # Just numbers
+    r'^[#\.\,\s]+$',        # Just punctuation/spaces
+    r'^tbd$',               # "TBD"
+    r'^unknown$',           # "Unknown"
+    r'^see\s',              # "See attached", "See below"
+    r'^refer\s',            # "Refer to..."
+    r'^per\s',              # "Per client", "Per schedule"
+    r'^various$',           # "Various"
+    r'^misc\.?$',           # "Misc" or "Misc."
+    r'^other$',             # "Other"
+    r'^same\s',             # "Same as above"
+    r'^\(\d+\)$',           # Just "(1)" or "(123)"
+    r'^item\s*#?\d*$',      # "Item", "Item 1", "Item #5"
+]
+
+
+def _is_valid_asset_description(desc: str, cost: Optional[float] = None) -> Tuple[bool, str]:
+    """
+    Check if a description represents a valid fixed asset.
+
+    A valid asset description should:
+    1. Be at least MIN_DESCRIPTION_LENGTH characters
+    2. Contain at least one meaningful word (not just numbers/symbols)
+    3. Not match known invalid patterns (None, N/A, TBD, etc.)
+    4. For $0 cost items, require more meaningful descriptions
+
+    Args:
+        desc: Description text
+        cost: Optional cost value (for stricter validation on $0 items)
+
+    Returns:
+        Tuple of (is_valid, reason_if_invalid)
+    """
+    if not desc:
+        return False, "Empty description"
+
+    desc_clean = desc.strip()
+    desc_lower = desc_clean.lower()
+
+    # Check minimum length
+    if len(desc_clean) < MIN_DESCRIPTION_LENGTH:
+        return False, f"Description too short ({len(desc_clean)} chars)"
+
+    # Check for invalid patterns
+    for pattern in INVALID_DESCRIPTION_PATTERNS:
+        if re.match(pattern, desc_lower):
+            return False, f"Invalid pattern: {desc_clean}"
+
+    # Must contain at least one letter (not just numbers/symbols)
+    if not re.search(r'[a-zA-Z]', desc_clean):
+        return False, "No letters in description"
+
+    # Count meaningful words (words with letters, not just numbers)
+    words = [w for w in desc_clean.split() if re.search(r'[a-zA-Z]', w)]
+    if len(words) < MIN_DESCRIPTION_WORDS:
+        return False, f"No meaningful words in: {desc_clean}"
+
+    # For $0 cost items, require more substance (at least 2 words or 8 chars)
+    # $0 items with vague descriptions are likely placeholders
+    if cost is not None and cost == 0:
+        if len(words) < 2 and len(desc_clean) < 8:
+            return False, f"$0 cost with vague description: {desc_clean}"
+
+    return True, ""
+
+
+def _is_placeholder_row(desc: str, cost: Optional[float], asset_id: str) -> bool:
+    """
+    Check if a row is a placeholder that should be skipped.
+
+    Placeholder rows are often:
+    - $0 cost with no real description
+    - Rows with just numbers or short codes
+    - Empty rows that somehow passed earlier filters
+
+    Args:
+        desc: Description text
+        cost: Cost value
+        asset_id: Asset ID/number
+
+    Returns:
+        True if this appears to be a placeholder row
+    """
+    # $0 cost with very short/vague description
+    if cost is not None and cost == 0:
+        desc_clean = (desc or "").strip()
+        # Skip if description is very short or just numbers
+        if len(desc_clean) < 5:
+            logger.debug(f"Skipping $0 placeholder: '{desc_clean}'")
+            return True
+        # Skip if description is just a number or code
+        if re.match(r'^[\d\-\.]+$', desc_clean):
+            logger.debug(f"Skipping $0 numeric placeholder: '{desc_clean}'")
+            return True
+
+    return False
 
 
 def _is_totals_row(desc: str, asset_id: str = "") -> bool:
@@ -1568,8 +1814,18 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
         logger.debug(f"Skipping header repetition: {desc_raw}")
         return None
 
+    # Skip category labels (e.g., "Assets", "Vehicles", "FY 2024")
+    # These are sheet names or category headers, not actual asset descriptions
+    if _is_category_label(desc_raw):
+        return None
+
     # Skip totals/summary rows (not actual asset data)
     if _is_totals_row(desc_raw, asset_id):
+        return None
+
+    # Skip accounting adjustment rows (e.g., "April bal", "May depr", "Q4 adj")
+    # These are journal entries, not actual fixed assets
+    if _is_accounting_adjustment_row(desc_raw):
         return None
 
     # Fix typos in description
@@ -1582,13 +1838,29 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
         if pd.notna(cat_raw):
             category = typo_engine.correct_category(str(cat_raw))
 
-    # Cost
+    # Cost - parse early so we can use it for description validation
     cost = None
     if col_map.get("cost"):
         try:
             cost = parse_number(row[col_map["cost"]])
         except (ValueError, TypeError, KeyError) as e:
             logger.debug(f"Error parsing cost: {e}")
+
+    # QUALITY CHECK: Validate description is meaningful
+    # This catches vague descriptions, placeholders, and non-asset rows
+    is_valid, invalid_reason = _is_valid_asset_description(description, cost)
+    if not is_valid:
+        logger.debug(f"Skipping invalid description: {invalid_reason}")
+        return None
+
+    # QUALITY CHECK: Skip placeholder rows ($0 cost with minimal description)
+    if _is_placeholder_row(description, cost, asset_id):
+        return None
+
+    # QUALITY CHECK: Skip negative cost items (these are credits/adjustments, not assets)
+    if cost is not None and cost < 0:
+        logger.debug(f"Skipping negative cost row: {description} (${cost})")
+        return None
 
     # Dates
     acq_date = None
