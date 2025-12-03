@@ -261,10 +261,9 @@ def _detect_fiscal_year_from_headers(df: pd.DataFrame, tab_name: str = "") -> Tu
     Detect fiscal year START MONTH from column headers in rollforward schedules.
 
     Looks for patterns like:
-    - "Beg Balance 4/1/2024" -> April start (month 4)
-    - "Beginning Balance 4/1/2024" -> April start
+    - "Beg Balance 4/1/2024" in same cell -> April start (month 4)
+    - Header "Beg Balance" with "4/1/2024" in cell below -> April start
     - "End Balance 3/31/2025" -> March end (confirms Apr-Mar FY)
-    - Column header dates that indicate fiscal year boundaries
 
     Args:
         df: DataFrame to analyze (first few rows contain headers)
@@ -278,22 +277,17 @@ def _detect_fiscal_year_from_headers(df: pd.DataFrame, tab_name: str = "") -> Tu
     if df is None or df.empty:
         return None, None
 
-    # Patterns for detecting fiscal year boundary dates
-    # Looking for "Beg Balance 4/1/2024" or "Beginning Balance 4/1/2024" etc.
-    beg_balance_pattern = r'(?:beg(?:inning)?\.?\s*(?:bal(?:ance)?\.?)?|opening)\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})'
-    end_balance_pattern = r'(?:end(?:ing)?\.?\s*(?:bal(?:ance)?\.?)?|closing)\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})'
-
-    # Also look for standalone dates in headers like "4/1/2024" near "Beg" text
+    # Date pattern to find standalone dates
     date_pattern = r'(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})'
 
     detected_start_month = None
-    detected_end_month = None
     source = None
 
-    # Check first 10 rows for header information
-    rows_to_check = min(10, len(df))
+    # Check first 15 rows for header information
+    rows_to_check = min(15, len(df))
 
-    for row_idx in range(rows_to_check):
+    # Strategy 1: Look for header row with "Beg Balance" and date row below
+    for row_idx in range(rows_to_check - 1):  # -1 to allow checking row below
         row = df.iloc[row_idx]
         for col_idx, cell in enumerate(row):
             if cell is None or pd.isna(cell):
@@ -301,55 +295,70 @@ def _detect_fiscal_year_from_headers(df: pd.DataFrame, tab_name: str = "") -> Tu
 
             cell_str = str(cell).lower().strip()
 
-            # Look for "Beg Balance 4/1/2024" pattern
-            beg_match = re.search(beg_balance_pattern, cell_str)
-            if beg_match:
-                month = int(beg_match.group(1))
-                day = int(beg_match.group(2))
-                year = int(beg_match.group(3))
+            # Check if this cell is a "Beg Balance" header (without date)
+            if any(x in cell_str for x in ['beg bal', 'beg. bal', 'beginning bal', 'beg balance', 'beginning balance']):
+                # Look at the cell BELOW for a date
+                if row_idx + 1 < len(df):
+                    below_cell = df.iloc[row_idx + 1, col_idx] if col_idx < len(df.columns) else None
+                    if below_cell is not None and not pd.isna(below_cell):
+                        below_str = str(below_cell).strip()
+                        date_match = re.search(date_pattern, below_str)
+                        if date_match:
+                            month = int(date_match.group(1))
+                            day = int(date_match.group(2))
+                            year = int(date_match.group(3))
+                            if year < 100:
+                                year += 2000
+
+                            # Beginning balance on 1st of month = fiscal year start
+                            if day == 1 and 1 <= month <= 12:
+                                detected_start_month = month
+                                source = f"'{tab_name}' header row: 'Beg Balance' with date {month}/1/{year} below"
+                                logger.info(f"[FY Detection] Found start month {month} from header+date pattern: {cell_str} -> {below_str}")
+                                break
+
+            # Check if this cell is an "End Balance" header (without date)
+            if any(x in cell_str for x in ['end bal', 'end. bal', 'ending bal', 'end balance', 'ending balance']):
+                # Look at the cell BELOW for a date
+                if row_idx + 1 < len(df):
+                    below_cell = df.iloc[row_idx + 1, col_idx] if col_idx < len(df.columns) else None
+                    if below_cell is not None and not pd.isna(below_cell):
+                        below_str = str(below_cell).strip()
+                        date_match = re.search(date_pattern, below_str)
+                        if date_match:
+                            month = int(date_match.group(1))
+                            day = int(date_match.group(2))
+                            year = int(date_match.group(3))
+                            if year < 100:
+                                year += 2000
+
+                            # End of fiscal year - infer start month
+                            # End 3/31 -> start month is 4 (April)
+                            # End 12/31 -> start month is 1 (January/calendar)
+                            # End 6/30 -> start month is 7 (July)
+                            # End 9/30 -> start month is 10 (October)
+                            if not detected_start_month:
+                                inferred_start = (month % 12) + 1
+                                detected_start_month = inferred_start
+                                source = f"'{tab_name}' header row: 'End Balance' with date {month}/{day}/{year} below -> start month {inferred_start}"
+                                logger.info(f"[FY Detection] Inferred start month {inferred_start} from end balance: {cell_str} -> {below_str}")
+
+            # Strategy 2: Look for "Beg Balance 4/1/2024" pattern in same cell
+            beg_with_date = re.search(r'(?:beg(?:inning)?\.?\s*(?:bal(?:ance)?\.?)?|opening)\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})', cell_str)
+            if beg_with_date and not detected_start_month:
+                month = int(beg_with_date.group(1))
+                day = int(beg_with_date.group(2))
+                year = int(beg_with_date.group(3))
                 if year < 100:
                     year += 2000
 
-                # Beginning balance on 1st of month = fiscal year start
                 if day == 1 and 1 <= month <= 12:
                     detected_start_month = month
-                    source = f"'{tab_name}' header: Beg Balance {month}/1/{year}"
-                    logger.info(f"[FY Detection] Found start month {month} from: {cell_str}")
+                    source = f"'{tab_name}' cell: Beg Balance {month}/1/{year}"
+                    logger.info(f"[FY Detection] Found start month {month} from combined cell: {cell_str}")
 
-            # Look for "End Balance 3/31/2025" pattern
-            end_match = re.search(end_balance_pattern, cell_str)
-            if end_match:
-                month = int(end_match.group(1))
-                day = int(end_match.group(2))
-                year = int(end_match.group(3))
-                if year < 100:
-                    year += 2000
-
-                detected_end_month = month
-                # End month can confirm fiscal year pattern
-                # End 3/31 -> start month is 4 (April)
-                # End 12/31 -> start month is 1 (January/calendar)
-                # End 6/30 -> start month is 7 (July)
-                # End 9/30 -> start month is 10 (October)
-                inferred_start = (month % 12) + 1  # Next month after end
-                if not detected_start_month:
-                    detected_start_month = inferred_start
-                    source = f"'{tab_name}' header: End Balance {month}/{day}/{year} -> inferred start month {inferred_start}"
-                    logger.info(f"[FY Detection] Inferred start month {inferred_start} from end date: {cell_str}")
-
-            # Also check for column headers that are just dates
-            # Look for pattern where adjacent cell says "Beg" or "Beginning"
-            if col_idx > 0:
-                prev_cell = row.iloc[col_idx - 1]
-                if prev_cell and str(prev_cell).lower().strip() in ['beg', 'beginning', 'beg balance', 'beginning balance', 'beg bal']:
-                    date_match = re.search(date_pattern, cell_str)
-                    if date_match:
-                        month = int(date_match.group(1))
-                        day = int(date_match.group(2))
-                        if day == 1 and 1 <= month <= 12:
-                            detected_start_month = month
-                            source = f"'{tab_name}' header: {prev_cell} column with date {cell_str}"
-                            logger.info(f"[FY Detection] Found start month {month} from adjacent cells: {prev_cell} | {cell_str}")
+        if detected_start_month:
+            break
 
     # Map detected start month to standard options (1, 4, 7, 10)
     if detected_start_month:

@@ -29,6 +29,7 @@ function Review({ assets = [] }) {
     const [showCompatDialog, setShowCompatDialog] = useState(false); // Show compatibility dialog
     const [depreciationPreview, setDepreciationPreview] = useState(null); // 179/Bonus preview
     const [checkingCompatibility, setCheckingCompatibility] = useState(false);
+    const [warningFilter, setWarningFilter] = useState(null); // Filter by warning type: 'misclassified', null
 
     // FA CS # editing: Track pending values and debounce timers
     const [pendingFacsNumbers, setPendingFacsNumbers] = useState({}); // { uniqueId: pendingValue }
@@ -250,6 +251,12 @@ function Review({ assets = [] }) {
         };
     }, [localAssets, approvedIds]);
 
+    // Get affected IDs from warnings for filtering/highlighting
+    const misclassifiedIds = useMemo(() => {
+        const misclassifiedWarning = warnings.critical?.find(w => w.type === 'MISCLASSIFIED_EXISTING_ASSETS');
+        return new Set(misclassifiedWarning?.affected_ids || []);
+    }, [warnings]);
+
     // Filter assets
     const filteredAssets = useMemo(() => {
         // First apply the showExistingAssets filter
@@ -262,6 +269,11 @@ function Review({ assets = [] }) {
                 a.transaction_type !== TRANSACTION_TYPES.PRIOR_YEAR_DISPOSAL &&
                 a.transaction_type !== TRANSACTION_TYPES.PRIOR_YEAR_TRANSFER
             );
+        }
+
+        // Apply warning filter if active (overrides other filters)
+        if (warningFilter === 'misclassified' && misclassifiedIds.size > 0) {
+            return localAssets.filter(a => misclassifiedIds.has(a.unique_id));
         }
 
         // Then apply the status filter
@@ -278,7 +290,7 @@ function Review({ assets = [] }) {
             default:
                 return baseAssets;
         }
-    }, [localAssets, filter, approvedIds, showExistingAssets]);
+    }, [localAssets, filter, approvedIds, showExistingAssets, warningFilter, misclassifiedIds]);
 
     // Check if export should be disabled
     const hasBlockingErrors = stats.errors > 0;
@@ -762,12 +774,48 @@ function Review({ assets = [] }) {
                     {warnings.critical.slice(0, 2).map((warning, idx) => (
                         <div key={idx} className="text-sm text-red-700 mb-1">
                             <strong>{warning.type}:</strong> {warning.message}
-                            <span className="text-red-600 ml-2">({warning.affected_count} assets)</span>
+                            {warning.affected_ids?.length > 0 ? (
+                                <button
+                                    onClick={() => {
+                                        if (warningFilter === 'misclassified') {
+                                            setWarningFilter(null);
+                                            setShowExistingAssets(false); // Reset to actionable only
+                                        } else {
+                                            setWarningFilter('misclassified');
+                                            setShowExistingAssets(true); // Show all to see misclassified
+                                        }
+                                    }}
+                                    className={cn(
+                                        "ml-2 px-2 py-0.5 rounded text-xs font-medium transition-colors",
+                                        warningFilter === 'misclassified'
+                                            ? "bg-red-600 text-white hover:bg-red-700"
+                                            : "bg-red-200 text-red-800 hover:bg-red-300"
+                                    )}
+                                >
+                                    {warningFilter === 'misclassified' ? '✓ Showing' : 'Show'} {warning.affected_count} assets
+                                </button>
+                            ) : (
+                                <span className="text-red-600 ml-2">({warning.affected_count} assets)</span>
+                            )}
                         </div>
                     ))}
-                    <div className="text-xs text-red-600 mt-2">
-                        Go to Settings to configure tax year and resolve warnings.
-                    </div>
+                    {warningFilter === 'misclassified' && (
+                        <div className="text-xs text-red-800 mt-2 font-medium flex items-center gap-2">
+                            <Eye className="w-3 h-3" />
+                            Showing only misclassified assets.
+                            <button
+                                onClick={() => { setWarningFilter(null); setShowExistingAssets(false); }}
+                                className="underline hover:no-underline"
+                            >
+                                Clear filter
+                            </button>
+                        </div>
+                    )}
+                    {!warningFilter && (
+                        <div className="text-xs text-red-600 mt-2">
+                            Go to Settings to configure tax year and resolve warnings.
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -990,6 +1038,7 @@ function Review({ assets = [] }) {
                                     // Hide MACRS fields for De Minimis (expensed), Disposals, and Transfers
                                     const isDisposalOrTransfer = isDisposal(asset.transaction_type) || isTransfer(asset.transaction_type);
                                     const hideMacrsFields = isDeMinimis || isDisposalOrTransfer;
+                                    const isMisclassified = misclassifiedIds.has(asset.unique_id);
 
                                     return (
                                         <tr
@@ -999,7 +1048,8 @@ function Review({ assets = [] }) {
                                                 hasErrors && "bg-red-50/50",
                                                 needsReview && !isApproved && "bg-yellow-50/30",
                                                 isApproved && "bg-green-50/30",
-                                                isDeMinimis && "bg-emerald-50/40 opacity-75"
+                                                isDeMinimis && "bg-emerald-50/40 opacity-75",
+                                                isMisclassified && "bg-red-100/60 border-l-4 border-l-red-500"
                                             )}
                                         >
                                             {/* Status + Confidence combined */}
