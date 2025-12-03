@@ -235,7 +235,18 @@ class ExporterService:
         except Exception as e:
             # If build_fa fails, use the raw data with basic formatting
             print(f"Warning: build_fa failed ({e}), using raw data")
-            export_df = df
+            export_df = df.copy()
+            # Normalize column names to match what FA CS expects
+            # build_fa renames these columns, so we need to do it manually in fallback
+            column_renames = {
+                "Cost": "Tax Cost",
+                "In Service Date": "Date In Service",
+                "MACRS Life": "Tax Life",
+                "Method": "Tax Method",
+            }
+            for old_col, new_col in column_renames.items():
+                if old_col in export_df.columns and new_col not in export_df.columns:
+                    export_df[new_col] = export_df[old_col]
 
         # ================================================================
         # MERGE ELECTION DATA - build_fa doesn't preserve these columns
@@ -302,9 +313,12 @@ class ExporterService:
             de_minimis_expenses = []
             for _, row in de_minimis_df.iterrows():
                 desc = str(row.get("Description", "")).lower()
-                # Properly extract cost, handling None/NaN values
-                cost_val = row.get("Tax Cost", 0)
+                # Properly extract cost, handling None/NaN values and different column names
+                cost_val = row.get("Tax Cost", row.get("Cost", 0))
                 cost = float(cost_val) if pd.notna(cost_val) and cost_val else 0.0
+
+                # Get date (handle different column names from build_fa vs raw data)
+                date_val = row.get("Date In Service", row.get("In Service Date", ""))
 
                 # Suggest expense account based on description
                 if any(x in desc for x in ["computer", "laptop", "monitor", "keyboard", "mouse", "printer"]):
@@ -321,7 +335,7 @@ class ExporterService:
                 de_minimis_expenses.append({
                     "Description": row.get("Description", ""),
                     "Cost": cost,
-                    "Date": row.get("Date In Service", ""),
+                    "Date": date_val,
                     "Suggested Expense Account": expense_account,
                     "Tax Treatment": "De Minimis Safe Harbor (Rev. Proc. 2015-20)",
                     "Note": "Expense immediately - DO NOT add to FA CS"
@@ -409,14 +423,20 @@ class ExporterService:
 
             # Split audit data by transaction type for clear audit trail
             # Handle multiple transaction type formats (e.g., "Addition", "Current Year Addition", "Existing Asset")
+            # IMPORTANT: Exclude De Minimis assets from Current_Year_Addition - they're expensed, not capitalized
             if 'Transaction Type' in audit_df.columns:
+                # De Minimis mask for audit_df (these go to separate De Minimis sheet only)
+                is_de_minimis = audit_df['Depreciation Election'] == 'DeMinimis' if 'Depreciation Election' in audit_df.columns else pd.Series([False] * len(audit_df))
+
                 # Current Year Additions - assets placed in service in the tax year
+                # EXCLUDES De Minimis items (they're expensed, not added to FA CS)
                 additions_df = audit_df[
                     audit_df['Transaction Type'].str.contains('Addition|addition', case=False, na=False) &
-                    ~audit_df['Transaction Type'].str.contains('Existing', case=False, na=False)
+                    ~audit_df['Transaction Type'].str.contains('Existing', case=False, na=False) &
+                    ~is_de_minimis
                 ].copy()
 
-                # Disposals - all disposal types
+                # Disposals - all disposal types (De Minimis items are not typically disposed)
                 disposals_df = audit_df[
                     audit_df['Transaction Type'].str.contains('Disposal|disposal', case=False, na=False)
                 ].copy()
@@ -427,8 +447,10 @@ class ExporterService:
                 ].copy()
 
                 # Existing Assets - assets placed in service BEFORE the tax year
+                # EXCLUDES De Minimis items
                 existing_df = audit_df[
-                    audit_df['Transaction Type'].str.contains('Existing', case=False, na=False)
+                    audit_df['Transaction Type'].str.contains('Existing', case=False, na=False) &
+                    ~is_de_minimis
                 ].copy()
             else:
                 additions_df = pd.DataFrame()
