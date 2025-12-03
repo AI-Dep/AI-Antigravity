@@ -177,6 +177,8 @@ class ExporterService:
                 "Disposal Date": getattr(asset, 'disposal_date', None),
                 "Proceeds": getattr(asset, 'proceeds', None) or getattr(asset, 'sale_price', None),
                 "Accumulated Depreciation": getattr(asset, 'accumulated_depreciation', 0.0) or 0.0,
+                "Net Book Value": getattr(asset, 'net_book_value', None),
+                "Gain/Loss": getattr(asset, 'gain_loss', None),
 
                 # Transfer fields (if present on asset)
                 "From Location": getattr(asset, 'from_location', None),
@@ -416,8 +418,10 @@ class ExporterService:
             # Sheet 4: Current Year Disposals (for audit) - WITH GAIN/LOSS INFO
             if not disposals_df.empty:
                 # Ensure disposal-specific columns are included
+                # Include both client-provided Gain/Loss and calculated recapture amounts
                 disposal_cols = ['Asset #', 'Description', 'Date In Service', 'Tax Cost',
-                                'Disposal Date', 'Gross Proceeds', 'Accumulated Depreciation',
+                                'Disposal Date', 'Proceeds', 'Gross Proceeds', 'Accumulated Depreciation',
+                                'Net Book Value', 'Gain/Loss',
                                 'Adjusted Basis at Disposal', '§1245 Recapture', '§1250 Recapture',
                                 'Capital Gain/Loss', 'Transaction Type', 'Confidence Score']
                 # Only keep columns that exist
@@ -456,6 +460,14 @@ class ExporterService:
                 _apply_professional_formatting(ws_changelog, change_log_df)
 
             # Sheet 9: Summary - Quick overview for CPA review
+            # Calculate disposal gain/loss totals
+            disposal_gain_loss = 0
+            if not disposals_df.empty:
+                if 'Gain/Loss' in disposals_df.columns:
+                    disposal_gain_loss = disposals_df['Gain/Loss'].sum()
+                elif 'Capital Gain/Loss' in disposals_df.columns:
+                    disposal_gain_loss = disposals_df['Capital Gain/Loss'].sum()
+
             summary_data = {
                 'Category': ['Current Year Additions', 'Current Year Disposals', 'Transfers', 'Existing Assets', 'De Minimis Expenses', 'TOTAL'],
                 'Count': [
@@ -473,6 +485,14 @@ class ExporterService:
                     existing_df['Tax Cost'].sum() if 'Tax Cost' in existing_df.columns and not existing_df.empty else 0,
                     de_minimis_expenses_df['Cost'].sum() if de_minimis_expenses_df is not None and not de_minimis_expenses_df.empty else 0,
                     audit_df['Tax Cost'].sum() if 'Tax Cost' in audit_df.columns else 0
+                ],
+                'Gain/Loss': [
+                    0,  # Additions
+                    disposal_gain_loss,  # Disposals
+                    0,  # Transfers
+                    0,  # Existing
+                    0,  # De Minimis
+                    disposal_gain_loss  # Total
                 ]
             }
             summary_df = pd.DataFrame(summary_data)

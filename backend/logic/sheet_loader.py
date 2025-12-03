@@ -107,7 +107,7 @@ class HeaderScore:
 CRITICAL_FIELDS = ["asset_id", "description"]
 IMPORTANT_FIELDS = ["acquisition_date", "in_service_date", "disposal_date", "cost"]
 CATEGORY_LOCATION_FIELDS = ["category", "location", "department"]
-OPTIONAL_FIELDS = ["method", "life", "transaction_type", "business_use_pct", "proceeds", "accumulated_depreciation", "section_179_taken", "bonus_taken", "net_book_value", "tax_life", "book_life", "tax_method", "book_method"]
+OPTIONAL_FIELDS = ["method", "life", "transaction_type", "business_use_pct", "proceeds", "accumulated_depreciation", "section_179_taken", "bonus_taken", "net_book_value", "gain_loss", "tax_life", "book_life", "tax_method", "book_method"]
 TRANSFER_FIELDS = ["transfer_date", "from_location", "to_location", "from_department", "to_department", "transfer_type", "old_category"]
 
 # Logging
@@ -2402,6 +2402,27 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
         except (ValueError, TypeError, KeyError) as e:
             logger.debug(f"Error parsing net book value: {e}")
 
+    # Gain/Loss on Disposal (client-provided)
+    gain_loss = None
+    if col_map.get("gain_loss"):
+        try:
+            gain_loss = parse_number(row[col_map["gain_loss"]])
+        except (ValueError, TypeError, KeyError) as e:
+            logger.debug(f"Error parsing gain/loss: {e}")
+
+    # ==========================================================================
+    # AUTO-CALCULATE MISSING VALUES FOR DISPOSALS
+    # ==========================================================================
+    # If client provides cost and accumulated_depreciation, we can calculate NBV
+    if net_book_value is None and cost is not None and accumulated_depreciation is not None:
+        net_book_value = cost - accumulated_depreciation
+        logger.debug(f"Calculated NBV: {cost} - {accumulated_depreciation} = {net_book_value}")
+
+    # If client provides NBV and proceeds, we can calculate gain/loss
+    if gain_loss is None and net_book_value is not None and proceeds is not None:
+        gain_loss = proceeds - net_book_value
+        logger.debug(f"Calculated Gain/Loss: {proceeds} - {net_book_value} = {gain_loss}")
+
     # ==========================================================================
     # BOOK VS TAX SPECIFIC COLUMNS
     # ==========================================================================
@@ -2473,6 +2494,7 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
         "section_179_taken": section_179_taken,
         "bonus_taken": bonus_taken,
         "net_book_value": net_book_value,
+        "gain_loss": gain_loss,
         # Book vs Tax specific
         "tax_life": tax_life,
         "book_life": book_life,

@@ -66,6 +66,8 @@ class Asset(BaseModel):
     proceeds: Optional[float] = Field(None, description="Sale proceeds from disposal")
     sale_price: Optional[float] = Field(None, description="Alias for proceeds")
     accumulated_depreciation: Optional[float] = Field(None, description="Accumulated depreciation at disposal")
+    net_book_value: Optional[float] = Field(None, description="Net book value (Cost - Accumulated Depreciation)")
+    gain_loss: Optional[float] = Field(None, description="Gain/Loss on disposal (positive=gain, negative=loss)")
     is_disposed: bool = Field(False, description="Flag indicating asset is disposed")
 
     # Transfer fields (for transferred assets)
