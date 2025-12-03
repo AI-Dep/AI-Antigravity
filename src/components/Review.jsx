@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
-import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2, Shield, Wand2, DollarSign, Calculator, Trash2, Columns, Hash, Settings2 } from 'lucide-react';
+import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2, Shield, Wand2, DollarSign, Calculator, Trash2, Columns, Hash, Settings2, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 // Import API types for consistent contract
@@ -31,6 +31,7 @@ function Review({ assets = [] }) {
     const [depreciationPreview, setDepreciationPreview] = useState(null); // 179/Bonus preview
     const [checkingCompatibility, setCheckingCompatibility] = useState(false);
     const [warningFilter, setWarningFilter] = useState(null); // Filter by warning type: 'misclassified', null
+    const [sortConfig, setSortConfig] = useState({ column: null, direction: 'asc' }); // Column sorting
 
     // FA CS # editing: Track pending values and debounce timers
     const [pendingFacsNumbers, setPendingFacsNumbers] = useState({}); // { uniqueId: pendingValue }
@@ -267,6 +268,83 @@ function Review({ assets = [] }) {
         return ids;
     }, [warnings]);
 
+    // Sort handler for column headers
+    const handleSort = (column) => {
+        setSortConfig(prev => ({
+            column,
+            direction: prev.column === column && prev.direction === 'asc' ? 'desc' : 'asc'
+        }));
+    };
+
+    // Sort comparator function
+    const sortAssets = (assets, { column, direction }) => {
+        if (!column) return assets;
+
+        const sorted = [...assets].sort((a, b) => {
+            let aVal, bVal;
+
+            switch (column) {
+                case 'status':
+                    aVal = a.confidence_score || 0;
+                    bVal = b.confidence_score || 0;
+                    break;
+                case 'asset_id':
+                    aVal = (a.asset_id || '').toString().toLowerCase();
+                    bVal = (b.asset_id || '').toString().toLowerCase();
+                    break;
+                case 'fa_cs':
+                    aVal = a.fa_cs_asset_number || a.unique_id || 0;
+                    bVal = b.fa_cs_asset_number || b.unique_id || 0;
+                    break;
+                case 'description':
+                    aVal = (a.description || '').toLowerCase();
+                    bVal = (b.description || '').toLowerCase();
+                    break;
+                case 'cost':
+                    aVal = a.cost || 0;
+                    bVal = b.cost || 0;
+                    break;
+                case 'date':
+                    // Use appropriate date based on transaction type
+                    aVal = a.disposal_date || a.transfer_date || a.in_service_date || a.acquisition_date || '';
+                    bVal = b.disposal_date || b.transfer_date || b.in_service_date || b.acquisition_date || '';
+                    break;
+                case 'trans_type':
+                    aVal = (a.transaction_type || '').toLowerCase();
+                    bVal = (b.transaction_type || '').toLowerCase();
+                    break;
+                case 'class':
+                    aVal = (a.macrs_class || '').toLowerCase();
+                    bVal = (b.macrs_class || '').toLowerCase();
+                    break;
+                case 'life':
+                    aVal = a.macrs_life || 0;
+                    bVal = b.macrs_life || 0;
+                    break;
+                case 'method':
+                    aVal = (a.macrs_method || '').toLowerCase();
+                    bVal = (b.macrs_method || '').toLowerCase();
+                    break;
+                case 'election':
+                    aVal = (a.depreciation_election || '').toLowerCase();
+                    bVal = (b.depreciation_election || '').toLowerCase();
+                    break;
+                default:
+                    return 0;
+            }
+
+            // Handle comparison
+            if (typeof aVal === 'number' && typeof bVal === 'number') {
+                return direction === 'asc' ? aVal - bVal : bVal - aVal;
+            }
+            if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+            if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        return sorted;
+    };
+
     // Filter assets
     const filteredAssets = useMemo(() => {
         // First apply the showExistingAssets filter
@@ -283,24 +361,31 @@ function Review({ assets = [] }) {
 
         // Apply warning filter if active (overrides other filters)
         if (warningFilter === 'misclassified' && misclassifiedIds.size > 0) {
-            return localAssets.filter(a => misclassifiedIds.has(a.unique_id));
+            return sortAssets(localAssets.filter(a => misclassifiedIds.has(a.unique_id)), sortConfig);
         }
 
         // Then apply the status filter
+        let result;
         switch (filter) {
             case 'errors':
-                return baseAssets.filter(a => a.validation_errors?.length > 0);
+                result = baseAssets.filter(a => a.validation_errors?.length > 0);
+                break;
             case 'review':
-                return baseAssets.filter(a =>
+                result = baseAssets.filter(a =>
                     !a.validation_errors?.length && a.confidence_score <= 0.8
                 );
+                break;
             case 'approved':
                 // Use unique_id for approval tracking (unique across sheets)
-                return baseAssets.filter(a => approvedIds.has(a.unique_id));
+                result = baseAssets.filter(a => approvedIds.has(a.unique_id));
+                break;
             default:
-                return baseAssets;
+                result = baseAssets;
         }
-    }, [localAssets, filter, approvedIds, showExistingAssets, warningFilter, misclassifiedIds]);
+
+        // Apply sorting
+        return sortAssets(result, sortConfig);
+    }, [localAssets, filter, approvedIds, showExistingAssets, warningFilter, misclassifiedIds, sortConfig]);
 
     // Check if export should be disabled
     const hasBlockingErrors = stats.errors > 0;
@@ -1020,41 +1105,198 @@ function Review({ assets = [] }) {
                                 tableCompact ? "text-[10px]" : "text-xs"
                             )}>
                                 <tr>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Status</th>
+                                    {/* Sortable column header helper */}
+                                    {(() => {
+                                        const SortIcon = ({ column }) => {
+                                            if (sortConfig.column !== column) {
+                                                return <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />;
+                                            }
+                                            return sortConfig.direction === 'asc'
+                                                ? <ChevronUp className="w-3 h-3 text-blue-600" />
+                                                : <ChevronDown className="w-3 h-3 text-blue-600" />;
+                                        };
+
+                                        const SortableHeader = ({ column, children, style, className, title }) => (
+                                            <th
+                                                className={cn("resizable-col group cursor-pointer hover:bg-slate-100 transition-colors", tableCompact ? "px-2 py-2" : "px-3 py-3", className)}
+                                                style={style}
+                                                onClick={() => handleSort(column)}
+                                                title={title || `Click to sort by ${column}`}
+                                            >
+                                                <span className="flex items-center gap-1">
+                                                    {children}
+                                                    <SortIcon column={column} />
+                                                </span>
+                                            </th>
+                                        );
+
+                                        return null;
+                                    })()}
+                                    <th
+                                        className={cn("resizable-col group cursor-pointer hover:bg-slate-100 transition-colors", tableCompact ? "px-2 py-2" : "px-3 py-3")}
+                                        style={{ width: '80px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}
+                                        onClick={() => handleSort('status')}
+                                        title="Sort by confidence score"
+                                    >
+                                        <span className="flex items-center gap-1">
+                                            Status
+                                            {sortConfig.column === 'status'
+                                                ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-600" /> : <ChevronDown className="w-3 h-3 text-blue-600" />)
+                                                : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
+                                            }
+                                        </span>
+                                    </th>
                                     {showTechnicalCols && (
-                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '70px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>Asset ID</th>
-                                    )}
-                                    {showTechnicalCols && (
-                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '60px', minWidth: '50px', resize: 'horizontal', overflow: 'hidden' }}>
-                                            <span className="flex items-center gap-1 cursor-help" title="FA CS Asset # (numeric). Edit to resolve collisions with client Asset IDs.">
-                                                FA CS #
-                                                <Info className="w-3 h-3 text-slate-400" />
+                                        <th
+                                            className={cn("resizable-col group cursor-pointer hover:bg-slate-100 transition-colors", tableCompact ? "px-2 py-2" : "px-3 py-3")}
+                                            style={{ width: '70px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}
+                                            onClick={() => handleSort('asset_id')}
+                                            title="Sort by Asset ID"
+                                        >
+                                            <span className="flex items-center gap-1">
+                                                Asset ID
+                                                {sortConfig.column === 'asset_id'
+                                                    ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-600" /> : <ChevronDown className="w-3 h-3 text-blue-600" />)
+                                                    : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
+                                                }
                                             </span>
                                         </th>
                                     )}
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: showTechnicalCols ? '180px' : '240px', minWidth: '100px', resize: 'horizontal', overflow: 'hidden' }}>Description</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '175px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}>Cost</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '95px', minWidth: '85px', resize: 'horizontal', overflow: 'hidden' }}>
-                                        <span className="flex items-center gap-1 cursor-help" title="Additions/Existing: Date In Service | Disposals: Disposal Date | Transfers: Transfer Date">
+                                    {showTechnicalCols && (
+                                        <th
+                                            className={cn("resizable-col group cursor-pointer hover:bg-slate-100 transition-colors", tableCompact ? "px-2 py-2" : "px-3 py-3")}
+                                            style={{ width: '60px', minWidth: '50px', resize: 'horizontal', overflow: 'hidden' }}
+                                            onClick={() => handleSort('fa_cs')}
+                                            title="Sort by FA CS # - Click to sort"
+                                        >
+                                            <span className="flex items-center gap-1">
+                                                FA CS #
+                                                {sortConfig.column === 'fa_cs'
+                                                    ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-600" /> : <ChevronDown className="w-3 h-3 text-blue-600" />)
+                                                    : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
+                                                }
+                                            </span>
+                                        </th>
+                                    )}
+                                    <th
+                                        className={cn("resizable-col group cursor-pointer hover:bg-slate-100 transition-colors", tableCompact ? "px-2 py-2" : "px-3 py-3")}
+                                        style={{ width: showTechnicalCols ? '180px' : '240px', minWidth: '100px', resize: 'horizontal', overflow: 'hidden' }}
+                                        onClick={() => handleSort('description')}
+                                        title="Sort by Description"
+                                    >
+                                        <span className="flex items-center gap-1">
+                                            Description
+                                            {sortConfig.column === 'description'
+                                                ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-600" /> : <ChevronDown className="w-3 h-3 text-blue-600" />)
+                                                : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
+                                            }
+                                        </span>
+                                    </th>
+                                    <th
+                                        className={cn("resizable-col group cursor-pointer hover:bg-slate-100 transition-colors", tableCompact ? "px-2 py-2" : "px-3 py-3")}
+                                        style={{ width: '175px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}
+                                        onClick={() => handleSort('cost')}
+                                        title="Sort by Cost"
+                                    >
+                                        <span className="flex items-center gap-1">
+                                            Cost
+                                            {sortConfig.column === 'cost'
+                                                ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-600" /> : <ChevronDown className="w-3 h-3 text-blue-600" />)
+                                                : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
+                                            }
+                                        </span>
+                                    </th>
+                                    <th
+                                        className={cn("resizable-col group cursor-pointer hover:bg-slate-100 transition-colors", tableCompact ? "px-2 py-2" : "px-3 py-3")}
+                                        style={{ width: '95px', minWidth: '85px', resize: 'horizontal', overflow: 'hidden' }}
+                                        onClick={() => handleSort('date')}
+                                        title="Sort by Key Date (In Service / Disposal / Transfer date)"
+                                    >
+                                        <span className="flex items-center gap-1">
                                             Key Date
+                                            {sortConfig.column === 'date'
+                                                ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-600" /> : <ChevronDown className="w-3 h-3 text-blue-600" />)
+                                                : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
+                                            }
                                             <Info className="w-3 h-3 text-slate-400" />
                                         </span>
                                     </th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '85px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Trans. Type</th>
+                                    <th
+                                        className={cn("resizable-col group cursor-pointer hover:bg-slate-100 transition-colors", tableCompact ? "px-2 py-2" : "px-3 py-3")}
+                                        style={{ width: '85px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}
+                                        onClick={() => handleSort('trans_type')}
+                                        title="Sort by Transaction Type"
+                                    >
+                                        <span className="flex items-center gap-1">
+                                            Trans. Type
+                                            {sortConfig.column === 'trans_type'
+                                                ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-600" /> : <ChevronDown className="w-3 h-3 text-blue-600" />)
+                                                : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
+                                            }
+                                        </span>
+                                    </th>
                                     {showMacrsCols && (
-                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '85px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Class</th>
+                                        <th
+                                            className={cn("resizable-col group cursor-pointer hover:bg-slate-100 transition-colors", tableCompact ? "px-2 py-2" : "px-3 py-3")}
+                                            style={{ width: '85px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}
+                                            onClick={() => handleSort('class')}
+                                            title="Sort by MACRS Class"
+                                        >
+                                            <span className="flex items-center gap-1">
+                                                Class
+                                                {sortConfig.column === 'class'
+                                                    ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-600" /> : <ChevronDown className="w-3 h-3 text-blue-600" />)
+                                                    : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
+                                                }
+                                            </span>
+                                        </th>
                                     )}
                                     {showMacrsCols && (
-                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '50px', minWidth: '40px', resize: 'horizontal', overflow: 'hidden' }}>Life</th>
+                                        <th
+                                            className={cn("resizable-col group cursor-pointer hover:bg-slate-100 transition-colors", tableCompact ? "px-2 py-2" : "px-3 py-3")}
+                                            style={{ width: '50px', minWidth: '40px', resize: 'horizontal', overflow: 'hidden' }}
+                                            onClick={() => handleSort('life')}
+                                            title="Sort by MACRS Life"
+                                        >
+                                            <span className="flex items-center gap-1">
+                                                Life
+                                                {sortConfig.column === 'life'
+                                                    ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-600" /> : <ChevronDown className="w-3 h-3 text-blue-600" />)
+                                                    : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
+                                                }
+                                            </span>
+                                        </th>
                                     )}
                                     {showMacrsCols && (
-                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '60px', minWidth: '50px', resize: 'horizontal', overflow: 'hidden' }}>Method</th>
+                                        <th
+                                            className={cn("resizable-col group cursor-pointer hover:bg-slate-100 transition-colors", tableCompact ? "px-2 py-2" : "px-3 py-3")}
+                                            style={{ width: '60px', minWidth: '50px', resize: 'horizontal', overflow: 'hidden' }}
+                                            onClick={() => handleSort('method')}
+                                            title="Sort by Depreciation Method"
+                                        >
+                                            <span className="flex items-center gap-1">
+                                                Method
+                                                {sortConfig.column === 'method'
+                                                    ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-600" /> : <ChevronDown className="w-3 h-3 text-blue-600" />)
+                                                    : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
+                                                }
+                                            </span>
+                                        </th>
                                     )}
                                     {showMacrsCols && (
-                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '115px', minWidth: '100px', resize: 'horizontal', overflow: 'hidden' }}>
+                                        <th
+                                            className={cn("resizable-col group cursor-pointer hover:bg-slate-100 transition-colors", tableCompact ? "px-2 py-2" : "px-3 py-3")}
+                                            style={{ width: '115px', minWidth: '100px', resize: 'horizontal', overflow: 'hidden' }}
+                                            onClick={() => handleSort('election')}
+                                            title="Sort by Depreciation Election"
+                                        >
                                             <span className="flex items-center gap-1">
                                                 Election
                                                 <span className="text-[9px] bg-blue-100 text-blue-700 px-1 rounded">179/Bonus</span>
+                                                {sortConfig.column === 'election'
+                                                    ? (sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-600" /> : <ChevronDown className="w-3 h-3 text-blue-600" />)
+                                                    : <ArrowUpDown className="w-3 h-3 text-slate-300 group-hover:text-slate-500" />
+                                                }
                                             </span>
                                         </th>
                                     )}
