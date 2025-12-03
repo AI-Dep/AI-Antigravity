@@ -149,10 +149,11 @@ class ExporterService:
         - Recapture columns for gain/loss reporting
         """
         # Prepare data for build_fa engine (uses specific column names)
+        effective_tax_year = tax_year if tax_year else date.today().year
         engine_data = []
         for asset in assets:
-            # Detect transaction type first
-            trans_type = self._detect_transaction_type(asset)
+            # Detect transaction type first (pass tax_year for existing vs addition detection)
+            trans_type = self._detect_transaction_type(asset, effective_tax_year)
 
             row = {
                 "Asset #": self._format_asset_number(asset),
@@ -220,7 +221,6 @@ class ExporterService:
         # Call the advanced export builder for full processing
         # This applies: FA_CS_Wizard_Category mapping, disposal recapture calculations,
         # transfer handling, Section 179/Bonus depreciation, de minimis safe harbor, etc.
-        effective_tax_year = tax_year if tax_year else date.today().year
         try:
             export_df = build_fa(
                 df=df,
@@ -373,7 +373,7 @@ class ExporterService:
 
                 # Metadata
                 "Confidence Score": asset.confidence_score,
-                "Transaction Type": self._detect_transaction_type(asset),
+                "Transaction Type": self._detect_transaction_type(asset, effective_tax_year),
                 "Business Use %": 1.0,
                 "Tax Year": effective_tax_year,
                 "Export Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -501,16 +501,24 @@ class ExporterService:
         output.seek(0)
         return output
 
-    def _detect_transaction_type(self, asset: Asset) -> str:
+    def _detect_transaction_type(self, asset: Asset, tax_year: int = None) -> str:
         """
         Detect transaction type from asset attributes.
 
+        CPA Workflow Logic:
+            - "Disposal" if asset has disposal indicators (disposal_date, is_disposed)
+            - "Transfer" if asset has transfer indicators (transfer_date, from/to location)
+            - "Existing" if in_service_date is in a PRIOR year (already in FA CS)
+            - "Addition" if in_service_date is in the CURRENT tax year (new addition)
+
+        Args:
+            asset: The asset to classify
+            tax_year: The current tax year being processed (for existing vs addition detection)
+
         Returns:
-            - "Disposal" if asset has disposal indicators
-            - "Transfer" if asset has transfer indicators
-            - "Addition" for new assets (default)
+            Transaction type string: "Disposal", "Transfer", "Existing", or "Addition"
         """
-        # Check for disposal indicators
+        # Check for disposal indicators FIRST
         if getattr(asset, 'disposal_date', None):
             return "Disposal"
         if getattr(asset, 'is_disposed', False):
@@ -524,7 +532,28 @@ class ExporterService:
         if getattr(asset, 'is_transfer', False):
             return "Transfer"
 
-        # Default to Addition
+        # Check if this is an EXISTING asset (in_service_date in prior year)
+        # This is the key CPA workflow distinction:
+        # - Prior year in_service → Already in FA CS, just tracking for continuity
+        # - Current year in_service → New addition to FA CS
+        if tax_year:
+            in_service_date = asset.in_service_date or asset.acquisition_date
+            if in_service_date:
+                try:
+                    # Handle both date objects and strings
+                    if isinstance(in_service_date, str):
+                        from dateutil.parser import parse
+                        in_service_date = parse(in_service_date).date()
+                    elif hasattr(in_service_date, 'date'):
+                        in_service_date = in_service_date.date()
+
+                    # If in_service_date is in a PRIOR year, it's an existing asset
+                    if in_service_date.year < tax_year:
+                        return "Existing"
+                except (ValueError, TypeError, AttributeError):
+                    pass  # If date parsing fails, fall through to Addition
+
+        # Default to Addition (current year acquisitions)
         return "Addition"
 
     def _build_change_log(self, original_df: pd.DataFrame, processed_df: pd.DataFrame, assets: List[Asset]) -> pd.DataFrame:

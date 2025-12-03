@@ -22,11 +22,13 @@ import pandas as pd
 # ====================================================================================
 
 class SheetRole(Enum):
-    """Enumeration of sheet roles"""
+    """Enumeration of sheet roles for CPA workflow categorization"""
     MAIN = "main"
-    ADDITIONS = "additions"
-    DISPOSALS = "disposals"
-    TRANSFERS = "transfers"
+    ADDITIONS = "additions"      # Current year new acquisitions
+    DISPOSALS = "disposals"      # Current year disposals/retirements
+    TRANSFERS = "transfers"      # Location/dept transfers or reclassifications
+    EXISTING = "existing"        # Prior year assets already in FA CS
+    SUMMARY = "summary"          # Summary/totals sheet (skip for asset extraction)
 
 
 # ====================================================================================

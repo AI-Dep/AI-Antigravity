@@ -911,6 +911,11 @@ def _detect_sheet_role_from_name(sheet_name: str) -> Optional[SheetRole]:
     if any(kw in sheet_lower for kw in ["addition", "purchase", "acquisition", "new"]):
         return SheetRole.ADDITIONS
 
+    # Existing assets indicators (assets already in FA CS from prior years)
+    if any(kw in sheet_lower for kw in ["existing", "current asset", "prior year", "beginning balance",
+                                         "beg bal", "fa cs export", "fixed asset detail", "asset register"]):
+        return SheetRole.EXISTING
+
     # Summary indicators
     if any(kw in sheet_lower for kw in ["summary", "totals", "rollforward", "roll-forward", "master"]):
         return SheetRole.SUMMARY
@@ -3232,6 +3237,8 @@ def build_unified_dataframe(
                     trans_type = "disposal"
                 elif sheet_role == SheetRole.TRANSFERS:
                     trans_type = "transfer"
+                elif sheet_role == SheetRole.EXISTING:
+                    trans_type = "existing"
 
                 row_data = {
                     "sheet_name": sheet_name,
