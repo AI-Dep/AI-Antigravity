@@ -2238,15 +2238,18 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
     # Skip category labels (e.g., "Assets", "Vehicles", "FY 2024")
     # These are sheet names or category headers, not actual asset descriptions
     if _is_category_label(desc_raw):
+        logger.debug(f"Skipping category label: {desc_raw}")
         return None
 
     # Skip totals/summary rows (not actual asset data)
     if _is_totals_row(desc_raw, asset_id):
+        logger.debug(f"Skipping totals row: {desc_raw}")
         return None
 
     # Skip accounting adjustment rows (e.g., "April bal", "May depr", "Q4 adj")
     # These are journal entries, not actual fixed assets
     if _is_accounting_adjustment_row(desc_raw):
+        logger.debug(f"Skipping accounting adjustment: {desc_raw}")
         return None
 
     # Cost - parse early so we can use it for budget detection and validation
@@ -3207,13 +3210,24 @@ def build_unified_dataframe(
                 elif sheet_role == SheetRole.TRANSFERS:
                     trans_type = "transfer"
 
-                all_rows.append({
+                row_data = {
                     "sheet_name": sheet_name,
                     "sheet_role": sheet_role.value,
                     "source_row": header_idx + idx + 2,  # Excel row number (1-indexed)
                     "transaction_type": trans_type,
                     **cleaned
-                })
+                }
+                all_rows.append(row_data)
+
+                # Log rows with recent dates (potential current year additions)
+                row_date = cleaned.get("in_service_date")
+                if row_date:
+                    try:
+                        dt = pd.to_datetime(row_date)
+                        if dt.year >= 2024:
+                            logger.info(f"[{sheet_name}] Row {header_idx + idx + 2}: {cleaned.get('description', '')[:40]} - Date: {row_date}, Cost: {cleaned.get('cost')}")
+                    except:
+                        pass
 
                 rows_processed += 1
 
