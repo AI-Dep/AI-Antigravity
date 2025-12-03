@@ -654,6 +654,8 @@ async def get_stats(request: Request, response: Response):
         # Parse warnings (e.g., missing asset IDs)
         "parse_warnings": getattr(session, 'parse_warnings', []),
         "parse_stats": getattr(session, 'parse_stats', {}),
+        # Session metrics for ROI demonstration
+        "session_metrics": getattr(session, 'session_metrics', {}),
     }
 
 
@@ -1678,6 +1680,9 @@ async def upload_file(
     temp_fd, temp_file = tempfile.mkstemp(suffix='.xlsx', prefix='facs_upload_')
 
     try:
+        # Track import start time for metrics
+        import_start_time = datetime.utcnow()
+
         # Save uploaded file to secure temp location
         with os.fdopen(temp_fd, 'wb') as buffer:
             buffer.write(file_content)  # Use already-read content
@@ -1757,7 +1762,38 @@ async def upload_file(
         for a in classified_assets:
             tt = a.transaction_type or "unknown"
             trans_types[tt] = trans_types.get(tt, 0) + 1
-        logger.info(f"Classification Summary (Tax Year {tax_year}): {trans_types}")
+        logger.info(f"Classification Summary (Tax Year {current_tax_year}): {trans_types}")
+
+        # Calculate and store session metrics for ROI demonstration
+        import_end_time = datetime.utcnow()
+        import_duration_ms = int((import_end_time - import_start_time).total_seconds() * 1000)
+
+        high_confidence_count = sum(1 for a in classified_assets if a.confidence_score > 0.8)
+        low_confidence_count = sum(1 for a in classified_assets if a.confidence_score <= 0.5)
+        needs_review_count = sum(
+            1 for a in classified_assets
+            if 0.5 < a.confidence_score <= 0.8 or (a.validation_errors and len(a.validation_errors) > 0)
+        )
+
+        session.session_metrics = {
+            "import_start_time": import_start_time.isoformat(),
+            "import_end_time": import_end_time.isoformat(),
+            "import_duration_ms": import_duration_ms,
+            "total_assets_imported": len(classified_assets),
+            "high_confidence_count": high_confidence_count,
+            "low_confidence_count": low_confidence_count,
+            "assets_needing_review": needs_review_count,
+            "assets_auto_approved": 0,  # Updated when bulk approve happens
+            "transaction_types": trans_types,
+            "file_name": file.filename,
+            "file_size_bytes": file_size,
+        }
+
+        # Save updated session with metrics
+        manager._save_session(session)
+
+        logger.info(f"[Metrics] Processed {len(classified_assets)} assets in {import_duration_ms}ms "
+                   f"(High confidence: {high_confidence_count}, Needs review: {needs_review_count})")
 
         return classified_assets
         
@@ -2918,7 +2954,8 @@ async def get_data_quality(request: Request, response: Response):
             "summary": "No assets loaded",
             "checks": [],
             "critical_issues": [],
-            "recommendations": ["Upload an asset schedule to begin"]
+            "recommendations": ["Upload an asset schedule to begin"],
+            "cross_sheet_duplicates": []
         }
 
     # Convert assets to DataFrame for quality scoring
@@ -2934,6 +2971,7 @@ async def get_data_quality(request: Request, response: Response):
             "MACRS Life": a.macrs_life,
             "Method": a.macrs_method,
             "Transaction Type": a.transaction_type,
+            "Source Sheet": a.source_sheet,  # Include for cross-sheet duplicate detection
         })
 
     df = pd.DataFrame(df_data)
@@ -2941,6 +2979,10 @@ async def get_data_quality(request: Request, response: Response):
 
     try:
         quality_result = calculate_data_quality_score(df, tax_year)
+
+        # Detect cross-sheet duplicates for UI display
+        from backend.logic.data_quality_score import detect_cross_sheet_duplicates
+        cross_sheet_duplicates = detect_cross_sheet_duplicates(df)
 
         # Convert checks to serializable format
         checks_data = []
@@ -2962,7 +3004,8 @@ async def get_data_quality(request: Request, response: Response):
             "summary": quality_result.summary,
             "checks": checks_data,
             "critical_issues": quality_result.critical_issues,
-            "recommendations": quality_result.recommendations
+            "recommendations": quality_result.recommendations,
+            "cross_sheet_duplicates": cross_sheet_duplicates,  # For UI display
         }
     except Exception as e:
         print(f"Quality score error: {e}")
@@ -2973,7 +3016,8 @@ async def get_data_quality(request: Request, response: Response):
             "summary": f"Error calculating quality: {str(e)}",
             "checks": [],
             "critical_issues": [str(e)],
-            "recommendations": []
+            "recommendations": [],
+            "cross_sheet_duplicates": []
         }
 
 

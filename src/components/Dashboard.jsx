@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import {
     Activity, FileText, CheckCircle, AlertCircle, RefreshCw, Monitor, MonitorOff,
-    TrendingUp, Scale, Brain, ChevronDown, ChevronUp, Cpu, Database, Loader2
+    TrendingUp, Scale, Brain, ChevronDown, ChevronUp, Cpu, Database, Loader2,
+    Clock, Zap, Copy
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
@@ -27,10 +28,17 @@ function Dashboard() {
     });
 
     // New state for enhanced features
-    const [quality, setQuality] = useState({ grade: '-', score: 0, checks: [] });
+    const [quality, setQuality] = useState({ grade: '-', score: 0, checks: [], cross_sheet_duplicates: [] });
     const [rollforward, setRollforward] = useState({ is_balanced: true, expected_ending: 0 });
     const [projection, setProjection] = useState({ years: [], depreciation: [], current_year: 0 });
     const [systemInfo, setSystemInfo] = useState({ ai: {}, memory: {}, rules: {} });
+    const [sessionMetrics, setSessionMetrics] = useState({
+        import_duration_ms: 0,
+        total_assets_imported: 0,
+        high_confidence_count: 0,
+        assets_needing_review: 0,
+        file_name: null
+    });
 
     // Expandable sections state
     const [showQualityDetails, setShowQualityDetails] = useState(false);
@@ -85,7 +93,13 @@ function Dashboard() {
     const fetchStats = useCallback(async () => {
         try {
             const data = await apiGet('/stats');
-            if (mountedRef.current) setStats(data);
+            if (mountedRef.current) {
+                setStats(data);
+                // Extract session metrics for ROI display
+                if (data.session_metrics) {
+                    setSessionMetrics(data.session_metrics);
+                }
+            }
         } catch (error) {
             // Stats fetch failed, keep defaults
         }
@@ -288,7 +302,7 @@ function Dashboard() {
             </div>
 
             {/* Data Quality & Insights Row */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 {/* Data Quality Grade */}
                 <Card className="overflow-hidden">
                     <CardHeader className="pb-2">
@@ -344,6 +358,30 @@ function Dashboard() {
                                         </span>
                                     </div>
                                 ))}
+
+                                {/* Cross-sheet duplicates warning */}
+                                {quality.cross_sheet_duplicates?.length > 0 && (
+                                    <div className="mt-3 pt-3 border-t">
+                                        <div className="flex items-center gap-2 text-xs text-orange-600 font-medium mb-2">
+                                            <Copy className="w-3 h-3" />
+                                            {quality.cross_sheet_duplicates.length} Cross-Sheet Duplicate(s)
+                                        </div>
+                                        <div className="space-y-1">
+                                            {quality.cross_sheet_duplicates.slice(0, 3).map((dup, idx) => (
+                                                <div key={idx} className="text-xs text-muted-foreground bg-orange-50 p-1.5 rounded">
+                                                    <span className="font-mono">{dup.asset_id}</span>
+                                                    <span className="mx-1">in</span>
+                                                    <span className="italic">{dup.sheets.join(', ')}</span>
+                                                </div>
+                                            ))}
+                                            {quality.cross_sheet_duplicates.length > 3 && (
+                                                <div className="text-xs text-muted-foreground">
+                                                    + {quality.cross_sheet_duplicates.length - 3} more...
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </CardContent>
@@ -480,6 +518,79 @@ function Dashboard() {
                                 <div className="flex justify-between font-bold mt-2 pt-2 border-t">
                                     <span>10-Year Total:</span>
                                     <span className="font-mono">${projection.total_10_year?.toLocaleString() || 0}</span>
+                                </div>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Session Metrics - ROI Demonstration */}
+                <Card className="overflow-hidden">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">Processing Summary</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex items-center gap-4">
+                            <div className={cn(
+                                "w-12 h-12 rounded-lg flex items-center justify-center",
+                                sessionMetrics.import_duration_ms > 0
+                                    ? "bg-green-100 text-green-600"
+                                    : "bg-slate-100 text-slate-400"
+                            )}>
+                                <Zap className="w-6 h-6" />
+                            </div>
+                            <div className="flex-1">
+                                {sessionMetrics.import_duration_ms > 0 ? (
+                                    <>
+                                        <div className="text-lg font-bold text-green-600">
+                                            {(sessionMetrics.import_duration_ms / 1000).toFixed(1)}s
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            {sessionMetrics.total_assets_imported} assets classified
+                                        </p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="text-sm font-medium text-slate-500">
+                                            No import yet
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            Upload a file to see metrics
+                                        </p>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Metrics breakdown */}
+                        {sessionMetrics.import_duration_ms > 0 && (
+                            <div className="mt-4 pt-3 border-t space-y-2 text-xs">
+                                <div className="flex justify-between items-center">
+                                    <span className="flex items-center gap-1">
+                                        <CheckCircle className="w-3 h-3 text-green-500" />
+                                        High Confidence
+                                    </span>
+                                    <span className="font-mono text-green-600">
+                                        {sessionMetrics.high_confidence_count || 0}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="flex items-center gap-1">
+                                        <AlertCircle className="w-3 h-3 text-yellow-500" />
+                                        Needs Review
+                                    </span>
+                                    <span className="font-mono text-yellow-600">
+                                        {sessionMetrics.assets_needing_review || 0}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between items-center pt-2 border-t">
+                                    <span className="flex items-center gap-1">
+                                        <Clock className="w-3 h-3 text-blue-500" />
+                                        Est. Time Saved
+                                    </span>
+                                    <span className="font-mono font-bold text-blue-600">
+                                        ~{Math.max(1, Math.round(sessionMetrics.total_assets_imported * 2 / 60))}h
+                                    </span>
                                 </div>
                             </div>
                         )}
