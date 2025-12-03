@@ -1528,6 +1528,9 @@ async def upload_file(
         with os.fdopen(temp_fd, 'wb') as buffer:
             buffer.write(file_content)  # Use already-read content
 
+        # Get tax year from session config (needed for both try and except paths)
+        current_tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
+
         # Perform tab analysis before processing
         try:
             import openpyxl
@@ -1542,15 +1545,22 @@ async def upload_file(
             wb.close()
 
             # Run tab analysis using session's tax year
-            current_tax_year = session.tax_config.get("tax_year", TAX_CONFIG["tax_year"])
             session.tab_analysis_result = analyze_tabs(sheets, current_tax_year)
             logger.info(f"Tab analysis: {len(session.tab_analysis_result.tabs)} tabs detected")
+
+            # PERFORMANCE: Pass pre-loaded sheets and tab analysis to importer
+            # This eliminates duplicate file I/O and redundant skip analysis
+            assets = importer.parse_excel(
+                temp_file,
+                target_tax_year=current_tax_year,
+                preloaded_sheets=sheets,
+                tab_analysis_result=session.tab_analysis_result
+            )
         except Exception as tab_err:
             logger.warning(f"Tab analysis error (non-fatal): {tab_err}")
             session.tab_analysis_result = None
-
-        # 1. Parse Excel (pass tax year to skip prior year sheets for performance)
-        assets = importer.parse_excel(temp_file, target_tax_year=current_tax_year)
+            # Fallback: parse without pre-loaded data
+            assets = importer.parse_excel(temp_file, target_tax_year=current_tax_year)
         parse_report = importer.get_last_parse_report()
 
         # Store parse warnings in session for later retrieval

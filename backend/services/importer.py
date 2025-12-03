@@ -1,5 +1,5 @@
 import pandas as pd
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass, field
 from threading import local
 from backend.models.asset import Asset
@@ -72,7 +72,14 @@ class ImporterService:
         report = self.get_last_parse_report()
         return assets, report
 
-    def parse_excel(self, file_path: str, filter_by_date: bool = False, target_tax_year: Optional[int] = None) -> List[Asset]:
+    def parse_excel(
+        self,
+        file_path: str,
+        filter_by_date: bool = False,
+        target_tax_year: Optional[int] = None,
+        preloaded_sheets: Optional[Dict[str, 'pd.DataFrame']] = None,
+        tab_analysis_result: Optional[Any] = None
+    ) -> List[Asset]:
         """
         Reads an Excel file and returns a list of validated Asset objects.
 
@@ -83,12 +90,20 @@ class ImporterService:
         - Results are stored in thread-local storage for thread safety
         - Skips prior year sheets to optimize performance
 
+        PERFORMANCE OPTIMIZATION:
+        - If preloaded_sheets is provided, skips file I/O (sheets already loaded)
+        - If tab_analysis_result is provided, uses pre-computed skip decisions
+
         Args:
             file_path: Path to the Excel file
             filter_by_date: If True, only include rows with dates in target fiscal year.
                            Default is False to include ALL assets.
             target_tax_year: Tax year to process (e.g., 2025). Sheets from prior years
                             will be skipped for performance. If None, uses current year.
+            preloaded_sheets: Optional dict of sheet_name -> DataFrame. If provided,
+                             skips reading the Excel file (already loaded by caller).
+            tab_analysis_result: Optional pre-computed tab analysis result. If provided,
+                                skips redundant sheet analysis for faster processing.
 
         Returns:
             List of Asset objects from all valid sheets
@@ -98,24 +113,29 @@ class ImporterService:
         _thread_local.last_parse_result = result
 
         # 1. Load ALL sheets from the Excel file (header=None for raw data)
-        try:
-            xl = pd.ExcelFile(file_path)
-        except Exception as e:
-            error = f"Could not open Excel file: {e}"
-            result.errors.append(error)
-            print(f"Error: {error}")
-            return []
-
-        sheets = {}
-        for sheet_name in xl.sheet_names:
+        # PERFORMANCE: Skip file I/O if sheets are already loaded by caller
+        if preloaded_sheets is not None:
+            sheets = preloaded_sheets
+            print(f"Using pre-loaded sheets: {len(sheets)} sheets (skipping file I/O)")
+        else:
             try:
-                df = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
-                sheets[sheet_name] = df
+                xl = pd.ExcelFile(file_path)
             except Exception as e:
-                warning = f"Could not read sheet '{sheet_name}': {e}"
-                result.warnings.append(warning)
-                print(f"Warning: {warning}")
-        xl.close()
+                error = f"Could not open Excel file: {e}"
+                result.errors.append(error)
+                print(f"Error: {error}")
+                return []
+
+            sheets = {}
+            for sheet_name in xl.sheet_names:
+                try:
+                    df = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
+                    sheets[sheet_name] = df
+                except Exception as e:
+                    warning = f"Could not read sheet '{sheet_name}': {e}"
+                    result.warnings.append(warning)
+                    print(f"Warning: {warning}")
+            xl.close()
 
         if not sheets:
             error = "No readable sheets found in file"
@@ -128,6 +148,7 @@ class ImporterService:
         # 2. Use advanced sheet_loader to build unified dataframe from ALL sheets
         # CRITICAL: filter_by_date=False ensures assets without dates are NOT excluded
         # PERFORMANCE: target_tax_year enables skipping prior year sheets
+        # PERFORMANCE: tab_analysis_result enables skipping redundant analysis
         from datetime import datetime
         effective_tax_year = target_tax_year or datetime.now().year
 
@@ -136,7 +157,8 @@ class ImporterService:
                 sheets,
                 target_tax_year=effective_tax_year,  # Skip prior year sheets for performance
                 filter_by_date=filter_by_date,  # Default False - include all assets
-                client_id=None
+                client_id=None,
+                tab_analysis_result=tab_analysis_result  # Use pre-computed skip decisions
             )
         except Exception as e:
             print(f"Error in build_unified_dataframe: {e}")
