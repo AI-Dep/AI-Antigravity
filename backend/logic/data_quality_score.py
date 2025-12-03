@@ -221,7 +221,7 @@ def _check_required_fields(df: pd.DataFrame) -> QualityCheckResult:
 
 
 def _check_duplicates(df: pd.DataFrame) -> QualityCheckResult:
-    """Check for duplicate Asset IDs."""
+    """Check for duplicate Asset IDs, including cross-sheet duplicates."""
     if "Asset ID" not in df.columns:
         return QualityCheckResult(
             name="Duplicate Check",
@@ -248,7 +248,21 @@ def _check_duplicates(df: pd.DataFrame) -> QualityCheckResult:
     duplicate_count = asset_ids.duplicated().sum()
     total = len(asset_ids)
 
-    if duplicate_count == 0:
+    # Check for cross-sheet duplicates (same asset appearing in multiple sheets)
+    cross_sheet_duplicates = []
+    if "Source Sheet" in df.columns:
+        # Group by Asset ID and check if same ID appears in multiple sheets
+        for asset_id in asset_ids.unique():
+            asset_rows = df[df["Asset ID"] == asset_id]
+            if len(asset_rows) > 1:
+                sheets = asset_rows["Source Sheet"].dropna().unique()
+                if len(sheets) > 1:
+                    cross_sheet_duplicates.append({
+                        "asset_id": asset_id,
+                        "sheets": list(sheets)
+                    })
+
+    if duplicate_count == 0 and len(cross_sheet_duplicates) == 0:
         return QualityCheckResult(
             name="Duplicate Check",
             passed=True,
@@ -259,10 +273,24 @@ def _check_duplicates(df: pd.DataFrame) -> QualityCheckResult:
             fix_suggestion=None
         )
 
-    # Score decreases significantly with duplicates (critical issue)
-    score = max(0, 100 - (duplicate_count / total * 200))  # 50% duplicates = 0 score
+    # Build detailed message
+    issues = []
+    fix_suggestions = []
 
-    duplicate_ids = asset_ids[asset_ids.duplicated()].unique()[:5]
+    if duplicate_count > 0:
+        duplicate_ids = asset_ids[asset_ids.duplicated()].unique()[:5]
+        issues.append(f"{duplicate_count} duplicate Asset IDs (e.g., {', '.join(str(x) for x in duplicate_ids)})")
+        fix_suggestions.append(f"Remove or reassign {duplicate_count} duplicate Asset IDs")
+
+    if len(cross_sheet_duplicates) > 0:
+        sample = cross_sheet_duplicates[:3]
+        cross_sheet_msg = "; ".join([f"'{d['asset_id']}' in {d['sheets']}" for d in sample])
+        issues.append(f"{len(cross_sheet_duplicates)} assets appear in multiple sheets ({cross_sheet_msg})")
+        fix_suggestions.append("Review cross-sheet duplicates - same asset may be listed in multiple tabs")
+
+    # Score decreases significantly with duplicates (critical issue)
+    total_duplicates = duplicate_count + len(cross_sheet_duplicates)
+    score = max(0, 100 - (total_duplicates / total * 200))  # 50% duplicates = 0 score
 
     return QualityCheckResult(
         name="Duplicate Check",
@@ -270,9 +298,40 @@ def _check_duplicates(df: pd.DataFrame) -> QualityCheckResult:
         score=score,
         max_score=100,
         weight=0.20,
-        details=f"{duplicate_count} duplicate Asset IDs found (e.g., {', '.join(str(x) for x in duplicate_ids)})",
-        fix_suggestion=f"Remove or reassign {duplicate_count} duplicate Asset IDs to prevent double depreciation"
+        details="; ".join(issues),
+        fix_suggestion="; ".join(fix_suggestions)
     )
+
+
+def detect_cross_sheet_duplicates(df: pd.DataFrame) -> List[Dict]:
+    """
+    Detect assets that appear in multiple sheets.
+
+    Returns a list of duplicate groups for display in the UI.
+    Each group contains the asset ID and the sheets where it appears.
+    """
+    cross_sheet_duplicates = []
+
+    if "Asset ID" not in df.columns or "Source Sheet" not in df.columns:
+        return cross_sheet_duplicates
+
+    # Get non-null Asset IDs
+    df_with_ids = df[df["Asset ID"].notna()].copy()
+
+    # Group by Asset ID
+    for asset_id, group in df_with_ids.groupby("Asset ID"):
+        sheets = group["Source Sheet"].dropna().unique()
+        if len(sheets) > 1:
+            # This asset appears in multiple sheets
+            cross_sheet_duplicates.append({
+                "asset_id": str(asset_id),
+                "sheets": list(sheets),
+                "count": len(group),
+                "descriptions": group["Description"].dropna().unique().tolist()[:2],
+                "total_cost": group["Cost"].sum() if "Cost" in group.columns else 0
+            })
+
+    return cross_sheet_duplicates
 
 
 def _check_dates(df: pd.DataFrame, tax_year: int) -> QualityCheckResult:

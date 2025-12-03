@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
-import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2, Shield, Wand2, DollarSign, Calculator, Trash2 } from 'lucide-react';
+import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2, Shield, Wand2, DollarSign, Calculator, Trash2, Columns, Hash, Settings2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 // Import API types for consistent contract
@@ -22,6 +22,8 @@ function Review({ assets = [] }) {
     const [taxYear, setTaxYear] = useState(new Date().getFullYear());
     const [taxYearLoading, setTaxYearLoading] = useState(false); // Loading state for tax year change
     const [tableCompact, setTableCompact] = useState(false); // Table density: false = comfortable, true = compact
+    const [showTechnicalCols, setShowTechnicalCols] = useState(false); // Asset ID, FA CS #
+    const [showMacrsCols, setShowMacrsCols] = useState(true); // Class, Life, Method, Election
     const [exportStatus, setExportStatus] = useState({ ready: false, reason: null }); // Track export readiness
     const [compatibilityCheck, setCompatibilityCheck] = useState(null); // FA CS compatibility check results
     const [showCompatDialog, setShowCompatDialog] = useState(false); // Show compatibility dialog
@@ -881,6 +883,37 @@ function Review({ assets = [] }) {
                             Compact
                         </button>
                     </div>
+                    <div className="h-4 w-px bg-slate-300" />
+                    {/* Column Visibility Toggles */}
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500">Columns:</span>
+                        <button
+                            onClick={() => setShowTechnicalCols(!showTechnicalCols)}
+                            className={cn(
+                                "px-2 py-1 rounded text-xs font-medium transition-all flex items-center gap-1",
+                                showTechnicalCols
+                                    ? "bg-blue-600 text-white"
+                                    : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-100"
+                            )}
+                            title="Show/hide Asset ID and FA CS # columns"
+                        >
+                            <Hash className="w-3 h-3" />
+                            IDs
+                        </button>
+                        <button
+                            onClick={() => setShowMacrsCols(!showMacrsCols)}
+                            className={cn(
+                                "px-2 py-1 rounded text-xs font-medium transition-all flex items-center gap-1",
+                                showMacrsCols
+                                    ? "bg-blue-600 text-white"
+                                    : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-100"
+                            )}
+                            title="Show/hide MACRS classification details (Class, Life, Method, Election)"
+                        >
+                            <Settings2 className="w-3 h-3" />
+                            MACRS
+                        </button>
+                    </div>
                     {!showExistingAssets && stats.existing > 0 && (
                         <div className="text-xs text-slate-500 flex items-center gap-1">
                             <EyeOff className="w-3 h-3" />
@@ -895,23 +928,30 @@ function Review({ assets = [] }) {
                 <CardContent className="p-0">
                     <div className="overflow-x-auto">
                         <table className={cn(
-                            "w-full text-left min-w-[1200px]",
+                            "w-full text-left",
                             tableCompact ? "text-xs" : "text-sm"
-                        )} style={{ tableLayout: 'fixed' }}>
+                        )} style={{
+                            tableLayout: 'fixed',
+                            minWidth: `${700 + (showTechnicalCols ? 140 : 0) + (showMacrsCols ? 335 : 0)}px`
+                        }}>
                             <thead className={cn(
                                 "text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-900/50 border-b",
                                 tableCompact ? "text-[10px]" : "text-xs"
                             )}>
                                 <tr>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '90px', minWidth: '75px', resize: 'horizontal', overflow: 'hidden' }}>Status</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '75px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Asset ID</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '65px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>
-                                        <span className="flex items-center gap-1 cursor-help" title="FA CS Asset # (numeric). Edit to resolve collisions with client Asset IDs.">
-                                            FA CS #
-                                            <Info className="w-3 h-3 text-slate-400" />
-                                        </span>
-                                    </th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '210px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}>Description</th>
+                                    {showTechnicalCols && (
+                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '75px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Asset ID</th>
+                                    )}
+                                    {showTechnicalCols && (
+                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '65px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>
+                                            <span className="flex items-center gap-1 cursor-help" title="FA CS Asset # (numeric). Edit to resolve collisions with client Asset IDs.">
+                                                FA CS #
+                                                <Info className="w-3 h-3 text-slate-400" />
+                                            </span>
+                                        </th>
+                                    )}
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: showTechnicalCols ? '210px' : '280px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}>Description</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '95px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Cost</th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '90px', resize: 'horizontal', overflow: 'hidden' }}>
                                         <span className="flex items-center gap-1 cursor-help" title="Additions/Existing: Date In Service | Disposals: Disposal Date | Transfers: Transfer Date">
@@ -920,15 +960,23 @@ function Review({ assets = [] }) {
                                         </span>
                                     </th>
                                     <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '95px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Trans. Type</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '90px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Class</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '55px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Life</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '65px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>Method</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '125px', minWidth: '110px', resize: 'horizontal', overflow: 'hidden' }}>
-                                        <span className="flex items-center gap-1">
-                                            Election
-                                            <span className="text-[9px] bg-blue-100 text-blue-700 px-1 rounded">179/Bonus</span>
-                                        </span>
-                                    </th>
+                                    {showMacrsCols && (
+                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '90px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Class</th>
+                                    )}
+                                    {showMacrsCols && (
+                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '55px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Life</th>
+                                    )}
+                                    {showMacrsCols && (
+                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '65px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>Method</th>
+                                    )}
+                                    {showMacrsCols && (
+                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '125px', minWidth: '110px', resize: 'horizontal', overflow: 'hidden' }}>
+                                            <span className="flex items-center gap-1">
+                                                Election
+                                                <span className="text-[9px] bg-blue-100 text-blue-700 px-1 rounded">179/Bonus</span>
+                                            </span>
+                                        </th>
+                                    )}
                                     <th className={cn(tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '85px' }}>Actions</th>
                                 </tr>
                             </thead>
@@ -1003,18 +1051,49 @@ function Review({ assets = [] }) {
                                                                 "inline-flex items-center rounded-full font-medium bg-yellow-100 text-yellow-800 cursor-help",
                                                                 tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
                                                             )}
-                                                            title={
-                                                                asset.transaction_type?.includes('Disposal')
-                                                                    ? `Incomplete Data (${Math.round((asset.confidence_score || 0) * 100)}%)\n⚠ Missing disposal date or cost\n⚠ Cannot calculate gain/loss\n→ Add missing data for processing`
+                                                            title={(() => {
+                                                                // Smart suggestion based on asset data
+                                                                const desc = (asset.description || '').toLowerCase();
+                                                                let suggestion = '';
+
+                                                                // Suggest based on description keywords
+                                                                if (desc.includes('computer') || desc.includes('laptop') || desc.includes('server')) {
+                                                                    suggestion = '\n\n💡 Suggestion: Likely 5-year Computer Equipment';
+                                                                } else if (desc.includes('furniture') || desc.includes('desk') || desc.includes('chair')) {
+                                                                    suggestion = '\n\n💡 Suggestion: Likely 7-year Furniture & Fixtures';
+                                                                } else if (desc.includes('vehicle') || desc.includes('truck') || desc.includes('car')) {
+                                                                    suggestion = '\n\n💡 Suggestion: Likely 5-year Vehicles';
+                                                                } else if (desc.includes('building') || desc.includes('hvac') || desc.includes('roof')) {
+                                                                    suggestion = '\n\n💡 Suggestion: Likely 39-year Real Property';
+                                                                } else if (desc.includes('software') || desc.includes('license')) {
+                                                                    suggestion = '\n\n💡 Suggestion: Likely 3-year Software';
+                                                                } else if (desc.includes('equipment') || desc.includes('machine')) {
+                                                                    suggestion = '\n\n💡 Suggestion: Likely 7-year Equipment';
+                                                                }
+
+                                                                // Include classification_reason if available
+                                                                const reason = asset.classification_reason ? `\n📋 ${asset.classification_reason}` : '';
+
+                                                                return asset.transaction_type?.includes('Disposal')
+                                                                    ? `Incomplete Data (${Math.round((asset.confidence_score || 0) * 100)}%)\n⚠ Missing disposal date or cost\n⚠ Cannot calculate gain/loss\n→ Add missing data for processing${reason}`
                                                                     : asset.transaction_type?.includes('Transfer')
-                                                                    ? `Incomplete Data (${Math.round((asset.confidence_score || 0) * 100)}%)\n⚠ Missing transfer date or locations\n⚠ Incomplete transfer record\n→ Add from/to location info`
+                                                                    ? `Incomplete Data (${Math.round((asset.confidence_score || 0) * 100)}%)\n⚠ Missing transfer date or locations\n⚠ Incomplete transfer record\n→ Add from/to location info${reason}`
                                                                     : asset.confidence_score > 0.5
-                                                                    ? `Medium Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n⚠ Partial description match\n⚠ Multiple possible classifications\n→ Recommend manual review`
-                                                                    : `Low Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n✗ Unknown or ambiguous asset type\n✗ Insufficient data for classification\n→ Manual classification required`
-                                                            }
+                                                                    ? `Medium Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n⚠ Partial description match\n⚠ Multiple possible classifications\n→ Recommend manual review${reason}${suggestion}`
+                                                                    : `Low Confidence (${Math.round((asset.confidence_score || 0) * 100)}%)\n✗ Unknown or ambiguous asset type\n✗ Insufficient data for classification\n→ Manual classification required${reason}${suggestion}`;
+                                                            })()}
                                                         >
                                                             <AlertTriangle className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
                                                             Review
+                                                            {/* Show wand icon if we have a smart suggestion */}
+                                                            {!asset.transaction_type?.includes('Disposal') && !asset.transaction_type?.includes('Transfer') && (
+                                                                ((asset.description || '').toLowerCase().match(/computer|laptop|server|furniture|desk|chair|vehicle|truck|car|building|hvac|roof|software|license|equipment|machine/)) && (
+                                                                    <Wand2 className={cn(
+                                                                        "ml-0.5 text-purple-600",
+                                                                        tableCompact ? "w-2.5 h-2.5" : "w-3 h-3"
+                                                                    )} />
+                                                                )
+                                                            )}
                                                         </span>
                                                     )}
                                                     {/* Confidence % below the badge */}
@@ -1030,53 +1109,57 @@ function Review({ assets = [] }) {
                                                     </span>
                                                 </div>
                                             </td>
-                                            {/* Asset ID (Client's ID) */}
-                                            <td className={cn(
-                                                "font-medium text-slate-900 dark:text-white",
-                                                tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
-                                            )}>
-                                                {asset.asset_id || "-"}
-                                            </td>
-                                            {/* FA CS # (Editable - maps to FA CS numeric Asset #) */}
-                                            <td className={cn(
-                                                "text-slate-600",
-                                                tableCompact ? "px-1 py-1" : "px-2 py-1.5"
-                                            )}>
-                                                <input
-                                                    type="number"
-                                                    min="1"
-                                                    className={cn(
-                                                        "w-full border rounded text-center font-mono",
-                                                        tableCompact ? "px-1 py-0.5 text-[10px]" : "px-2 py-1 text-xs",
-                                                        // Show pending state while debouncing
-                                                        pendingFacsNumbers[asset.unique_id] !== undefined
-                                                            ? "border-yellow-300 bg-yellow-50"
-                                                            : asset.fa_cs_asset_number
-                                                                ? "border-blue-300 bg-blue-50"
-                                                                : "border-slate-200 bg-white",
-                                                        "focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                                    )}
-                                                    placeholder={(() => {
-                                                        // Calculate auto-generated FA CS # (same logic as backend)
-                                                        if (asset.asset_id) {
-                                                            const match = String(asset.asset_id).match(/(\d+)/);
-                                                            return match ? match[1] : String(asset.row_index);
+                                            {/* Asset ID (Client's ID) - Collapsible */}
+                                            {showTechnicalCols && (
+                                                <td className={cn(
+                                                    "font-medium text-slate-900 dark:text-white",
+                                                    tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
+                                                )}>
+                                                    {asset.asset_id || "-"}
+                                                </td>
+                                            )}
+                                            {/* FA CS # (Editable - maps to FA CS numeric Asset #) - Collapsible */}
+                                            {showTechnicalCols && (
+                                                <td className={cn(
+                                                    "text-slate-600",
+                                                    tableCompact ? "px-1 py-1" : "px-2 py-1.5"
+                                                )}>
+                                                    <input
+                                                        type="number"
+                                                        min="1"
+                                                        className={cn(
+                                                            "w-full border rounded text-center font-mono",
+                                                            tableCompact ? "px-1 py-0.5 text-[10px]" : "px-2 py-1 text-xs",
+                                                            // Show pending state while debouncing
+                                                            pendingFacsNumbers[asset.unique_id] !== undefined
+                                                                ? "border-yellow-300 bg-yellow-50"
+                                                                : asset.fa_cs_asset_number
+                                                                    ? "border-blue-300 bg-blue-50"
+                                                                    : "border-slate-200 bg-white",
+                                                            "focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                        )}
+                                                        placeholder={(() => {
+                                                            // Calculate auto-generated FA CS # (same logic as backend)
+                                                            if (asset.asset_id) {
+                                                                const match = String(asset.asset_id).match(/(\d+)/);
+                                                                return match ? match[1] : String(asset.row_index);
+                                                            }
+                                                            return String(asset.row_index);
+                                                        })()}
+                                                        value={
+                                                            // Show pending value if debouncing, else actual value
+                                                            pendingFacsNumbers[asset.unique_id] !== undefined
+                                                                ? (pendingFacsNumbers[asset.unique_id] ?? "")
+                                                                : (asset.fa_cs_asset_number ?? "")
                                                         }
-                                                        return String(asset.row_index);
-                                                    })()}
-                                                    value={
-                                                        // Show pending value if debouncing, else actual value
-                                                        pendingFacsNumbers[asset.unique_id] !== undefined
-                                                            ? (pendingFacsNumbers[asset.unique_id] ?? "")
-                                                            : (asset.fa_cs_asset_number ?? "")
-                                                    }
-                                                    onChange={(e) => handleFacsNumberChange(asset.unique_id, e.target.value)}
-                                                    title={asset.fa_cs_asset_number
-                                                        ? `Explicit FA CS #: ${asset.fa_cs_asset_number}`
-                                                        : `Auto-generated from "${asset.asset_id || 'row ' + asset.row_index}". Click to override.`
-                                                    }
-                                                />
-                                            </td>
+                                                        onChange={(e) => handleFacsNumberChange(asset.unique_id, e.target.value)}
+                                                        title={asset.fa_cs_asset_number
+                                                            ? `Explicit FA CS #: ${asset.fa_cs_asset_number}`
+                                                            : `Auto-generated from "${asset.asset_id || 'row ' + asset.row_index}". Click to override.`
+                                                        }
+                                                    />
+                                                </td>
+                                            )}
                                             {/* Description */}
                                             <td className={cn(
                                                 "text-slate-600 dark:text-slate-300 truncate",
@@ -1246,8 +1329,8 @@ function Review({ assets = [] }) {
                                                 </span>
                                             </td>
 
-                                            {/* Class, Life, Method - Hidden for De Minimis, Disposals, and Transfers */}
-                                            {editingId === asset.unique_id ? (
+                                            {/* Class, Life, Method - Hidden for De Minimis, Disposals, and Transfers - Collapsible */}
+                                            {showMacrsCols && (editingId === asset.unique_id ? (
                                                 // Edit mode - Class, Life, Method inputs (hidden when not applicable)
                                                 hideMacrsFields ? (
                                                     // De Minimis/Disposal/Transfer: Show empty cells (MACRS fields not applicable)
@@ -1340,9 +1423,10 @@ function Review({ assets = [] }) {
                                                         </td>
                                                     </>
                                                 )
-                                            )}
+                                            ))}
 
-                                            {/* Election Column - 179/Bonus/DeMinimis/MACRS (always visible, outside edit mode toggle) */}
+                                            {/* Election Column - 179/Bonus/DeMinimis/MACRS - Collapsible */}
+                                            {showMacrsCols && (
                                             <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                 {asset.transaction_type === "Current Year Addition" ? (
                                                     <div className="relative flex items-center gap-1">
@@ -1447,6 +1531,7 @@ function Review({ assets = [] }) {
                                                     </span>
                                                 )}
                                             </td>
+                                            )}
 
                                             {/* Actions */}
                                             <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>

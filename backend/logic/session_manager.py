@@ -110,6 +110,7 @@ def serialize_session(session: 'SessionData') -> str:
         "last_upload_filename": session.last_upload_filename,
         "tax_config": session.tax_config,
         "facs_config": session.facs_config,
+        "session_metrics": session.session_metrics,
     }
     return json.dumps(data, cls=SessionJSONEncoder)
 
@@ -137,6 +138,7 @@ def deserialize_session(json_str: str) -> 'SessionData':
         last_upload_filename=data.get("last_upload_filename"),
         tax_config=data.get("tax_config", {}),
         facs_config=data.get("facs_config", {}),
+        session_metrics=data.get("session_metrics", {}),
     )
 
 T = TypeVar('T')
@@ -181,6 +183,18 @@ class SessionData:
     # Parse warnings and stats (from importer)
     parse_warnings: List[str] = field(default_factory=list)
     parse_stats: Dict[str, Any] = field(default_factory=dict)
+
+    # Session metrics for ROI demonstration
+    session_metrics: Dict[str, Any] = field(default_factory=lambda: {
+        "import_start_time": None,
+        "import_end_time": None,
+        "classification_time_ms": 0,
+        "total_assets_imported": 0,
+        "assets_auto_approved": 0,
+        "assets_needing_review": 0,
+        "high_confidence_count": 0,
+        "low_confidence_count": 0,
+    })
 
     # Tax configuration (replaces global TAX_CONFIG)
     tax_config: Dict[str, Any] = field(default_factory=lambda: {
