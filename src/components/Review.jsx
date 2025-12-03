@@ -1020,45 +1020,45 @@ function Review({ assets = [] }) {
                                 tableCompact ? "text-[10px]" : "text-xs"
                             )}>
                                 <tr>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '90px', minWidth: '75px', resize: 'horizontal', overflow: 'hidden' }}>Status</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '80px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Status</th>
                                     {showTechnicalCols && (
-                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '75px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Asset ID</th>
+                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '70px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>Asset ID</th>
                                     )}
                                     {showTechnicalCols && (
-                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '65px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>
+                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '60px', minWidth: '50px', resize: 'horizontal', overflow: 'hidden' }}>
                                             <span className="flex items-center gap-1 cursor-help" title="FA CS Asset # (numeric). Edit to resolve collisions with client Asset IDs.">
                                                 FA CS #
                                                 <Info className="w-3 h-3 text-slate-400" />
                                             </span>
                                         </th>
                                     )}
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: showTechnicalCols ? '210px' : '280px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}>Description</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '95px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Cost</th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '90px', resize: 'horizontal', overflow: 'hidden' }}>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: showTechnicalCols ? '180px' : '240px', minWidth: '100px', resize: 'horizontal', overflow: 'hidden' }}>Description</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '175px', minWidth: '120px', resize: 'horizontal', overflow: 'hidden' }}>Cost</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '95px', minWidth: '85px', resize: 'horizontal', overflow: 'hidden' }}>
                                         <span className="flex items-center gap-1 cursor-help" title="Additions/Existing: Date In Service | Disposals: Disposal Date | Transfers: Transfer Date">
                                             Key Date
                                             <Info className="w-3 h-3 text-slate-400" />
                                         </span>
                                     </th>
-                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '95px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Trans. Type</th>
+                                    <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '85px', minWidth: '70px', resize: 'horizontal', overflow: 'hidden' }}>Trans. Type</th>
                                     {showMacrsCols && (
-                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '90px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Class</th>
+                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '85px', minWidth: '60px', resize: 'horizontal', overflow: 'hidden' }}>Class</th>
                                     )}
                                     {showMacrsCols && (
-                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '55px', minWidth: '45px', resize: 'horizontal', overflow: 'hidden' }}>Life</th>
+                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '50px', minWidth: '40px', resize: 'horizontal', overflow: 'hidden' }}>Life</th>
                                     )}
                                     {showMacrsCols && (
-                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '65px', minWidth: '55px', resize: 'horizontal', overflow: 'hidden' }}>Method</th>
+                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '60px', minWidth: '50px', resize: 'horizontal', overflow: 'hidden' }}>Method</th>
                                     )}
                                     {showMacrsCols && (
-                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '125px', minWidth: '110px', resize: 'horizontal', overflow: 'hidden' }}>
+                                        <th className={cn("resizable-col", tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '115px', minWidth: '100px', resize: 'horizontal', overflow: 'hidden' }}>
                                             <span className="flex items-center gap-1">
                                                 Election
                                                 <span className="text-[9px] bg-blue-100 text-blue-700 px-1 rounded">179/Bonus</span>
                                             </span>
                                         </th>
                                     )}
-                                    <th className={cn(tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '100px', minWidth: '85px' }}>Actions</th>
+                                    <th className={cn(tableCompact ? "px-2 py-2" : "px-3 py-3")} style={{ width: '90px', minWidth: '80px' }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
