@@ -911,10 +911,10 @@ def _detect_sheet_role_from_name(sheet_name: str) -> Optional[SheetRole]:
     if any(kw in sheet_lower for kw in ["addition", "purchase", "acquisition", "new"]):
         return SheetRole.ADDITIONS
 
-    # Existing assets indicators (assets already in FA CS from prior years)
-    if any(kw in sheet_lower for kw in ["existing", "current asset", "prior year", "beginning balance",
-                                         "beg bal", "fa cs export", "fixed asset detail", "asset register"]):
-        return SheetRole.EXISTING
+    # NOTE: We intentionally do NOT detect "existing" from sheet names here.
+    # Sheet names like "Fixed Asset Detail" or "Asset Register" contain ALL assets,
+    # not just existing ones. The existing vs addition distinction is made at EXPORT time
+    # based on in_service_date vs tax_year comparison, not sheet name.
 
     # Summary indicators
     if any(kw in sheet_lower for kw in ["summary", "totals", "rollforward", "roll-forward", "master"]):
