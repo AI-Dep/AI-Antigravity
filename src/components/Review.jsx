@@ -1258,40 +1258,61 @@ function Review({ assets = [] }) {
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
                                             )}>
                                                 <div className="flex flex-col">
-                                                    <span>${(asset.cost || 0).toLocaleString()}</span>
-                                                    {/* Disposal gain/loss preview */}
-                                                    {isDisposal(asset.transaction_type) && (
-                                                        <span className={cn(
-                                                            "text-[10px]",
-                                                            // Calculate estimated gain/loss
-                                                            (() => {
-                                                                const proceeds = asset.sale_proceeds || asset.proceeds || 0;
-                                                                const accumDepr = asset.accumulated_depreciation || asset.accum_depr || 0;
-                                                                const bookValue = (asset.cost || 0) - accumDepr;
-                                                                const gainLoss = proceeds - bookValue;
-                                                                return gainLoss >= 0 ? "text-green-600" : "text-red-600";
-                                                            })()
-                                                        )}
-                                                            title={(() => {
-                                                                const proceeds = asset.sale_proceeds || asset.proceeds || 0;
-                                                                const accumDepr = asset.accumulated_depreciation || asset.accum_depr || 0;
-                                                                const bookValue = (asset.cost || 0) - accumDepr;
-                                                                return `Cost: $${(asset.cost || 0).toLocaleString()}\nAccum Depr: $${accumDepr.toLocaleString()}\nBook Value: $${bookValue.toLocaleString()}\nProceeds: $${proceeds.toLocaleString()}`;
-                                                            })()}
-                                                        >
-                                                            {(() => {
-                                                                const proceeds = asset.sale_proceeds || asset.proceeds || 0;
-                                                                const accumDepr = asset.accumulated_depreciation || asset.accum_depr || 0;
-                                                                const bookValue = (asset.cost || 0) - accumDepr;
-                                                                const gainLoss = proceeds - bookValue;
-                                                                if (accumDepr === 0 && proceeds === 0) {
-                                                                    return <span className="text-slate-400 cursor-help" title="Add accumulated depreciation and sale proceeds for gain/loss calculation">Est. G/L: —</span>;
-                                                                }
-                                                                return gainLoss >= 0
-                                                                    ? `Gain: $${gainLoss.toLocaleString()}`
-                                                                    : `Loss: ($${Math.abs(gainLoss).toLocaleString()})`;
-                                                            })()}
-                                                        </span>
+                                                    {/* Option A2: For disposals show Cost (NBV: $X) + Proc → Gain/Loss */}
+                                                    {isDisposal(asset.transaction_type) ? (
+                                                        (() => {
+                                                            const proceeds = asset.sale_proceeds || asset.proceeds || 0;
+                                                            const accumDepr = asset.accumulated_depreciation || asset.accum_depr || 0;
+                                                            const cost = asset.cost || 0;
+                                                            const nbv = asset.net_book_value || (cost - accumDepr);
+                                                            const gainLoss = asset.gain_loss ?? (proceeds - nbv);
+                                                            const hasData = accumDepr > 0 || proceeds > 0;
+
+                                                            // Build detailed tooltip
+                                                            let tooltip = "═══ GAIN/LOSS CALCULATION ═══\n\n";
+                                                            tooltip += `Cost:           $${cost.toLocaleString()}\n`;
+                                                            tooltip += `- Accum Depr:   $${accumDepr.toLocaleString()}\n`;
+                                                            tooltip += `────────────────────────\n`;
+                                                            tooltip += `= NBV:          $${nbv.toLocaleString()}\n\n`;
+                                                            tooltip += `Proceeds:       $${proceeds.toLocaleString()}\n`;
+                                                            tooltip += `- NBV:          $${nbv.toLocaleString()}\n`;
+                                                            tooltip += `────────────────────────\n`;
+                                                            tooltip += `= ${gainLoss >= 0 ? 'GAIN' : 'LOSS'}:         $${Math.abs(gainLoss).toLocaleString()}`;
+
+                                                            return (
+                                                                <div className="cursor-help" title={tooltip}>
+                                                                    {/* Line 1: Cost (NBV: $X) */}
+                                                                    <span>
+                                                                        ${cost.toLocaleString()}
+                                                                        {hasData && (
+                                                                            <span className="text-slate-400 text-[10px] ml-1">
+                                                                                (NBV: ${nbv.toLocaleString()})
+                                                                            </span>
+                                                                        )}
+                                                                    </span>
+                                                                    {/* Line 2: Proc: $X → Gain/Loss */}
+                                                                    {hasData && (
+                                                                        <div className="text-[10px]">
+                                                                            <span className="text-slate-500">Proc: ${proceeds.toLocaleString()}</span>
+                                                                            <span className="text-slate-400 mx-1">→</span>
+                                                                            <span className={gainLoss >= 0 ? "text-green-600" : "text-red-600"}>
+                                                                                {gainLoss >= 0
+                                                                                    ? `Gain: $${gainLoss.toLocaleString()}`
+                                                                                    : `Loss: ($${Math.abs(gainLoss).toLocaleString()})`
+                                                                                }
+                                                                            </span>
+                                                                        </div>
+                                                                    )}
+                                                                    {!hasData && (
+                                                                        <div className="text-[10px] text-slate-400">
+                                                                            Missing A/D & Proceeds
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()
+                                                    ) : (
+                                                        <span>${(asset.cost || 0).toLocaleString()}</span>
                                                     )}
                                                 </div>
                                             </td>
