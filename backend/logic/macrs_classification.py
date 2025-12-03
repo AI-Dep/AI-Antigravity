@@ -23,20 +23,37 @@ from .constants import LOW_CONFIDENCE_THRESHOLD, MIN_RULE_SCORE, GPT_TEMPERATURE
 from .api_utils import retry_with_exponential_backoff
 
 # Import OpenAI with graceful fallback
-# Only consider OpenAI available if BOTH the library is installed AND the API key is set
-# AND the DISABLE_GPT_CLASSIFICATION flag is not set
+# Only consider OpenAI available if:
+# 1. The library is installed
+# 2. use_ai_classification is enabled in config
+# 3. The API key is configured in config.json (not just env var)
 import os
 try:
     from openai import OpenAI
-    # Check if API key is actually configured (not just library installed)
-    _api_key = os.environ.get('OPENAI_API_KEY', '')
-    # Allow disabling GPT classification for speed (use rules only)
+    from .config_manager import get_config
+
+    # Check config_manager settings - this respects config.json settings
+    _config = get_config()
+    _use_ai = _config.get('use_ai_classification', False)
+    _config_api_key = _config.get('openai_api_key', '')
+
+    # Also check env override flag
     _disable_gpt = os.environ.get('DISABLE_GPT_CLASSIFICATION', '').lower() in ('true', '1', 'yes')
-    OPENAI_AVAILABLE = bool(_api_key and len(_api_key) > 10 and not _disable_gpt)
+
+    # Only enable OpenAI if:
+    # - use_ai_classification is True in config
+    # - API key is set in config.json (not just env var - prevents slow local dev)
+    # - DISABLE_GPT_CLASSIFICATION is not set
+    OPENAI_AVAILABLE = bool(_use_ai and _config_api_key and len(_config_api_key) > 10 and not _disable_gpt)
+
     if _disable_gpt:
         print("[MACRS] GPT classification disabled via DISABLE_GPT_CLASSIFICATION - using fast rule-based classification")
-    elif not _api_key or len(_api_key) <= 10:
-        print("[MACRS] OpenAI API key not configured - using rule-based classification")
+    elif not _use_ai:
+        print("[MACRS] AI classification disabled in config - using fast rule-based classification")
+    elif not _config_api_key or len(_config_api_key) <= 10:
+        print("[MACRS] OpenAI API key not in config.json - using fast rule-based classification")
+    else:
+        print("[MACRS] OpenAI API enabled for classification")
 except ImportError:
     OPENAI_AVAILABLE = False
     OpenAI = None
