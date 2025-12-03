@@ -7,6 +7,7 @@ import { apiGet, apiPost } from '../lib/api.client';
 function Settings() {
     const [config, setConfig] = useState({
         tax_year: new Date().getFullYear(),
+        fy_start_month: 1,  // Fiscal year start month (1=Jan/Calendar, 4=Apr, 7=Jul, 10=Oct)
         de_minimis_threshold: 2500,
         has_afs: false,
         bonus_rate: null,
@@ -69,6 +70,7 @@ function Settings() {
             // Save tax config
             const data = await apiPost('/config/tax', {
                 tax_year: config.tax_year,
+                fy_start_month: config.fy_start_month,  // CRITICAL: Pass fiscal year start month
                 de_minimis_threshold: config.de_minimis_threshold,
                 has_afs: config.has_afs
             });
@@ -120,23 +122,47 @@ function Settings() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-2">
-                            Tax Year
-                        </label>
-                        <select
-                            value={config.tax_year}
-                            onChange={(e) => setConfig({ ...config, tax_year: parseInt(e.target.value) })}
-                            className="w-full border rounded-lg px-3 py-2 text-slate-900 focus:ring-2 focus:ring-blue-500"
-                        >
-                            {[2020, 2021, 2022, 2023, 2024, 2025, 2026].map(year => (
-                                <option key={year} value={year}>{year}</option>
-                            ))}
-                        </select>
-                        <p className="text-xs text-slate-500 mt-1">
-                            Assets placed in service in this year are classified as "Current Year Additions"
-                        </p>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-2">
+                                Tax Year
+                            </label>
+                            <select
+                                value={config.tax_year}
+                                onChange={(e) => setConfig({ ...config, tax_year: parseInt(e.target.value) })}
+                                className="w-full border rounded-lg px-3 py-2 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                            >
+                                {[2020, 2021, 2022, 2023, 2024, 2025, 2026].map(year => (
+                                    <option key={year} value={year}>{year}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-2">
+                                Fiscal Year Start
+                            </label>
+                            <select
+                                value={config.fy_start_month}
+                                onChange={(e) => setConfig({ ...config, fy_start_month: parseInt(e.target.value) })}
+                                className="w-full border rounded-lg px-3 py-2 text-slate-900 focus:ring-2 focus:ring-blue-500"
+                            >
+                                <option value={1}>January (Calendar Year)</option>
+                                <option value={4}>April (Apr-Mar FY)</option>
+                                <option value={7}>July (Jul-Jun FY)</option>
+                                <option value={10}>October (Oct-Sep FY)</option>
+                            </select>
+                        </div>
                     </div>
+                    <p className="text-xs text-slate-500 mt-1">
+                        {config.fy_start_month === 1
+                            ? `Calendar Year ${config.tax_year}: Jan 1 - Dec 31, ${config.tax_year}`
+                            : config.fy_start_month === 4
+                            ? `FY ${config.tax_year}: Apr 1, ${config.tax_year - 1} - Mar 31, ${config.tax_year}`
+                            : config.fy_start_month === 7
+                            ? `FY ${config.tax_year}: Jul 1, ${config.tax_year - 1} - Jun 30, ${config.tax_year}`
+                            : `FY ${config.tax_year}: Oct 1, ${config.tax_year - 1} - Sep 30, ${config.tax_year}`
+                        }
+                    </p>
 
                     {/* OBBBA 2025 Info */}
                     {config.tax_year >= 2025 && (

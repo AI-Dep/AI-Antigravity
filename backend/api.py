@@ -1708,6 +1708,17 @@ async def upload_file(
             session.tab_analysis_result = analyze_tabs(sheets, current_tax_year)
             logger.info(f"Tab analysis: {len(session.tab_analysis_result.tabs)} tabs detected")
 
+            # AUTO-DETECT FISCAL YEAR: If detected from rollforward headers, apply it!
+            if session.tab_analysis_result.detected_fy_start_month:
+                detected_month = session.tab_analysis_result.detected_fy_start_month
+                if detected_month != current_fy_start_month:
+                    logger.info(f"[FY Auto-Detection] Updating fiscal year start from {current_fy_start_month} to {detected_month}")
+                    logger.info(f"[FY Auto-Detection] Source: {session.tab_analysis_result.fy_detection_source}")
+                    current_fy_start_month = detected_month
+                    session.tax_config["fy_start_month"] = detected_month
+                    # Update classifier's fiscal year config
+                    classifier.set_fiscal_year_config(current_tax_year, current_fy_start_month)
+
             # PERFORMANCE: Pass pre-loaded sheets and tab analysis to importer
             # This eliminates duplicate file I/O and redundant skip analysis
             assets = importer.parse_excel(

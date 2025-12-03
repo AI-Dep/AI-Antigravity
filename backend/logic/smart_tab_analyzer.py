@@ -98,6 +98,8 @@ class TabAnalysisResult:
     """Complete analysis results for all tabs in a workbook"""
     tabs: List[TabAnalysis]
     target_fiscal_year: Optional[int]
+    detected_fy_start_month: Optional[int] = None  # Auto-detected fiscal year start month (1=Jan, 4=Apr, etc.)
+    fy_detection_source: Optional[str] = None  # Where we detected the FY from (e.g., "FY 2024 2025 tab header: Beg Balance 4/1/2024")
     warnings: List[str] = field(default_factory=list)
     summary_tabs: List[str] = field(default_factory=list)
     detail_tabs: List[str] = field(default_factory=list)
@@ -252,6 +254,116 @@ def _extract_fiscal_year(tab_name: str) -> Optional[int]:
         return int(match.group(1))
 
     return None
+
+
+def _detect_fiscal_year_from_headers(df: pd.DataFrame, tab_name: str = "") -> Tuple[Optional[int], Optional[str]]:
+    """
+    Detect fiscal year START MONTH from column headers in rollforward schedules.
+
+    Looks for patterns like:
+    - "Beg Balance 4/1/2024" -> April start (month 4)
+    - "Beginning Balance 4/1/2024" -> April start
+    - "End Balance 3/31/2025" -> March end (confirms Apr-Mar FY)
+    - Column header dates that indicate fiscal year boundaries
+
+    Args:
+        df: DataFrame to analyze (first few rows contain headers)
+        tab_name: Tab name for logging
+
+    Returns:
+        Tuple of (fy_start_month, detection_source)
+        - fy_start_month: 1=Jan (calendar), 4=Apr, 7=Jul, 10=Oct, or None
+        - detection_source: Description of where we found the info
+    """
+    if df is None or df.empty:
+        return None, None
+
+    # Patterns for detecting fiscal year boundary dates
+    # Looking for "Beg Balance 4/1/2024" or "Beginning Balance 4/1/2024" etc.
+    beg_balance_pattern = r'(?:beg(?:inning)?\.?\s*(?:bal(?:ance)?\.?)?|opening)\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})'
+    end_balance_pattern = r'(?:end(?:ing)?\.?\s*(?:bal(?:ance)?\.?)?|closing)\s*(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})'
+
+    # Also look for standalone dates in headers like "4/1/2024" near "Beg" text
+    date_pattern = r'(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})'
+
+    detected_start_month = None
+    detected_end_month = None
+    source = None
+
+    # Check first 10 rows for header information
+    rows_to_check = min(10, len(df))
+
+    for row_idx in range(rows_to_check):
+        row = df.iloc[row_idx]
+        for col_idx, cell in enumerate(row):
+            if cell is None or pd.isna(cell):
+                continue
+
+            cell_str = str(cell).lower().strip()
+
+            # Look for "Beg Balance 4/1/2024" pattern
+            beg_match = re.search(beg_balance_pattern, cell_str)
+            if beg_match:
+                month = int(beg_match.group(1))
+                day = int(beg_match.group(2))
+                year = int(beg_match.group(3))
+                if year < 100:
+                    year += 2000
+
+                # Beginning balance on 1st of month = fiscal year start
+                if day == 1 and 1 <= month <= 12:
+                    detected_start_month = month
+                    source = f"'{tab_name}' header: Beg Balance {month}/1/{year}"
+                    logger.info(f"[FY Detection] Found start month {month} from: {cell_str}")
+
+            # Look for "End Balance 3/31/2025" pattern
+            end_match = re.search(end_balance_pattern, cell_str)
+            if end_match:
+                month = int(end_match.group(1))
+                day = int(end_match.group(2))
+                year = int(end_match.group(3))
+                if year < 100:
+                    year += 2000
+
+                detected_end_month = month
+                # End month can confirm fiscal year pattern
+                # End 3/31 -> start month is 4 (April)
+                # End 12/31 -> start month is 1 (January/calendar)
+                # End 6/30 -> start month is 7 (July)
+                # End 9/30 -> start month is 10 (October)
+                inferred_start = (month % 12) + 1  # Next month after end
+                if not detected_start_month:
+                    detected_start_month = inferred_start
+                    source = f"'{tab_name}' header: End Balance {month}/{day}/{year} -> inferred start month {inferred_start}"
+                    logger.info(f"[FY Detection] Inferred start month {inferred_start} from end date: {cell_str}")
+
+            # Also check for column headers that are just dates
+            # Look for pattern where adjacent cell says "Beg" or "Beginning"
+            if col_idx > 0:
+                prev_cell = row.iloc[col_idx - 1]
+                if prev_cell and str(prev_cell).lower().strip() in ['beg', 'beginning', 'beg balance', 'beginning balance', 'beg bal']:
+                    date_match = re.search(date_pattern, cell_str)
+                    if date_match:
+                        month = int(date_match.group(1))
+                        day = int(date_match.group(2))
+                        if day == 1 and 1 <= month <= 12:
+                            detected_start_month = month
+                            source = f"'{tab_name}' header: {prev_cell} column with date {cell_str}"
+                            logger.info(f"[FY Detection] Found start month {month} from adjacent cells: {prev_cell} | {cell_str}")
+
+    # Map detected start month to standard options (1, 4, 7, 10)
+    if detected_start_month:
+        # Round to nearest standard fiscal year start
+        standard_starts = [1, 4, 7, 10]
+        closest = min(standard_starts, key=lambda x: min(abs(x - detected_start_month), 12 - abs(x - detected_start_month)))
+        if closest != detected_start_month:
+            logger.info(f"[FY Detection] Rounding month {detected_start_month} to standard start {closest}")
+            source = f"{source} (rounded to {closest})"
+            detected_start_month = closest
+
+        return detected_start_month, source
+
+    return None, None
 
 
 def _detect_tab_role(tab_name: str, target_year: Optional[int] = None) -> Tuple[TabRole, float, List[str]]:
@@ -533,10 +645,23 @@ def analyze_tabs(
         target_fiscal_year=target_tax_year,
     )
 
+    # Track detected fiscal year start month (from rollforward headers)
+    detected_fy_start_month = None
+    fy_detection_source = None
+
     # Analyze each tab
     for tab_name, df in sheets.items():
         role, confidence, notes = _detect_tab_role(tab_name, target_tax_year)
         fiscal_year = _extract_fiscal_year(tab_name)
+
+        # CRITICAL: Try to detect fiscal year start month from SUMMARY/rollforward tabs
+        # Look for headers like "Beg Balance 4/1/2024" to auto-detect April fiscal year
+        if role == TabRole.SUMMARY and df is not None and not df.empty:
+            fy_month, fy_source = _detect_fiscal_year_from_headers(df, tab_name)
+            if fy_month and not detected_fy_start_month:
+                detected_fy_start_month = fy_month
+                fy_detection_source = fy_source
+                logger.info(f"[FY Auto-Detection] Detected fiscal year start month {fy_month} from: {fy_source}")
 
         # Count rows and check for data
         row_count = len(df) if df is not None else 0
@@ -613,6 +738,16 @@ def analyze_tabs(
 
     # CRITICAL: Check for data anomalies
     result.warnings = _detect_data_anomalies(result, sheets)
+
+    # Set detected fiscal year start month
+    result.detected_fy_start_month = detected_fy_start_month
+    result.fy_detection_source = fy_detection_source
+
+    if detected_fy_start_month:
+        month_names = {1: "January (Calendar Year)", 4: "April", 7: "July", 10: "October"}
+        logger.info(f"[FY Auto-Detection] RESULT: Fiscal year starts in {month_names.get(detected_fy_start_month, f'Month {detected_fy_start_month}')}")
+        if detected_fy_start_month != 1:
+            result.warnings.insert(0, f"Auto-detected fiscal year: {month_names.get(detected_fy_start_month, f'Month {detected_fy_start_month}')} start from '{fy_detection_source}'")
 
     logger.info(f"Tab analysis complete: {len(result.tabs_to_process)} to process, {len(result.tabs_to_skip)} to skip")
 
