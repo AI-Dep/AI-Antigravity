@@ -20,6 +20,7 @@ function Review({ assets = [] }) {
     const [approvedIds, setApprovedIds] = useState(new Set());
     const [warnings, setWarnings] = useState({ critical: [], warnings: [], info: [], summary: {} });
     const [taxYear, setTaxYear] = useState(new Date().getFullYear());
+    const [fyStartMonth, setFyStartMonth] = useState(1); // 1=Jan/Calendar, 4=Apr, 7=Jul, 10=Oct
     const [taxYearLoading, setTaxYearLoading] = useState(false); // Loading state for tax year change
     const [tableCompact, setTableCompact] = useState(false); // Table density: false = comfortable, true = compact
     const [showTechnicalCols, setShowTechnicalCols] = useState(true); // Asset ID, FA CS # - shown by default
@@ -65,6 +66,7 @@ function Review({ assets = [] }) {
         try {
             const data = await apiGet('/config/tax');
             setTaxYear(data.tax_year);
+            setFyStartMonth(data.fy_start_month || 1);
         } catch (error) {
             console.error('Failed to fetch tax config:', error);
         }
@@ -647,6 +649,17 @@ function Review({ assets = [] }) {
                                 )}
                             </div>
                         </div>
+                        {/* Fiscal Year Indicator Badge */}
+                        {fyStartMonth !== 1 && (
+                            <span className="px-2 py-1 text-xs font-medium bg-amber-100 text-amber-800 rounded-full border border-amber-200">
+                                {fyStartMonth === 4 ? 'Apr-Mar' : fyStartMonth === 7 ? 'Jul-Jun' : fyStartMonth === 10 ? 'Oct-Sep' : `Month ${fyStartMonth}`} FY
+                            </span>
+                        )}
+                        {fyStartMonth === 1 && (
+                            <span className="px-2 py-1 text-xs font-medium bg-slate-100 text-slate-600 rounded-full border border-slate-200">
+                                Calendar Year
+                            </span>
+                        )}
                     </div>
                     <p className="text-slate-500 dark:text-slate-400 mt-2">
                         Review AI classifications before export. Low confidence items need your attention.

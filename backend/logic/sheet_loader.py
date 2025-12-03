@@ -2984,6 +2984,10 @@ def build_unified_dataframe(
         # These have a non-standard format and need special parsing
         sheet_name_lower = sheet_name.lower()
         is_disposal_sheet = 'disposal' in sheet_name_lower or 'disposed' in sheet_name_lower
+        if is_disposal_sheet:
+            logger.info(f"[{sheet_name}] *** DISPOSAL SHEET DETECTED *** Checking for JE format...")
+            is_je = _is_disposal_je_format(df_raw)
+            logger.info(f"[{sheet_name}] JE format detection result: {is_je}")
         if is_disposal_sheet and _is_disposal_je_format(df_raw):
             logger.info(f"[{sheet_name}] Detected JE format disposal sheet - using special parser")
             je_disposals = _parse_disposal_je_format(df_raw, sheet_name)
