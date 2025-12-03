@@ -1476,7 +1476,7 @@ def _detect_transaction_type(
 
 def _is_header_repetition(desc: str) -> bool:
     """
-    Check if a description value is actually a repeated header
+    Check if a description value is actually a repeated header or category label
 
     Args:
         desc: Description string to check
@@ -1484,11 +1484,76 @@ def _is_header_repetition(desc: str) -> bool:
     Returns:
         True if this appears to be a header row that slipped through
     """
-    desc_lower = desc.lower()
-    header_keywords = ["description", "asset description", "property", "item", "equipment"]
+    desc_lower = desc.lower().strip()
+
+    # Header column names
+    header_keywords = [
+        "description", "asset description", "property", "item",
+        "equipment", "asset id", "asset #", "asset no"
+    ]
 
     if any(keyword in desc_lower for keyword in header_keywords):
         if len(desc) < HEADER_REPETITION_MAX_LENGTH:
+            return True
+
+    return False
+
+
+# Category labels and sheet names that are NOT actual asset descriptions
+# These often appear when column mapping goes wrong or data is misaligned
+CATEGORY_LABEL_PATTERNS = [
+    # Single-word category labels (exact match)
+    r'^assets?$',           # "Asset" or "Assets"
+    r'^vehicles?$',         # "Vehicle" or "Vehicles"
+    r'^furniture$',         # "Furniture"
+    r'^tooling$',           # "Tooling"
+    r'^buildings?$',        # "Building" or "Buildings"
+    r'^land$',              # "Land"
+    r'^equipment$',         # "Equipment"
+    r'^software$',          # "Software"
+    r'^improvements?$',     # "Improvement" or "Improvements"
+    r'^disposals?$',        # "Disposal" or "Disposals"
+    r'^transfers?$',        # "Transfer" or "Transfers"
+    r'^additions?$',        # "Addition" or "Additions"
+
+    # Fiscal year / period labels
+    r'^fy\s*\d{2,4}',       # "FY 2024", "FY2024", "FY 24"
+    r'^cy\s*\d{2,4}',       # "CY 2024", "CY2024"
+    r'^\d{4}\s*-?\s*\d{4}$', # "2024-2025", "2024 2025"
+    r'^q[1-4]\s*\d{2,4}',   # "Q1 2024", "Q4 24"
+
+    # Common category combinations (short phrases)
+    r'^office\s*&?\s*computer',    # "Office & Computer"
+    r'^plant\s*equip',             # "Plant Equip"
+    r'^f\s*&\s*f$',                # "F&F" (Furniture & Fixtures)
+    r'^lh\s*improv',               # "LH Improvement"
+    r'^office\s*equip',            # "Office Equip"
+    r'^comp\s*equip',              # "Comp Equip"
+]
+
+
+def _is_category_label(desc: str) -> bool:
+    """
+    Check if a description is actually a category label or sheet name.
+
+    These appear when column mapping goes wrong or when category headers
+    are misidentified as asset descriptions.
+
+    Args:
+        desc: Description string to check
+
+    Returns:
+        True if this is a category label, not an asset description
+    """
+    if not desc:
+        return False
+
+    desc_lower = desc.lower().strip()
+
+    # Check against category label patterns
+    for pattern in CATEGORY_LABEL_PATTERNS:
+        if re.match(pattern, desc_lower):
+            logger.debug(f"Skipping category label: {desc}")
             return True
 
     return False
@@ -1747,6 +1812,11 @@ def _clean_row_data(row: pd.Series, col_map: Dict[str, str]) -> Optional[Dict[st
     # Skip header repetitions (Excel sometimes repeats headers)
     if _is_header_repetition(desc_raw):
         logger.debug(f"Skipping header repetition: {desc_raw}")
+        return None
+
+    # Skip category labels (e.g., "Assets", "Vehicles", "FY 2024")
+    # These are sheet names or category headers, not actual asset descriptions
+    if _is_category_label(desc_raw):
         return None
 
     # Skip totals/summary rows (not actual asset data)
