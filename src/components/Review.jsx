@@ -253,8 +253,14 @@ function Review({ assets = [] }) {
 
     // Get affected IDs from warnings for filtering/highlighting
     const misclassifiedIds = useMemo(() => {
-        const misclassifiedWarning = warnings.critical?.find(w => w.type === 'MISCLASSIFIED_EXISTING_ASSETS');
-        return new Set(misclassifiedWarning?.affected_ids || []);
+        // Check both warning types: additions wrongly marked as existing, and existing wrongly marked as additions
+        const misclassifiedAsAdditions = warnings.critical?.find(w => w.type === 'MISCLASSIFIED_EXISTING_ASSETS');
+        const misclassifiedAsExisting = warnings.critical?.find(w => w.type === 'MISCLASSIFIED_ADDITIONS');
+        const ids = new Set([
+            ...(misclassifiedAsAdditions?.affected_ids || []),
+            ...(misclassifiedAsExisting?.affected_ids || [])
+        ]);
+        return ids;
     }, [warnings]);
 
     // Filter assets

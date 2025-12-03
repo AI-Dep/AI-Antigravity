@@ -1525,6 +1525,43 @@ async def get_warnings(request: Request, response: Response):
             "examples": existing_as_additions[:5]
         })
 
+    # 1b. Check for ADDITIONS incorrectly classified as EXISTING
+    # This is the REVERSE problem - assets with in-service dates IN the fiscal year
+    # but classified as "Existing" instead of "Current Year Addition"
+    additions_as_existing = []
+    for a in assets:
+        if a.in_service_date:
+            is_in_fy, fy_desc = _is_date_in_fiscal_year(a.in_service_date, tax_year, fy_start_month)
+            trans_type_lower = (a.transaction_type or "").lower()
+
+            # Asset should be Addition if in-service date is in current FY, but classified as Existing
+            if is_in_fy and "existing" in trans_type_lower:
+                additions_as_existing.append({
+                    "asset_id": a.asset_id,
+                    "unique_id": a.unique_id,
+                    "description": a.description[:50] if a.description else "",
+                    "in_service_date": str(a.in_service_date)[:10] if a.in_service_date else None,
+                    "fiscal_year_desc": fy_desc,
+                    "current_classification": a.transaction_type
+                })
+
+    if additions_as_existing:
+        fy_desc = f"FY {tax_year}" if fy_start_month != 1 else f"CY {tax_year}"
+        critical_warnings.append({
+            "type": "MISCLASSIFIED_ADDITIONS",
+            "message": f"{len(additions_as_existing)} current year additions may be incorrectly classified as existing",
+            "impact": f"These assets have in-service dates within {fy_desc} but are marked as 'Existing' - missing Section 179/Bonus eligibility!",
+            "action": "Check fiscal year setting - you may have the wrong fiscal year configured",
+            "affected_count": len(additions_as_existing),
+            "affected_ids": [a["unique_id"] for a in additions_as_existing],
+            "examples": additions_as_existing[:5],
+            "fiscal_year_config": {
+                "tax_year": tax_year,
+                "fy_start_month": fy_start_month,
+                "description": f"Month {fy_start_month}" if fy_start_month != 1 else "Calendar Year"
+            }
+        })
+
     # 2. Check for assets missing cost (exclude transfers - they don't require cost)
     # Transfers just move assets between departments/locations, cost is already recorded
     # Check for all transfer types: "Transfer", "Current Year Transfer", "Prior Year Transfer"
