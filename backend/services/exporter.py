@@ -148,11 +148,14 @@ class ExporterService:
         - Gross Proceeds: Sale proceeds
         - Recapture columns for gain/loss reporting
         """
+        # Determine effective tax year FIRST (needed for transaction type classification)
+        effective_tax_year = tax_year if tax_year else date.today().year
+
         # Prepare data for build_fa engine (uses specific column names)
         engine_data = []
         for asset in assets:
-            # Detect transaction type first
-            trans_type = self._detect_transaction_type(asset)
+            # Detect transaction type first (with date-based classification)
+            trans_type = self._detect_transaction_type(asset, effective_tax_year)
 
             row = {
                 "Asset #": self._format_asset_number(asset),
@@ -220,12 +223,11 @@ class ExporterService:
         # Call the advanced export builder for full processing
         # This applies: FA_CS_Wizard_Category mapping, disposal recapture calculations,
         # transfer handling, Section 179/Bonus depreciation, de minimis safe harbor, etc.
-        effective_tax_year = tax_year if tax_year else date.today().year
         try:
             export_df = build_fa(
                 df=df,
                 tax_year=effective_tax_year,
-                strategy="Balanced",
+                strategy="Balanced (Bonus Only)",
                 taxable_income=10000000.0,  # High default to avoid limits
                 use_acq_if_missing=True,
                 de_minimis_limit=de_minimis_limit  # Pass de minimis threshold for safe harbor expensing
@@ -300,7 +302,9 @@ class ExporterService:
             de_minimis_expenses = []
             for _, row in de_minimis_df.iterrows():
                 desc = str(row.get("Description", "")).lower()
-                cost = row.get("Tax Cost", 0)
+                # Properly extract cost, handling None/NaN values
+                cost_val = row.get("Tax Cost", 0)
+                cost = float(cost_val) if pd.notna(cost_val) and cost_val else 0.0
 
                 # Suggest expense account based on description
                 if any(x in desc for x in ["computer", "laptop", "monitor", "keyboard", "mouse", "printer"]):
@@ -336,7 +340,7 @@ class ExporterService:
                 "Asset #": self._format_asset_number(asset),
                 "Client Asset ID": asset.asset_id,  # Keep original for reference
                 "Description": asset.description,
-                "Cost": asset.cost,
+                "Tax Cost": asset.cost,  # Use "Tax Cost" for FA CS consistency
                 "Acquisition Date": asset.acquisition_date,
                 "In Service Date": asset.in_service_date or asset.acquisition_date,
 
@@ -373,7 +377,7 @@ class ExporterService:
 
                 # Metadata
                 "Confidence Score": asset.confidence_score,
-                "Transaction Type": self._detect_transaction_type(asset),
+                "Transaction Type": self._detect_transaction_type(asset, effective_tax_year),
                 "Business Use %": 1.0,
                 "Tax Year": effective_tax_year,
                 "Export Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -404,10 +408,33 @@ class ExporterService:
             # =====================================================================
 
             # Split audit data by transaction type for clear audit trail
-            additions_df = audit_df[audit_df['Transaction Type'] == 'Addition'].copy() if 'Transaction Type' in audit_df.columns else pd.DataFrame()
-            disposals_df = audit_df[audit_df['Transaction Type'] == 'Disposal'].copy() if 'Transaction Type' in audit_df.columns else pd.DataFrame()
-            transfers_df = audit_df[audit_df['Transaction Type'] == 'Transfer'].copy() if 'Transaction Type' in audit_df.columns else pd.DataFrame()
-            existing_df = audit_df[~audit_df['Transaction Type'].isin(['Addition', 'Disposal', 'Transfer'])].copy() if 'Transaction Type' in audit_df.columns else audit_df.copy()
+            # Handle multiple transaction type formats (e.g., "Addition", "Current Year Addition", "Existing Asset")
+            if 'Transaction Type' in audit_df.columns:
+                # Current Year Additions - assets placed in service in the tax year
+                additions_df = audit_df[
+                    audit_df['Transaction Type'].str.contains('Addition|addition', case=False, na=False) &
+                    ~audit_df['Transaction Type'].str.contains('Existing', case=False, na=False)
+                ].copy()
+
+                # Disposals - all disposal types
+                disposals_df = audit_df[
+                    audit_df['Transaction Type'].str.contains('Disposal|disposal', case=False, na=False)
+                ].copy()
+
+                # Transfers - all transfer types
+                transfers_df = audit_df[
+                    audit_df['Transaction Type'].str.contains('Transfer|transfer', case=False, na=False)
+                ].copy()
+
+                # Existing Assets - assets placed in service BEFORE the tax year
+                existing_df = audit_df[
+                    audit_df['Transaction Type'].str.contains('Existing', case=False, na=False)
+                ].copy()
+            else:
+                additions_df = pd.DataFrame()
+                disposals_df = pd.DataFrame()
+                transfers_df = pd.DataFrame()
+                existing_df = audit_df.copy()
 
             # Sheet 3: Current Year Additions (for audit)
             if not additions_df.empty:
@@ -501,15 +528,38 @@ class ExporterService:
         output.seek(0)
         return output
 
-    def _detect_transaction_type(self, asset: Asset) -> str:
+    def _detect_transaction_type(self, asset: Asset, tax_year: int = None) -> str:
         """
-        Detect transaction type from asset attributes.
+        Detect transaction type from asset attributes with proper date-based classification.
+
+        CRITICAL: Properly distinguishes between:
+        - "Current Year Addition" - asset placed in service in tax year (eligible for Sec 179/Bonus)
+        - "Existing Asset" - asset placed in service BEFORE tax year (NOT eligible for Sec 179/Bonus)
+        - "Disposal" - asset disposed/sold
+        - "Transfer" - asset transferred between locations/departments
+
+        Args:
+            asset: The Asset object
+            tax_year: Current tax year for date-based classification
 
         Returns:
-            - "Disposal" if asset has disposal indicators
-            - "Transfer" if asset has transfer indicators
-            - "Addition" for new assets (default)
+            Transaction type string
         """
+        # First, check if asset already has a valid transaction_type set
+        existing_type = getattr(asset, 'transaction_type', None)
+        if existing_type and existing_type.lower() not in ['', 'addition', 'unknown']:
+            # Use the pre-classified type (from transaction_classifier)
+            # Normalize casing for consistency
+            type_lower = existing_type.lower()
+            if 'existing' in type_lower:
+                return "Existing Asset"
+            elif 'current year addition' in type_lower or type_lower == 'current year addition':
+                return "Current Year Addition"
+            elif 'disposal' in type_lower:
+                return "Disposal"
+            elif 'transfer' in type_lower:
+                return "Transfer"
+
         # Check for disposal indicators
         if getattr(asset, 'disposal_date', None):
             return "Disposal"
@@ -524,8 +574,23 @@ class ExporterService:
         if getattr(asset, 'is_transfer', False):
             return "Transfer"
 
-        # Default to Addition
-        return "Addition"
+        # Date-based classification: Current Year Addition vs Existing Asset
+        if tax_year:
+            in_service = getattr(asset, 'in_service_date', None)
+            acquisition = getattr(asset, 'acquisition_date', None)
+            effective_date = in_service or acquisition
+
+            if effective_date:
+                # Get year from date object
+                if hasattr(effective_date, 'year'):
+                    asset_year = effective_date.year
+                    if asset_year == tax_year:
+                        return "Current Year Addition"
+                    elif asset_year < tax_year:
+                        return "Existing Asset"
+
+        # Default to Current Year Addition only if no date info available
+        return "Current Year Addition"
 
     def _build_change_log(self, original_df: pd.DataFrame, processed_df: pd.DataFrame, assets: List[Asset]) -> pd.DataFrame:
         """
