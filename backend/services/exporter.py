@@ -579,11 +579,12 @@ class ExporterService:
         - Quality control before entry
         - Identifying items needing attention
 
-        Sheets:
-        1. FA CS Entry - Core fields for FA CS input (with Client Asset ID for cross-reference)
-        2. De Minimis Expenses - Items to expense immediately (not add to FA CS)
-        3. Items Requiring Review - Low confidence, missing data, warnings
-        4. Summary - Quick counts and totals
+        Sheets (separated by action type):
+        1. Addition Entry - ONLY Current Year Additions for FA CS input
+        2. Disposal Entry - Disposals with Method, Proceeds, Gain/Loss
+        3. Transfer Entry - Transfers with From/To locations
+        4. De Minimis Expenses - Items to expense immediately (not add to FA CS)
+        5. Items Requiring Review - Low confidence, missing data, warnings
         """
         effective_tax_year = tax_year if tax_year else date.today().year
 
@@ -614,10 +615,25 @@ class ExporterService:
         # Merge election data back
         if "Depreciation Election" in df.columns and "Depreciation Election" not in export_df.columns:
             export_df["Depreciation Election"] = df["Depreciation Election"].values
+        # Merge Gain/Loss data back (build_fa may not preserve this)
+        if "Gain/Loss" in df.columns and "Gain/Loss" not in export_df.columns:
+            export_df["Gain/Loss"] = df["Gain/Loss"].values
+        if "Proceeds" in df.columns and "Proceeds" not in export_df.columns:
+            export_df["Proceeds"] = df["Proceeds"].values
+        if "Disposal Date" in df.columns and "Disposal Date" not in export_df.columns:
+            export_df["Disposal Date"] = df["Disposal Date"].values
+        if "Transfer Date" in df.columns and "Transfer Date" not in export_df.columns:
+            export_df["Transfer Date"] = df["Transfer Date"].values
+        if "From Location" in df.columns and "From Location" not in export_df.columns:
+            export_df["From Location"] = df["From Location"].values
+        if "To Location" in df.columns and "To Location" not in export_df.columns:
+            export_df["To Location"] = df["To Location"].values
 
         # ================================================================
-        # SEPARATE DE MINIMIS ASSETS
+        # SEPARATE BY TRANSACTION TYPE
         # ================================================================
+
+        # De Minimis assets (expense, not capitalize)
         if "Depreciation Election" in export_df.columns:
             de_minimis_mask = export_df["Depreciation Election"] == "DeMinimis"
             de_minimis_df = export_df[de_minimis_mask].copy()
@@ -626,52 +642,109 @@ class ExporterService:
             de_minimis_df = pd.DataFrame()
             non_de_minimis_df = export_df.copy()
 
+        # Helper to check transaction type
+        def is_addition(trans_type):
+            if not trans_type:
+                return False
+            t = str(trans_type).lower()
+            return 'addition' in t and 'existing' not in t
+
+        def is_disposal(trans_type):
+            if not trans_type:
+                return False
+            return 'disposal' in str(trans_type).lower()
+
+        def is_transfer(trans_type):
+            if not trans_type:
+                return False
+            return 'transfer' in str(trans_type).lower()
+
+        # Split by transaction type
+        if 'Transaction Type' in non_de_minimis_df.columns:
+            additions_mask = non_de_minimis_df['Transaction Type'].apply(is_addition)
+            disposals_mask = non_de_minimis_df['Transaction Type'].apply(is_disposal)
+            transfers_mask = non_de_minimis_df['Transaction Type'].apply(is_transfer)
+
+            additions_df = non_de_minimis_df[additions_mask].copy()
+            disposals_df = non_de_minimis_df[disposals_mask].copy()
+            transfers_df = non_de_minimis_df[transfers_mask].copy()
+        else:
+            additions_df = non_de_minimis_df.copy()
+            disposals_df = pd.DataFrame()
+            transfers_df = pd.DataFrame()
+
         # ================================================================
-        # SHEET 1: FA CS ENTRY (Clean, minimal columns for FA CS input)
+        # SHEET 1: ADDITION ENTRY (ONLY Current Year Additions)
         # ================================================================
-        fa_cs_entry_cols = [
+        addition_entry_cols = [
             "Asset #",
-            "Client Asset ID",  # Cross-reference to client's system
+            "Client Asset ID",
             "Description",
             "Date In Service",
             "Tax Cost",
             "Tax Method",
             "Tax Life",
             "Convention",
-            "FA_CS_Wizard_Category",  # For RPA automation
+            "FA_CS_Wizard_Category",
             "Tax Sec 179 Expensed",
-            "Tax Prior Depreciation",
-            "Transaction Type",
         ]
-        available_cols = [c for c in fa_cs_entry_cols if c in non_de_minimis_df.columns]
-        fa_cs_entry_df = non_de_minimis_df[available_cols].copy()
+        available_cols = [c for c in addition_entry_cols if c in additions_df.columns]
+        addition_entry_df = additions_df[available_cols].copy() if not additions_df.empty else pd.DataFrame(columns=available_cols)
 
         # ================================================================
-        # SHEET 2: DE MINIMIS EXPENSES
+        # SHEET 2: DISPOSAL ENTRY (with proper FA CS disposal fields)
+        # ================================================================
+        disposal_entry_df = self._build_disposal_entry_sheet(disposals_df, assets, effective_tax_year)
+
+        # ================================================================
+        # SHEET 3: TRANSFER ENTRY
+        # ================================================================
+        transfer_entry_df = self._build_transfer_entry_sheet(transfers_df)
+
+        # ================================================================
+        # SHEET 4: DE MINIMIS EXPENSES
         # ================================================================
         de_minimis_expenses_df = self._build_de_minimis_sheet(de_minimis_df)
 
         # ================================================================
-        # SHEET 3: ITEMS REQUIRING REVIEW
+        # SHEET 5: ITEMS REQUIRING REVIEW
         # ================================================================
         items_requiring_review_df = self._build_items_requiring_review(assets, export_df, effective_tax_year)
-
-        # ================================================================
-        # SHEET 4: SUMMARY
-        # ================================================================
-        summary_df = self._build_prep_summary(
-            fa_cs_entry_df, de_minimis_expenses_df, items_requiring_review_df, non_de_minimis_df
-        )
 
         # Generate Excel workbook
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # Sheet 1: FA CS Entry
-            fa_cs_entry_df.to_excel(writer, sheet_name='FA CS Entry', index=False)
-            ws_entry = writer.sheets['FA CS Entry']
-            _apply_professional_formatting(ws_entry, fa_cs_entry_df)
+            # Sheet 1: Addition Entry (Current Year Additions ONLY)
+            if not addition_entry_df.empty:
+                addition_entry_df.to_excel(writer, sheet_name='Addition Entry', index=False)
+                ws_entry = writer.sheets['Addition Entry']
+                _apply_professional_formatting(ws_entry, addition_entry_df)
+            else:
+                # Create placeholder sheet if no additions
+                pd.DataFrame([{"Note": "No Current Year Additions"}]).to_excel(
+                    writer, sheet_name='Addition Entry', index=False)
 
-            # Sheet 2: De Minimis Expenses
+            # Sheet 2: Disposal Entry
+            if disposal_entry_df is not None and not disposal_entry_df.empty:
+                disposal_entry_df.to_excel(writer, sheet_name='Disposal Entry', index=False)
+                ws_disposal = writer.sheets['Disposal Entry']
+                _apply_professional_formatting(ws_disposal, disposal_entry_df)
+                # Add gain/loss total
+                if 'Gain/Loss' in disposal_entry_df.columns:
+                    total_row = len(disposal_entry_df) + 2
+                    ws_disposal.cell(row=total_row, column=1, value="TOTAL GAIN/(LOSS):")
+                    gain_loss_col = list(disposal_entry_df.columns).index('Gain/Loss') + 1
+                    total_gain_loss = disposal_entry_df['Gain/Loss'].sum()
+                    ws_disposal.cell(row=total_row, column=gain_loss_col, value=total_gain_loss)
+                    ws_disposal.cell(row=total_row, column=1).font = ws_disposal.cell(row=total_row, column=1).font.copy(bold=True)
+
+            # Sheet 3: Transfer Entry
+            if transfer_entry_df is not None and not transfer_entry_df.empty:
+                transfer_entry_df.to_excel(writer, sheet_name='Transfer Entry', index=False)
+                ws_transfer = writer.sheets['Transfer Entry']
+                _apply_professional_formatting(ws_transfer, transfer_entry_df)
+
+            # Sheet 4: De Minimis Expenses
             if de_minimis_expenses_df is not None and not de_minimis_expenses_df.empty:
                 de_minimis_expenses_df.to_excel(writer, sheet_name='De Minimis Expenses', index=False)
                 ws_deminimis = writer.sheets['De Minimis Expenses']
@@ -682,16 +755,11 @@ class ExporterService:
                 ws_deminimis.cell(row=total_row, column=2, value=de_minimis_expenses_df['Cost'].sum())
                 ws_deminimis.cell(row=total_row, column=1).font = ws_deminimis.cell(row=total_row, column=1).font.copy(bold=True)
 
-            # Sheet 3: Items Requiring Review
+            # Sheet 5: Items Requiring Review
             if items_requiring_review_df is not None and not items_requiring_review_df.empty:
                 items_requiring_review_df.to_excel(writer, sheet_name='Items Requiring Review', index=False)
                 ws_review = writer.sheets['Items Requiring Review']
                 _apply_professional_formatting(ws_review, items_requiring_review_df)
-
-            # Sheet 4: Summary
-            summary_df.to_excel(writer, sheet_name='Summary', index=False)
-            ws_summary = writer.sheets['Summary']
-            _apply_professional_formatting(ws_summary, summary_df)
 
         output.seek(0)
         return output
@@ -889,6 +957,108 @@ class ExporterService:
             })
 
         return pd.DataFrame(de_minimis_expenses)
+
+    def _build_disposal_entry_sheet(self, disposals_df: pd.DataFrame, assets: List[Asset],
+                                     tax_year: int) -> pd.DataFrame:
+        """
+        Build Disposal Entry sheet with FA CS disposal fields.
+
+        FA CS Disposal Requirements:
+        - Asset # (to identify which asset is being disposed)
+        - Description (for reference)
+        - Original Cost (Tax Cost)
+        - Date In Service (original)
+        - Disposal Date
+        - Disposal Method: Sold, Scrapped, Abandoned, Traded, Converted to Personal Use
+        - Proceeds (sale price, 0 if scrapped/abandoned)
+        - Accumulated Depreciation
+        - Gain/Loss (calculated)
+        """
+        if disposals_df.empty:
+            return None
+
+        # Standard FA CS disposal methods
+        DISPOSAL_METHODS = ["Sold", "Scrapped", "Abandoned", "Traded", "Converted to Personal Use"]
+
+        disposal_entries = []
+        for _, row in disposals_df.iterrows():
+            # Get values with fallbacks
+            asset_num = row.get("Asset #", "")
+            client_id = row.get("Client Asset ID", "")
+            description = row.get("Description", "")
+            tax_cost = row.get("Tax Cost", row.get("Cost", 0)) or 0
+            date_in_service = row.get("Date In Service", row.get("In Service Date", ""))
+            disposal_date = row.get("Disposal Date", "")
+            proceeds = row.get("Proceeds", row.get("Gross Proceeds", 0)) or 0
+            accum_depr = row.get("Accumulated Depreciation", 0) or 0
+            gain_loss = row.get("Gain/Loss", row.get("Capital Gain/Loss", None))
+
+            # Calculate gain/loss if not provided
+            if gain_loss is None and tax_cost and proceeds is not None:
+                # Gain/Loss = Proceeds - (Cost - Accumulated Depreciation)
+                adjusted_basis = float(tax_cost) - float(accum_depr)
+                gain_loss = float(proceeds) - adjusted_basis
+
+            # Determine disposal method from description/data
+            desc_lower = str(description).lower()
+            if any(x in desc_lower for x in ["sold", "sale"]):
+                disposal_method = "Sold"
+            elif any(x in desc_lower for x in ["scrap", "junk", "discard"]):
+                disposal_method = "Scrapped"
+            elif any(x in desc_lower for x in ["abandon", "written off"]):
+                disposal_method = "Abandoned"
+            elif any(x in desc_lower for x in ["trade", "exchange"]):
+                disposal_method = "Traded"
+            elif any(x in desc_lower for x in ["personal", "convert"]):
+                disposal_method = "Converted to Personal Use"
+            elif proceeds and float(proceeds) > 0:
+                disposal_method = "Sold"  # Default to Sold if there are proceeds
+            else:
+                disposal_method = "Scrapped"  # Default to Scrapped if no proceeds
+
+            disposal_entries.append({
+                "Asset #": asset_num,
+                "Client Asset ID": client_id,
+                "Description": description,
+                "Original Cost": tax_cost,
+                "Date In Service": date_in_service,
+                "Disposal Date": disposal_date,
+                "Disposal Method": disposal_method,
+                "Proceeds": proceeds,
+                "Accum. Depreciation": accum_depr,
+                "Gain/Loss": gain_loss,
+            })
+
+        return pd.DataFrame(disposal_entries)
+
+    def _build_transfer_entry_sheet(self, transfers_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Build Transfer Entry sheet for asset transfers.
+
+        Transfer Entry Fields:
+        - Asset # (to identify which asset is being transferred)
+        - Description
+        - Transfer Date
+        - From Location/Department
+        - To Location/Department
+        - Notes
+        """
+        if transfers_df.empty:
+            return None
+
+        transfer_entries = []
+        for _, row in transfers_df.iterrows():
+            transfer_entries.append({
+                "Asset #": row.get("Asset #", ""),
+                "Client Asset ID": row.get("Client Asset ID", ""),
+                "Description": row.get("Description", ""),
+                "Tax Cost": row.get("Tax Cost", row.get("Cost", 0)),
+                "Transfer Date": row.get("Transfer Date", ""),
+                "From Location": row.get("From Location", ""),
+                "To Location": row.get("To Location", ""),
+            })
+
+        return pd.DataFrame(transfer_entries)
 
     def _build_items_requiring_review(self, assets: List[Asset], export_df: pd.DataFrame,
                                        tax_year: int) -> pd.DataFrame:
