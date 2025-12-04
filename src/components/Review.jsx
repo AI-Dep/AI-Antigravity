@@ -37,6 +37,30 @@ function Review({ assets = [] }) {
     const [pendingFacsNumbers, setPendingFacsNumbers] = useState({}); // { uniqueId: pendingValue }
     const facsDebounceTimers = useRef({}); // { uniqueId: timerId }
 
+    // Inline editing: Track pending values for Description, Cost, Date, Transaction Type
+    const [pendingDescriptions, setPendingDescriptions] = useState({}); // { uniqueId: pendingValue }
+    const [pendingCosts, setPendingCosts] = useState({}); // { uniqueId: pendingValue }
+    const [pendingDates, setPendingDates] = useState({}); // { uniqueId: pendingValue }
+    const descriptionDebounceTimers = useRef({}); // { uniqueId: timerId }
+    const costDebounceTimers = useRef({}); // { uniqueId: timerId }
+    const dateDebounceTimers = useRef({}); // { uniqueId: timerId }
+
+    // MACRS Class options for dropdown (simplified categories)
+    const MACRS_CLASS_OPTIONS = [
+        { value: "Computer", life: 5, label: "Computer (5-yr)" },
+        { value: "Furniture", life: 7, label: "Furniture & Fixtures (7-yr)" },
+        { value: "Machinery", life: 7, label: "Machinery & Equipment (7-yr)" },
+        { value: "Vehicle", life: 5, label: "Vehicle (5-yr)" },
+        { value: "Office Equipment", life: 5, label: "Office Equipment (5-yr)" },
+        { value: "Appliance", life: 5, label: "Appliance (5-yr)" },
+        { value: "Land Improvement", life: 15, label: "Land Improvement (15-yr)" },
+        { value: "QIP", life: 15, label: "Qualified Improvement Property (15-yr)" },
+        { value: "Residential Rental", life: 27.5, label: "Residential Rental (27.5-yr)" },
+        { value: "Commercial Building", life: 39, label: "Commercial Building (39-yr)" },
+        { value: "Land", life: 0, label: "Land (non-depreciable)" },
+        { value: "Other", life: 7, label: "Other (7-yr default)" },
+    ]
+
     // Fetch warnings and export status when assets change
     useEffect(() => {
         if (assets.length > 0) {
@@ -582,6 +606,120 @@ function Review({ assets = [] }) {
         }, 500);
     }, []);
 
+    // Debounced Description update handler (500ms delay)
+    const handleDescriptionChange = useCallback((uniqueId, inputValue) => {
+        // Store pending value for immediate UI feedback
+        setPendingDescriptions(prev => ({ ...prev, [uniqueId]: inputValue }));
+
+        // Clear any existing debounce timer
+        if (descriptionDebounceTimers.current[uniqueId]) {
+            clearTimeout(descriptionDebounceTimers.current[uniqueId]);
+        }
+
+        // Set new debounce timer
+        descriptionDebounceTimers.current[uniqueId] = setTimeout(async () => {
+            try {
+                setLocalAssets(prev => prev.map(a =>
+                    a.unique_id === uniqueId ? { ...a, description: inputValue } : a
+                ));
+                setPendingDescriptions(prev => {
+                    const updated = { ...prev };
+                    delete updated[uniqueId];
+                    return updated;
+                });
+                await apiPost(`/assets/${uniqueId}/update`, { description: inputValue });
+            } catch (error) {
+                console.error("Failed to update description:", error);
+            }
+        }, 500);
+    }, []);
+
+    // Debounced Cost update handler (500ms delay)
+    const handleCostChange = useCallback((uniqueId, inputValue) => {
+        const parsedValue = inputValue === "" ? 0 : parseFloat(inputValue);
+        if (isNaN(parsedValue) || parsedValue < 0) return;
+
+        setPendingCosts(prev => ({ ...prev, [uniqueId]: parsedValue }));
+
+        if (costDebounceTimers.current[uniqueId]) {
+            clearTimeout(costDebounceTimers.current[uniqueId]);
+        }
+
+        costDebounceTimers.current[uniqueId] = setTimeout(async () => {
+            try {
+                setLocalAssets(prev => prev.map(a =>
+                    a.unique_id === uniqueId ? { ...a, cost: parsedValue } : a
+                ));
+                setPendingCosts(prev => {
+                    const updated = { ...prev };
+                    delete updated[uniqueId];
+                    return updated;
+                });
+                await apiPost(`/assets/${uniqueId}/update`, { cost: parsedValue });
+            } catch (error) {
+                console.error("Failed to update cost:", error);
+            }
+        }, 500);
+    }, []);
+
+    // Debounced Date update handler (500ms delay)
+    const handleDateChange = useCallback((uniqueId, inputValue, dateField = 'in_service_date') => {
+        setPendingDates(prev => ({ ...prev, [uniqueId]: inputValue }));
+
+        if (dateDebounceTimers.current[uniqueId]) {
+            clearTimeout(dateDebounceTimers.current[uniqueId]);
+        }
+
+        dateDebounceTimers.current[uniqueId] = setTimeout(async () => {
+            try {
+                setLocalAssets(prev => prev.map(a =>
+                    a.unique_id === uniqueId ? { ...a, [dateField]: inputValue } : a
+                ));
+                setPendingDates(prev => {
+                    const updated = { ...prev };
+                    delete updated[uniqueId];
+                    return updated;
+                });
+                await apiPost(`/assets/${uniqueId}/update`, { [dateField]: inputValue });
+            } catch (error) {
+                console.error("Failed to update date:", error);
+            }
+        }, 500);
+    }, []);
+
+    // Immediate Transaction Type update handler (no debounce - dropdown selection)
+    const handleTransactionTypeChange = async (uniqueId, newType) => {
+        try {
+            setLocalAssets(prev => prev.map(a =>
+                a.unique_id === uniqueId ? { ...a, transaction_type: newType } : a
+            ));
+            await apiPost(`/assets/${uniqueId}/update`, { transaction_type: newType });
+        } catch (error) {
+            console.error("Failed to update transaction type:", error);
+        }
+    };
+
+    // Immediate MACRS Class update handler with auto-life population
+    const handleMacrsClassChange = async (uniqueId, newClass) => {
+        try {
+            // Find the corresponding life for this class
+            const classOption = MACRS_CLASS_OPTIONS.find(opt => opt.value === newClass);
+            const newLife = classOption ? classOption.life : 7; // Default to 7 if not found
+
+            setLocalAssets(prev => prev.map(a =>
+                a.unique_id === uniqueId
+                    ? { ...a, macrs_class: newClass, macrs_life: newLife, confidence_score: 1.0 }
+                    : a
+            ));
+            await apiPost(`/assets/${uniqueId}/update`, {
+                macrs_class: newClass,
+                macrs_life: newLife
+            });
+        } catch (error) {
+            console.error("Failed to update MACRS class:", error);
+        }
+    };
+
     const handleApprove = async (uniqueId) => {
         try {
             // Call backend to record approval
@@ -801,7 +939,7 @@ function Review({ assets = [] }) {
                             : `Cannot export audit report: ${exportStatus.reason || 'Not all actionable items approved'}`}
                     >
                         <FileText className="w-4 h-4 mr-2" />
-                        Audit Report
+                        Audit Documentation
                     </Button>
                     <Button
                         onClick={checkFACSCompatibility}
@@ -819,7 +957,7 @@ function Review({ assets = [] }) {
                         ) : (
                             <Shield className="w-4 h-4 mr-2" />
                         )}
-                        Export to FA CS
+                        FA CS Prep Workpaper
                     </Button>
                 </div>
             </div>
@@ -1485,14 +1623,29 @@ function Review({ assets = [] }) {
                                                     />
                                                 </td>
                                             )}
-                                            {/* Description */}
+                                            {/* Description - Editable */}
                                             <td className={cn(
-                                                "text-slate-600 dark:text-slate-300 truncate",
-                                                tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
+                                                "text-slate-600 dark:text-slate-300",
+                                                tableCompact ? "px-1 py-1" : "px-2 py-1.5"
                                             )}>
-                                                <span className="block truncate" title={asset.description}>
-                                                    {asset.description}
-                                                </span>
+                                                <input
+                                                    type="text"
+                                                    className={cn(
+                                                        "w-full border rounded truncate",
+                                                        tableCompact ? "px-1.5 py-0.5 text-xs" : "px-2 py-1 text-sm",
+                                                        pendingDescriptions[asset.unique_id] !== undefined
+                                                            ? "border-yellow-300 bg-yellow-50"
+                                                            : "border-slate-200 bg-white hover:border-slate-300",
+                                                        "focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                    )}
+                                                    value={
+                                                        pendingDescriptions[asset.unique_id] !== undefined
+                                                            ? pendingDescriptions[asset.unique_id]
+                                                            : (asset.description || "")
+                                                    }
+                                                    onChange={(e) => handleDescriptionChange(asset.unique_id, e.target.value)}
+                                                    title={asset.description}
+                                                />
                                             </td>
                                             {/* Cost - with gain/loss preview for disposals */}
                                             <td className={cn(
@@ -1554,11 +1707,31 @@ function Review({ assets = [] }) {
                                                             );
                                                         })()
                                                     ) : (
-                                                        <span>${(asset.cost || 0).toLocaleString()}</span>
+                                                        /* Editable cost input for non-disposals */
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            step="0.01"
+                                                            className={cn(
+                                                                "w-full border rounded font-mono text-right",
+                                                                tableCompact ? "px-1.5 py-0.5 text-xs" : "px-2 py-1 text-sm",
+                                                                pendingCosts[asset.unique_id] !== undefined
+                                                                    ? "border-yellow-300 bg-yellow-50"
+                                                                    : "border-slate-200 bg-white hover:border-slate-300",
+                                                                "focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                            )}
+                                                            value={
+                                                                pendingCosts[asset.unique_id] !== undefined
+                                                                    ? pendingCosts[asset.unique_id]
+                                                                    : (asset.cost || 0)
+                                                            }
+                                                            onChange={(e) => handleCostChange(asset.unique_id, e.target.value)}
+                                                            title={`Cost: $${(asset.cost || 0).toLocaleString()}`}
+                                                        />
                                                     )}
                                                 </div>
                                             </td>
-                                            {/* Key Date - Context-aware based on transaction type */}
+                                            {/* Key Date - Context-aware based on transaction type - Editable */}
                                             <td className={cn(
                                                 "text-slate-600",
                                                 tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
@@ -1620,59 +1793,58 @@ function Review({ assets = [] }) {
                                                             </span>
                                                         );
                                                     } else {
-                                                        // Additions/Existing: Show in-service date as before
-                                                        if (asset.in_service_date) {
-                                                            return asset.in_service_date;
-                                                        } else if (asset.acquisition_date) {
-                                                            return (
-                                                                <span className="flex items-center gap-1" title="Using acquisition date (no in-service date provided)">
-                                                                    {asset.acquisition_date}
-                                                                </span>
-                                                            );
-                                                        }
+                                                        // Additions/Existing: Editable in-service date
+                                                        const currentDate = pendingDates[asset.unique_id] !== undefined
+                                                            ? pendingDates[asset.unique_id]
+                                                            : (asset.in_service_date || asset.acquisition_date || "");
                                                         return (
-                                                            <span className="flex items-center gap-1 text-amber-600" title="Missing date - manual review required">
-                                                                -
-                                                                <AlertTriangle className="w-3.5 h-3.5" />
-                                                            </span>
+                                                            <input
+                                                                type="date"
+                                                                className={cn(
+                                                                    "border rounded",
+                                                                    tableCompact ? "px-1 py-0.5 text-xs" : "px-1.5 py-1 text-sm",
+                                                                    pendingDates[asset.unique_id] !== undefined
+                                                                        ? "border-yellow-300 bg-yellow-50"
+                                                                        : !currentDate
+                                                                            ? "border-amber-300 bg-amber-50"
+                                                                            : "border-slate-200 bg-white hover:border-slate-300",
+                                                                    "focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                                )}
+                                                                value={currentDate}
+                                                                onChange={(e) => handleDateChange(asset.unique_id, e.target.value, 'in_service_date')}
+                                                                title={currentDate ? `In Service: ${currentDate}` : "Missing date - click to add"}
+                                                            />
                                                         );
                                                     }
                                                 })()}
                                             </td>
-                                            {/* Transaction Type */}
-                                            <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                <span className={cn(
-                                                    "rounded font-medium whitespace-nowrap",
-                                                    tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs",
-                                                    asset.transaction_type === TRANSACTION_TYPES.ADDITION && !isDeMinimis && "bg-green-100 text-green-700",
-                                                    asset.transaction_type === TRANSACTION_TYPES.ADDITION && isDeMinimis && "bg-emerald-100 text-emerald-700",
-                                                    asset.transaction_type === TRANSACTION_TYPES.EXISTING && "bg-slate-100 text-slate-700",
-                                                    // Current year disposals (actionable) - bold red
-                                                    (asset.transaction_type === TRANSACTION_TYPES.CURRENT_YEAR_DISPOSAL ||
-                                                     asset.transaction_type === TRANSACTION_TYPES.DISPOSAL) && "bg-red-100 text-red-700",
-                                                    // Prior year disposals (not actionable) - muted red
-                                                    asset.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_DISPOSAL && "bg-red-50 text-red-400",
-                                                    // Current year transfers (actionable) - bold purple
-                                                    (asset.transaction_type === TRANSACTION_TYPES.CURRENT_YEAR_TRANSFER ||
-                                                     asset.transaction_type === TRANSACTION_TYPES.TRANSFER) && "bg-purple-100 text-purple-700",
-                                                    // Prior year transfers (not actionable) - muted purple
-                                                    asset.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_TRANSFER && "bg-purple-50 text-purple-400",
-                                                    !asset.transaction_type && "bg-yellow-100 text-yellow-700"
-                                                )}>
-                                                    {asset.transaction_type === TRANSACTION_TYPES.ADDITION
-                                                        ? (isDeMinimis ? "Expensed" : "Addition")
-                                                        : asset.transaction_type === TRANSACTION_TYPES.EXISTING
-                                                            ? "Existing"
-                                                            : asset.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_DISPOSAL
-                                                                ? "Prior Disposal"
-                                                                : asset.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_TRANSFER
-                                                                    ? "Prior Transfer"
-                                                                    : asset.transaction_type === TRANSACTION_TYPES.CURRENT_YEAR_DISPOSAL
-                                                                        ? "Disposal"
-                                                                        : asset.transaction_type === TRANSACTION_TYPES.CURRENT_YEAR_TRANSFER
-                                                                            ? "Transfer"
-                                                                            : asset.transaction_type || "Unknown"}
-                                                </span>
+                                            {/* Transaction Type - Dropdown */}
+                                            <td className={tableCompact ? "px-1 py-1" : "px-2 py-1.5"}>
+                                                <select
+                                                    value={asset.transaction_type || ""}
+                                                    onChange={(e) => handleTransactionTypeChange(asset.unique_id, e.target.value)}
+                                                    className={cn(
+                                                        "rounded font-medium whitespace-nowrap cursor-pointer border",
+                                                        tableCompact ? "px-1 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-xs",
+                                                        asset.transaction_type === TRANSACTION_TYPES.ADDITION && !isDeMinimis && "bg-green-100 text-green-700 border-green-300",
+                                                        asset.transaction_type === TRANSACTION_TYPES.ADDITION && isDeMinimis && "bg-emerald-100 text-emerald-700 border-emerald-300",
+                                                        asset.transaction_type === TRANSACTION_TYPES.EXISTING && "bg-slate-100 text-slate-700 border-slate-300",
+                                                        (asset.transaction_type === TRANSACTION_TYPES.CURRENT_YEAR_DISPOSAL ||
+                                                         asset.transaction_type === TRANSACTION_TYPES.DISPOSAL) && "bg-red-100 text-red-700 border-red-300",
+                                                        asset.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_DISPOSAL && "bg-red-50 text-red-400 border-red-200",
+                                                        (asset.transaction_type === TRANSACTION_TYPES.CURRENT_YEAR_TRANSFER ||
+                                                         asset.transaction_type === TRANSACTION_TYPES.TRANSFER) && "bg-purple-100 text-purple-700 border-purple-300",
+                                                        asset.transaction_type === TRANSACTION_TYPES.PRIOR_YEAR_TRANSFER && "bg-purple-50 text-purple-400 border-purple-200",
+                                                        !asset.transaction_type && "bg-yellow-100 text-yellow-700 border-yellow-300",
+                                                        "focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                    )}
+                                                    title="Change transaction type"
+                                                >
+                                                    <option value={TRANSACTION_TYPES.ADDITION}>Addition</option>
+                                                    <option value={TRANSACTION_TYPES.EXISTING}>Existing</option>
+                                                    <option value={TRANSACTION_TYPES.CURRENT_YEAR_DISPOSAL}>Disposal</option>
+                                                    <option value={TRANSACTION_TYPES.CURRENT_YEAR_TRANSFER}>Transfer</option>
+                                                </select>
                                             </td>
 
                                             {/* Class, Life, Method - Hidden for De Minimis, Disposals, and Transfers - Collapsible */}
@@ -1686,17 +1858,29 @@ function Review({ assets = [] }) {
                                                         <td className={cn("text-center text-slate-300", tableCompact ? "px-2 py-1.5" : "px-3 py-2.5")}>—</td>
                                                     </>
                                                 ) : (
-                                                    // MACRS/179/Bonus: Show edit inputs
+                                                    // MACRS/179/Bonus: Show edit inputs with dropdown for Class
                                                     <>
-                                                        <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                            <input
+                                                        <td className={tableCompact ? "px-1 py-1" : "px-2 py-1.5"}>
+                                                            <select
                                                                 className={cn(
                                                                     "border rounded w-full",
-                                                                    tableCompact ? "px-1.5 py-0.5 text-xs" : "px-2 py-1 text-sm"
+                                                                    tableCompact ? "px-1 py-0.5 text-xs" : "px-1.5 py-1 text-sm"
                                                                 )}
-                                                                value={editForm.macrs_class}
-                                                                onChange={(e) => setEditForm({ ...editForm, macrs_class: e.target.value })}
-                                                            />
+                                                                value={editForm.macrs_class || ""}
+                                                                onChange={(e) => {
+                                                                    const newClass = e.target.value;
+                                                                    const classOption = MACRS_CLASS_OPTIONS.find(opt => opt.value === newClass);
+                                                                    const newLife = classOption ? classOption.life : editForm.macrs_life;
+                                                                    setEditForm({ ...editForm, macrs_class: newClass, macrs_life: newLife });
+                                                                }}
+                                                            >
+                                                                <option value="">Select...</option>
+                                                                {MACRS_CLASS_OPTIONS.map(opt => (
+                                                                    <option key={opt.value} value={opt.value}>
+                                                                        {opt.label}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
                                                         </td>
                                                         <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                             <input
@@ -1742,23 +1926,31 @@ function Review({ assets = [] }) {
                                                         </td>
                                                     </>
                                                 ) : (
-                                                    // MACRS/179/Bonus: Show classification data
+                                                    // MACRS/179/Bonus: Show classification data with editable Class dropdown
                                                     <>
-                                                        <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
-                                                            <span
+                                                        <td className={tableCompact ? "px-1 py-1" : "px-2 py-1.5"}>
+                                                            <select
+                                                                value={asset.macrs_class || ""}
+                                                                onChange={(e) => handleMacrsClassChange(asset.unique_id, e.target.value)}
                                                                 className={cn(
-                                                                    "bg-blue-50 text-blue-700 rounded font-semibold border border-blue-100 cursor-help",
-                                                                    tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs"
+                                                                    "bg-blue-50 text-blue-700 rounded font-semibold border border-blue-200 cursor-pointer w-full",
+                                                                    tableCompact ? "px-1 py-0.5 text-[10px]" : "px-1.5 py-0.5 text-xs",
+                                                                    "focus:outline-none focus:ring-1 focus:ring-blue-500"
                                                                 )}
-                                                                title={asset.fa_cs_wizard_category ? `FA CS: ${asset.fa_cs_wizard_category}` : ""}
+                                                                title={asset.fa_cs_wizard_category ? `FA CS: ${asset.fa_cs_wizard_category}` : "Select asset class"}
                                                             >
-                                                                {asset.macrs_class}
-                                                            </span>
+                                                                <option value="">Select...</option>
+                                                                {MACRS_CLASS_OPTIONS.map(opt => (
+                                                                    <option key={opt.value} value={opt.value}>
+                                                                        {opt.label}
+                                                                    </option>
+                                                                ))}
+                                                            </select>
                                                         </td>
                                                         <td className={cn(
-                                                            "text-slate-600",
+                                                            "text-slate-600 text-center",
                                                             tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"
-                                                        )}>{asset.macrs_life} yr</td>
+                                                        )}>{asset.macrs_life ? `${asset.macrs_life} yr` : "-"}</td>
                                                         <td className={tableCompact ? "px-2 py-1.5" : "px-3 py-2.5"}>
                                                             <span className={cn(
                                                                 "bg-slate-100 text-slate-700 rounded font-mono font-medium border border-slate-200",
