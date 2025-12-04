@@ -205,8 +205,12 @@ function Review({ assets = [] }) {
     // Calculate stats
     const stats = useMemo(() => {
         const errors = localAssets.filter(a => a.validation_errors?.length > 0).length;
+        // ONLY count actionable assets (additions, disposals, transfers) for "Needs Review"
+        // Existing assets are excluded - they're already classified in FA CS
         const needsReview = localAssets.filter(a =>
-            !a.validation_errors?.length && a.confidence_score <= 0.8
+            !a.validation_errors?.length &&
+            a.confidence_score <= 0.8 &&
+            isActionable(a.transaction_type)
         ).length;
         const highConfidence = localAssets.filter(a =>
             !a.validation_errors?.length && a.confidence_score > 0.8
@@ -413,9 +417,13 @@ function Review({ assets = [] }) {
 
     // Check if export should be disabled
     const hasBlockingErrors = stats.errors > 0;
+    // Only check actionable assets (not existing) for review completion
     const allReviewed = stats.needsReview === 0 ||
-        localAssets.filter(a => !a.validation_errors?.length && a.confidence_score <= 0.8)
-            .every(a => approvedIds.has(a.unique_id));
+        localAssets.filter(a =>
+            !a.validation_errors?.length &&
+            a.confidence_score <= 0.8 &&
+            isActionable(a.transaction_type)
+        ).every(a => approvedIds.has(a.unique_id));
 
     // FA CS Wizard dropdown options by recovery period
     // Must match exact text from FA CS Add Asset Wizard for RPA compatibility
@@ -1446,7 +1454,8 @@ function Review({ assets = [] }) {
                                     // Use unique_id for approval tracking (unique across sheets)
                                     const isApproved = approvedIds.has(asset.unique_id);
                                     const hasErrors = asset.validation_errors?.length > 0;
-                                    const needsReview = !hasErrors && asset.confidence_score <= 0.8;
+                                    // Only actionable items need review (not existing assets)
+                                    const needsReview = !hasErrors && asset.confidence_score <= 0.8 && isActionable(asset.transaction_type);
                                     const isDeMinimis = asset.depreciation_election === 'DeMinimis';
                                     // Hide MACRS fields for De Minimis (expensed), Disposals, and Transfers
                                     const isDisposalOrTransfer = isDisposal(asset.transaction_type) || isTransfer(asset.transaction_type);
