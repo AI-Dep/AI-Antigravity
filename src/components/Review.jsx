@@ -1454,9 +1454,10 @@ function Review({ assets = [] }) {
                                     // Use unique_id for approval tracking (unique across sheets)
                                     const isApproved = approvedIds.has(asset.unique_id);
                                     const hasErrors = asset.validation_errors?.length > 0;
-                                    // Only actionable items need review (not existing assets)
-                                    const needsReview = !hasErrors && asset.confidence_score <= 0.8 && isActionable(asset.transaction_type);
                                     const isDeMinimis = asset.depreciation_election === 'DeMinimis';
+                                    // Only actionable items need review (not existing assets, not De Minimis)
+                                    // De Minimis items don't need classification review - they're expensed
+                                    const needsReview = !hasErrors && asset.confidence_score <= 0.8 && isActionable(asset.transaction_type) && !isDeMinimis;
                                     // Hide MACRS fields for De Minimis (expensed), Disposals, and Transfers
                                     const isDisposalOrTransfer = isDisposal(asset.transaction_type) || isTransfer(asset.transaction_type);
                                     const hideMacrsFields = isDeMinimis || isDisposalOrTransfer;
@@ -1500,6 +1501,18 @@ function Review({ assets = [] }) {
                                                         >
                                                             <Check className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
                                                             Approved
+                                                        </span>
+                                                    ) : isDeMinimis ? (
+                                                        // De Minimis - No classification needed, will be expensed
+                                                        <span
+                                                            className={cn(
+                                                                "inline-flex items-center rounded-full font-medium bg-emerald-100 text-emerald-700 cursor-help",
+                                                                tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                            )}
+                                                            title={`De Minimis Safe Harbor\n✓ Will be expensed immediately\n✓ No FA CS entry needed\n✓ No classification required\n\n📋 Rev. Proc. 2015-20\nItems under the de minimis threshold are expensed rather than capitalized.`}
+                                                        >
+                                                            <DollarSign className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
+                                                            Expense
                                                         </span>
                                                     ) : asset.confidence_score > 0.8 ? (
                                                         <span
@@ -1568,16 +1581,17 @@ function Review({ assets = [] }) {
                                                             )}
                                                         </span>
                                                     )}
-                                                    {/* Confidence % below the badge */}
+                                                    {/* Confidence % below the badge - N/A for De Minimis */}
                                                     <span
                                                         className={cn(
                                                             "font-mono",
                                                             tableCompact ? "text-[9px]" : "text-[10px]",
-                                                            asset.confidence_score > 0.8 ? "text-green-600" :
-                                                                asset.confidence_score > 0.5 ? "text-yellow-600" : "text-red-600"
+                                                            isDeMinimis ? "text-slate-400" :
+                                                                asset.confidence_score > 0.8 ? "text-green-600" :
+                                                                    asset.confidence_score > 0.5 ? "text-yellow-600" : "text-red-600"
                                                         )}
                                                     >
-                                                        {Math.round((asset.confidence_score || 0) * 100)}%
+                                                        {isDeMinimis ? "N/A" : `${Math.round((asset.confidence_score || 0) * 100)}%`}
                                                     </span>
                                                 </div>
                                             </td>
