@@ -45,20 +45,21 @@ function Review({ assets = [] }) {
     const costDebounceTimers = useRef({}); // { uniqueId: timerId }
     const dateDebounceTimers = useRef({}); // { uniqueId: timerId }
 
-    // MACRS Class options for dropdown (simplified categories)
+    // MACRS Class options for dropdown (matches backend VALID_MACRS_CATEGORIES)
     const MACRS_CLASS_OPTIONS = [
-        { value: "Computer", life: 5, label: "Computer (5-yr)" },
-        { value: "Furniture", life: 7, label: "Furniture & Fixtures (7-yr)" },
-        { value: "Machinery", life: 7, label: "Machinery & Equipment (7-yr)" },
-        { value: "Vehicle", life: 5, label: "Vehicle (5-yr)" },
+        { value: "Computer Equipment", life: 5, label: "Computer Equipment (5-yr)" },
         { value: "Office Equipment", life: 5, label: "Office Equipment (5-yr)" },
-        { value: "Appliance", life: 5, label: "Appliance (5-yr)" },
+        { value: "Office Furniture", life: 7, label: "Office Furniture (7-yr)" },
+        { value: "Machinery & Equipment", life: 7, label: "Machinery & Equipment (7-yr)" },
+        { value: "Passenger Automobile", life: 5, label: "Passenger Automobile (5-yr)" },
+        { value: "Trucks & Trailers", life: 5, label: "Trucks & Trailers (5-yr)" },
+        { value: "Software", life: 3, label: "Software (3-yr)" },
         { value: "Land Improvement", life: 15, label: "Land Improvement (15-yr)" },
-        { value: "QIP", life: 15, label: "Qualified Improvement Property (15-yr)" },
-        { value: "Residential Rental", life: 27.5, label: "Residential Rental (27.5-yr)" },
-        { value: "Commercial Building", life: 39, label: "Commercial Building (39-yr)" },
-        { value: "Land", life: 0, label: "Land (non-depreciable)" },
-        { value: "Other", life: 7, label: "Other (7-yr default)" },
+        { value: "QIP - Qualified Improvement Property", life: 15, label: "QIP - Qualified Improvement (15-yr)" },
+        { value: "Building Equipment", life: 15, label: "Building Equipment (15-yr)" },
+        { value: "Residential Rental Property", life: 27.5, label: "Residential Rental (27.5-yr)" },
+        { value: "Nonresidential Real Property", life: 39, label: "Commercial Building (39-yr)" },
+        { value: "Nondepreciable Land", life: 0, label: "Land (non-depreciable)" },
     ]
 
     // Fetch warnings and export status when assets change
