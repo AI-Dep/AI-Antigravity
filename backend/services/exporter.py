@@ -261,8 +261,11 @@ class ExporterService:
         # FA CS IMPORT SHEET - Use comprehensive build_fa output
         # ================================================================
         # Select columns that FA CS needs for import and RPA automation
+        # NOTE: Only include columns relevant to data entry - disposal recapture columns
+        # are NOT included here as they show 0 for non-disposal assets and clutter the view.
+        # Disposal info is available in the Current_Year_Disposal sheet.
         fa_cs_import_cols = [
-            # Core required fields
+            # Core required fields for FA CS entry
             "Asset #",
             "Description",
             "Date In Service",
@@ -284,15 +287,6 @@ class ExporterService:
 
             # Transaction type for CPA review
             "Transaction Type",
-
-            # Disposal fields (populated for disposed assets)
-            "Date Disposed",
-            "Gross Proceeds",
-            "§1245 Recapture (Ordinary Income)",
-            "§1250 Recapture (Ordinary Income)",
-            "Capital Gain",
-            "Capital Loss",
-            "Adjusted Basis at Disposal",
         ]
 
         # Select available columns from export_df
@@ -379,6 +373,7 @@ class ExporterService:
                 "Disposal Date": getattr(asset, 'disposal_date', None),
                 "Proceeds": getattr(asset, 'proceeds', None),
                 "Accumulated Depreciation": getattr(asset, 'accumulated_depreciation', None),
+                "Gain/Loss": getattr(asset, 'gain_loss', None),
 
                 # Transfer fields
                 "From Location": getattr(asset, 'from_location', None),
@@ -406,12 +401,15 @@ class ExporterService:
             # Sheet 1: FA CS Entry - Data formatted for manual FA CS entry via RPA
             # NOTE: De Minimis items are EXCLUDED - they go to separate sheet
             fa_cs_import_df.to_excel(writer, sheet_name='FA CS Entry', index=False)
+            ws_facs = writer.sheets['FA CS Entry']
+            _apply_professional_formatting(ws_facs, fa_cs_import_df)
 
             # Sheet 2: De Minimis Expenses - Items to expense (NOT add to FA CS)
             if de_minimis_expenses_df is not None and not de_minimis_expenses_df.empty:
                 de_minimis_expenses_df.to_excel(writer, sheet_name='De Minimis Expenses', index=False)
-                # Add summary row
                 ws_deminimis = writer.sheets['De Minimis Expenses']
+                _apply_professional_formatting(ws_deminimis, de_minimis_expenses_df)
+                # Add summary row after formatting
                 total_row = len(de_minimis_expenses_df) + 2
                 ws_deminimis.cell(row=total_row, column=1, value="TOTAL TO EXPENSE:")
                 ws_deminimis.cell(row=total_row, column=2, value=de_minimis_expenses_df['Cost'].sum())
@@ -499,6 +497,8 @@ class ExporterService:
 
             # Sheet 7: Full Audit Trail (all data for complete audit record)
             audit_df.to_excel(writer, sheet_name='Audit Trail', index=False)
+            ws_audit = writer.sheets['Audit Trail']
+            _apply_professional_formatting(ws_audit, audit_df)
 
             # Sheet 8: Change Log - Shows what changed from original data
             change_log_df = self._build_change_log(df, export_df, assets)
@@ -546,6 +546,8 @@ class ExporterService:
             }
             summary_df = pd.DataFrame(summary_data)
             summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            ws_summary = writer.sheets['Summary']
+            _apply_professional_formatting(ws_summary, summary_df)
 
         output.seek(0)
         return output
