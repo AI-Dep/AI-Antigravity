@@ -9,23 +9,31 @@ from backend.logic.fa_export_formatters import _apply_professional_formatting
 
 class ExporterService:
     """
-    Generates Excel files formatted for Fixed Assets CS import.
+    Generates Excel workpapers for Fixed Assets CS.
 
-    FA CS REQUIRED COLUMNS (must match exactly):
-    - Asset #
-    - Description
-    - Date In Service (NOT "In Service Date")
-    - Tax Cost
-    - Tax Method
-    - Tax Life
-    - FA_CS_Wizard_Category (for RPA automation - exact wizard dropdown text)
+    TWO SEPARATE EXPORTS (Option B - Industry Standard):
+    =====================================================
 
-    DISPOSAL COLUMNS (for disposed assets):
-    - Date Disposed
-    - Gross Proceeds
-    - §1245 Recapture (Ordinary Income)
-    - §1250 Recapture (Ordinary Income)
-    - Capital Gain / Capital Loss
+    1. FA CS PREP WORKPAPER (generate_fa_cs_prep_workpaper)
+       Purpose: Data entry prep, review, and quality control
+       Audience: Staff/Senior preparing FA CS entries
+       Sheets:
+       - FA CS Entry: Core fields needed for FA CS software input
+       - De Minimis Expenses: Items to expense (not add to FA CS)
+       - Items Requiring Review: Low confidence, missing data flags
+       - Summary: Quick counts and totals
+
+    2. AUDIT DOCUMENTATION (generate_audit_workpaper)
+       Purpose: Complete audit trail and workpaper documentation
+       Audience: Managers/Partners for review; Auditors for testing
+       Sheets:
+       - Complete Asset Schedule: ALL assets, ALL fields (Tax/Book/State)
+       - Change Log: What changed from original data with reasons
+       - Summary: Counts and totals with Tax vs Book reconciliation
+
+    FA CS REQUIRED COLUMNS:
+    - Asset #, Description, Date In Service, Tax Cost
+    - Tax Method, Tax Life, FA_CS_Wizard_Category
 
     IMPORTANT: ALL assets are exported, even those with validation errors.
     The CPA reviews and decides what to do - the system doesn't exclude anything.
@@ -556,6 +564,650 @@ class ExporterService:
 
         output.seek(0)
         return output
+
+    # ========================================================================
+    # OPTION B: TWO SEPARATE EXPORTS (Industry Standard)
+    # ========================================================================
+
+    def generate_fa_cs_prep_workpaper(self, assets: List[Asset], tax_year: int = None,
+                                       de_minimis_limit: float = 0.0) -> BytesIO:
+        """
+        Generate FA CS PREP WORKPAPER - for data entry prep and review.
+
+        Purpose: Staff/Senior preparing FA CS entries uses this for:
+        - Data entry into FA CS software
+        - Quality control before entry
+        - Identifying items needing attention
+
+        Sheets:
+        1. FA CS Entry - Core fields for FA CS input (with Client Asset ID for cross-reference)
+        2. De Minimis Expenses - Items to expense immediately (not add to FA CS)
+        3. Items Requiring Review - Low confidence, missing data, warnings
+        4. Summary - Quick counts and totals
+        """
+        effective_tax_year = tax_year if tax_year else date.today().year
+
+        # Prepare data using build_fa engine
+        engine_data = []
+        for asset in assets:
+            trans_type = self._detect_transaction_type(asset, effective_tax_year)
+            row = self._build_engine_row(asset, trans_type, effective_tax_year)
+            engine_data.append(row)
+
+        df = pd.DataFrame(engine_data)
+
+        # Process through build_fa for full calculations
+        try:
+            export_df = build_fa(
+                df=df,
+                tax_year=effective_tax_year,
+                strategy="Balanced (Bonus Only)",
+                taxable_income=10000000.0,
+                use_acq_if_missing=True,
+                de_minimis_limit=de_minimis_limit
+            )
+        except Exception as e:
+            print(f"Warning: build_fa failed ({e}), using raw data")
+            export_df = df.copy()
+            self._normalize_columns(export_df)
+
+        # Merge election data back
+        if "Depreciation Election" in df.columns and "Depreciation Election" not in export_df.columns:
+            export_df["Depreciation Election"] = df["Depreciation Election"].values
+
+        # ================================================================
+        # SEPARATE DE MINIMIS ASSETS
+        # ================================================================
+        if "Depreciation Election" in export_df.columns:
+            de_minimis_mask = export_df["Depreciation Election"] == "DeMinimis"
+            de_minimis_df = export_df[de_minimis_mask].copy()
+            non_de_minimis_df = export_df[~de_minimis_mask].copy()
+        else:
+            de_minimis_df = pd.DataFrame()
+            non_de_minimis_df = export_df.copy()
+
+        # ================================================================
+        # SHEET 1: FA CS ENTRY (Clean, minimal columns for FA CS input)
+        # ================================================================
+        fa_cs_entry_cols = [
+            "Asset #",
+            "Client Asset ID",  # Cross-reference to client's system
+            "Description",
+            "Date In Service",
+            "Tax Cost",
+            "Tax Method",
+            "Tax Life",
+            "Convention",
+            "FA_CS_Wizard_Category",  # For RPA automation
+            "Tax Sec 179 Expensed",
+            "Tax Prior Depreciation",
+            "Transaction Type",
+        ]
+        available_cols = [c for c in fa_cs_entry_cols if c in non_de_minimis_df.columns]
+        fa_cs_entry_df = non_de_minimis_df[available_cols].copy()
+
+        # ================================================================
+        # SHEET 2: DE MINIMIS EXPENSES
+        # ================================================================
+        de_minimis_expenses_df = self._build_de_minimis_sheet(de_minimis_df)
+
+        # ================================================================
+        # SHEET 3: ITEMS REQUIRING REVIEW
+        # ================================================================
+        items_requiring_review_df = self._build_items_requiring_review(assets, export_df, effective_tax_year)
+
+        # ================================================================
+        # SHEET 4: SUMMARY
+        # ================================================================
+        summary_df = self._build_prep_summary(
+            fa_cs_entry_df, de_minimis_expenses_df, items_requiring_review_df, non_de_minimis_df
+        )
+
+        # Generate Excel workbook
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Sheet 1: FA CS Entry
+            fa_cs_entry_df.to_excel(writer, sheet_name='FA CS Entry', index=False)
+            ws_entry = writer.sheets['FA CS Entry']
+            _apply_professional_formatting(ws_entry, fa_cs_entry_df)
+
+            # Sheet 2: De Minimis Expenses
+            if de_minimis_expenses_df is not None and not de_minimis_expenses_df.empty:
+                de_minimis_expenses_df.to_excel(writer, sheet_name='De Minimis Expenses', index=False)
+                ws_deminimis = writer.sheets['De Minimis Expenses']
+                _apply_professional_formatting(ws_deminimis, de_minimis_expenses_df)
+                # Add total row
+                total_row = len(de_minimis_expenses_df) + 2
+                ws_deminimis.cell(row=total_row, column=1, value="TOTAL TO EXPENSE:")
+                ws_deminimis.cell(row=total_row, column=2, value=de_minimis_expenses_df['Cost'].sum())
+                ws_deminimis.cell(row=total_row, column=1).font = ws_deminimis.cell(row=total_row, column=1).font.copy(bold=True)
+
+            # Sheet 3: Items Requiring Review
+            if items_requiring_review_df is not None and not items_requiring_review_df.empty:
+                items_requiring_review_df.to_excel(writer, sheet_name='Items Requiring Review', index=False)
+                ws_review = writer.sheets['Items Requiring Review']
+                _apply_professional_formatting(ws_review, items_requiring_review_df)
+
+            # Sheet 4: Summary
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            ws_summary = writer.sheets['Summary']
+            _apply_professional_formatting(ws_summary, summary_df)
+
+        output.seek(0)
+        return output
+
+    def generate_audit_workpaper(self, assets: List[Asset], tax_year: int = None,
+                                  de_minimis_limit: float = 0.0) -> BytesIO:
+        """
+        Generate AUDIT DOCUMENTATION - for complete audit trail.
+
+        Purpose: Managers/Partners and Auditors use this for:
+        - Complete workpaper documentation
+        - Audit trail of all decisions
+        - Tax vs Book vs State reconciliation
+
+        Sheets:
+        1. Complete Asset Schedule - ALL assets with ALL fields (Tax/Book/State)
+        2. Change Log - What changed from original data with reasons
+        3. Summary - Counts, totals, and reconciliation
+        """
+        effective_tax_year = tax_year if tax_year else date.today().year
+
+        # Prepare data using build_fa engine
+        engine_data = []
+        for asset in assets:
+            trans_type = self._detect_transaction_type(asset, effective_tax_year)
+            row = self._build_engine_row(asset, trans_type, effective_tax_year)
+            engine_data.append(row)
+
+        df = pd.DataFrame(engine_data)
+
+        # Process through build_fa for full calculations
+        try:
+            export_df = build_fa(
+                df=df,
+                tax_year=effective_tax_year,
+                strategy="Balanced (Bonus Only)",
+                taxable_income=10000000.0,
+                use_acq_if_missing=True,
+                de_minimis_limit=de_minimis_limit
+            )
+        except Exception as e:
+            print(f"Warning: build_fa failed ({e}), using raw data")
+            export_df = df.copy()
+            self._normalize_columns(export_df)
+
+        # Merge election data back
+        if "Depreciation Election" in df.columns and "Depreciation Election" not in export_df.columns:
+            export_df["Depreciation Election"] = df["Depreciation Election"].values
+        if "Election Reason" in df.columns and "Election Reason" not in export_df.columns:
+            export_df["Election Reason"] = df["Election Reason"].values
+
+        # ================================================================
+        # SHEET 1: COMPLETE ASSET SCHEDULE (ALL assets, ALL fields)
+        # ================================================================
+        complete_schedule_df = self._build_complete_asset_schedule(assets, effective_tax_year)
+
+        # ================================================================
+        # SHEET 2: CHANGE LOG
+        # ================================================================
+        change_log_df = self._build_change_log(df, export_df, assets)
+
+        # ================================================================
+        # SHEET 3: SUMMARY with Transaction Type Breakdown
+        # ================================================================
+        summary_df = self._build_audit_summary(complete_schedule_df, effective_tax_year)
+
+        # Generate Excel workbook
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Sheet 1: Complete Asset Schedule
+            complete_schedule_df.to_excel(writer, sheet_name='Complete Asset Schedule', index=False)
+            ws_schedule = writer.sheets['Complete Asset Schedule']
+            _apply_professional_formatting(ws_schedule, complete_schedule_df)
+
+            # Sheet 2: Change Log
+            if change_log_df is not None and not change_log_df.empty:
+                change_log_df.to_excel(writer, sheet_name='Change Log', index=False)
+                ws_changelog = writer.sheets['Change Log']
+                _apply_professional_formatting(ws_changelog, change_log_df)
+
+            # Sheet 3: Summary
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            ws_summary = writer.sheets['Summary']
+            _apply_professional_formatting(ws_summary, summary_df)
+
+        output.seek(0)
+        return output
+
+    def generate_both_workpapers(self, assets: List[Asset], tax_year: int = None,
+                                  de_minimis_limit: float = 0.0) -> dict:
+        """
+        Generate BOTH workpapers (convenience method).
+
+        Returns:
+            dict with keys:
+            - 'prep_workpaper': BytesIO of FA CS Prep Workpaper
+            - 'audit_workpaper': BytesIO of Audit Documentation
+        """
+        return {
+            'prep_workpaper': self.generate_fa_cs_prep_workpaper(assets, tax_year, de_minimis_limit),
+            'audit_workpaper': self.generate_audit_workpaper(assets, tax_year, de_minimis_limit)
+        }
+
+    # ========================================================================
+    # HELPER METHODS FOR NEW EXPORTS
+    # ========================================================================
+
+    def _build_engine_row(self, asset: Asset, trans_type: str, tax_year: int) -> dict:
+        """Build a row for the build_fa engine from an Asset object."""
+        return {
+            "Asset #": self._format_asset_number(asset),
+            "Client Asset ID": str(asset.asset_id) if asset.asset_id else f"Row-{asset.row_index}",
+            "Description": asset.description,
+            "Acquisition Date": asset.acquisition_date,
+            "In Service Date": asset.in_service_date if asset.in_service_date else asset.acquisition_date,
+            "Cost": asset.cost if asset.cost else 0.0,
+            "Final Category": asset.macrs_class if asset.macrs_class else "Unclassified",
+            "MACRS Life": asset.macrs_life,
+            "Recovery Period": asset.macrs_life,
+            "Method": asset.macrs_method,
+            "Convention": asset.macrs_convention,
+            "FA_CS_Wizard_Category": getattr(asset, 'fa_cs_wizard_category', None),
+            "Disposal Date": getattr(asset, 'disposal_date', None),
+            "Proceeds": getattr(asset, 'proceeds', None) or getattr(asset, 'sale_price', None),
+            "Accumulated Depreciation": getattr(asset, 'accumulated_depreciation', 0.0) or 0.0,
+            "Net Book Value": getattr(asset, 'net_book_value', None),
+            "Gain/Loss": getattr(asset, 'gain_loss', None),
+            "From Location": getattr(asset, 'from_location', None),
+            "To Location": getattr(asset, 'to_location', None),
+            "Transfer Date": getattr(asset, 'transfer_date', None),
+            "Transaction Type": trans_type,
+            "Confidence": asset.confidence_score,
+            "Source": "rules",
+            "Business Use %": 1.0,
+            "Tax Year": tax_year,
+            "Depreciation Election": getattr(asset, 'depreciation_election', 'MACRS') or 'MACRS',
+            "Election Reason": getattr(asset, 'election_reason', '') or '',
+            "Section 179 Amount": 0.0,
+            "Bonus Amount": 0.0,
+            "Bonus Percentage Used": 0.0,
+            "MACRS Year 1 Depreciation": 0.0,
+            "Auto Limit Notes": "",
+            "Uses ADS": False,
+            "§1245 Recapture (Ordinary Income)": 0.0,
+            "§1250 Recapture (Ordinary Income)": 0.0,
+            "Unrecaptured §1250 Gain (25% rate)": 0.0,
+            "Capital Gain": 0.0,
+            "Capital Loss": 0.0,
+            "Adjusted Basis at Disposal": 0.0,
+        }
+
+    def _normalize_columns(self, df: pd.DataFrame) -> None:
+        """Normalize column names when build_fa fails (fallback)."""
+        column_renames = {
+            "Cost": "Tax Cost",
+            "In Service Date": "Date In Service",
+            "MACRS Life": "Tax Life",
+            "Method": "Tax Method",
+        }
+        for old_col, new_col in column_renames.items():
+            if old_col in df.columns and new_col not in df.columns:
+                df[new_col] = df[old_col]
+
+    def _build_de_minimis_sheet(self, de_minimis_df: pd.DataFrame) -> pd.DataFrame:
+        """Build De Minimis Expenses sheet with expense account suggestions."""
+        if de_minimis_df.empty:
+            return None
+
+        de_minimis_expenses = []
+        for _, row in de_minimis_df.iterrows():
+            desc = str(row.get("Description", "")).lower()
+            cost_val = row.get("Tax Cost", row.get("Cost", 0))
+            cost = float(cost_val) if pd.notna(cost_val) and cost_val else 0.0
+            date_val = row.get("Date In Service", row.get("In Service Date", ""))
+
+            # Suggest expense account based on description
+            if any(x in desc for x in ["computer", "laptop", "monitor", "keyboard", "mouse", "printer"]):
+                expense_account = "Computer Equipment Expense"
+            elif any(x in desc for x in ["furniture", "desk", "chair", "cabinet", "shelf"]):
+                expense_account = "Furniture & Fixtures Expense"
+            elif any(x in desc for x in ["phone", "tablet", "mobile"]):
+                expense_account = "Telecommunications Expense"
+            elif any(x in desc for x in ["tool", "equipment"]):
+                expense_account = "Small Equipment Expense"
+            else:
+                expense_account = "Office Supplies Expense"
+
+            de_minimis_expenses.append({
+                "Description": row.get("Description", ""),
+                "Cost": cost,
+                "Date": date_val,
+                "Suggested Expense Account": expense_account,
+                "Tax Treatment": "De Minimis Safe Harbor (Rev. Proc. 2015-20)",
+                "Note": "Expense immediately - DO NOT add to FA CS"
+            })
+
+        return pd.DataFrame(de_minimis_expenses)
+
+    def _build_items_requiring_review(self, assets: List[Asset], export_df: pd.DataFrame,
+                                       tax_year: int) -> pd.DataFrame:
+        """
+        Build Items Requiring Review sheet.
+
+        Flags items that need CPA attention:
+        - Low confidence classifications (< 0.7)
+        - Missing required data (cost, date, category)
+        - Unusual values (very high cost, old assets with no depreciation)
+        - De Minimis items that exceed limit
+        - Disposals with no proceeds
+        """
+        review_items = []
+
+        for idx, asset in enumerate(assets):
+            flags = []
+            priority = "Low"
+
+            # Check confidence score
+            confidence = asset.confidence_score or 0
+            if confidence < 0.5:
+                flags.append("LOW CONFIDENCE: Classification may be incorrect")
+                priority = "High"
+            elif confidence < 0.7:
+                flags.append("MEDIUM CONFIDENCE: Review classification")
+                priority = "Medium" if priority == "Low" else priority
+
+            # Check missing required data
+            if not asset.cost or asset.cost <= 0:
+                flags.append("MISSING: Cost is zero or missing")
+                priority = "High"
+
+            if not asset.in_service_date and not asset.acquisition_date:
+                flags.append("MISSING: No in-service or acquisition date")
+                priority = "High"
+
+            if not asset.macrs_class or asset.macrs_class == "Unclassified":
+                flags.append("MISSING: No MACRS class assigned")
+                priority = "Medium" if priority == "Low" else priority
+
+            if not asset.macrs_life:
+                flags.append("MISSING: No tax life assigned")
+                priority = "Medium" if priority == "Low" else priority
+
+            # Check for unusual values
+            if asset.cost and asset.cost > 1000000:
+                flags.append("REVIEW: High value asset (>$1M)")
+                priority = "Medium" if priority == "Low" else priority
+
+            # Check disposals without proceeds
+            if getattr(asset, 'disposal_date', None) and not getattr(asset, 'proceeds', None):
+                flags.append("REVIEW: Disposal with no proceeds recorded")
+                priority = "Medium" if priority == "Low" else priority
+
+            # Check for description issues
+            if not asset.description or len(asset.description.strip()) < 3:
+                flags.append("MISSING: Description is empty or too short")
+                priority = "Medium" if priority == "Low" else priority
+
+            # Only add if there are flags
+            if flags:
+                review_items.append({
+                    "Asset #": self._format_asset_number(asset),
+                    "Client Asset ID": asset.asset_id,
+                    "Description": asset.description[:50] if asset.description else "",
+                    "Cost": asset.cost,
+                    "Priority": priority,
+                    "Flags": " | ".join(flags),
+                    "Confidence Score": confidence,
+                    "Action Needed": self._get_review_action(flags)
+                })
+
+        if not review_items:
+            return pd.DataFrame([{
+                "Asset #": "-",
+                "Client Asset ID": "-",
+                "Description": "No items require review",
+                "Cost": 0,
+                "Priority": "-",
+                "Flags": "All items passed quality checks",
+                "Confidence Score": "-",
+                "Action Needed": "None"
+            }])
+
+        # Sort by priority (High first)
+        df = pd.DataFrame(review_items)
+        priority_order = {"High": 0, "Medium": 1, "Low": 2}
+        df["_sort"] = df["Priority"].map(priority_order)
+        df = df.sort_values("_sort").drop("_sort", axis=1)
+
+        return df
+
+    def _get_review_action(self, flags: List[str]) -> str:
+        """Determine recommended action based on flags."""
+        if any("MISSING: Cost" in f or "MISSING: No in-service" in f for f in flags):
+            return "Obtain missing data from client"
+        elif any("LOW CONFIDENCE" in f for f in flags):
+            return "Verify classification with supporting documentation"
+        elif any("MISSING: No MACRS" in f or "MISSING: No tax life" in f for f in flags):
+            return "Complete classification"
+        elif any("High value" in f for f in flags):
+            return "Verify cost and classification"
+        else:
+            return "Review and correct as needed"
+
+    def _build_complete_asset_schedule(self, assets: List[Asset], tax_year: int) -> pd.DataFrame:
+        """Build complete asset schedule with ALL fields for audit purposes."""
+        schedule_data = []
+
+        for asset in assets:
+            trans_type = self._detect_transaction_type(asset, tax_year)
+
+            row = {
+                # Identification
+                "Asset #": self._format_asset_number(asset),
+                "Client Asset ID": asset.asset_id,
+                "Description": asset.description,
+
+                # Transaction Info
+                "Transaction Type": trans_type,
+                "Depreciation Election": getattr(asset, 'depreciation_election', 'MACRS') or 'MACRS',
+                "Election Reason": getattr(asset, 'election_reason', '') or '',
+
+                # Dates
+                "Acquisition Date": asset.acquisition_date,
+                "In Service Date": asset.in_service_date or asset.acquisition_date,
+
+                # Cost Basis
+                "Tax Cost": asset.cost,
+
+                # Tax Depreciation (Federal)
+                "Tax Class": asset.macrs_class,
+                "Tax Life": asset.macrs_life,
+                "Tax Method": asset.macrs_method,
+                "Tax Convention": asset.macrs_convention,
+
+                # Book Depreciation (GAAP)
+                "Book Life": getattr(asset, 'book_life', None) or asset.macrs_life,
+                "Book Method": getattr(asset, 'book_method', None) or "SL",
+                "Book Convention": getattr(asset, 'book_convention', None) or asset.macrs_convention,
+
+                # State Depreciation
+                "State Life": getattr(asset, 'state_life', None) or asset.macrs_life,
+                "State Method": getattr(asset, 'state_method', None) or asset.macrs_method,
+                "State Bonus Allowed": getattr(asset, 'state_bonus_allowed', True),
+
+                # Disposal Info
+                "Disposal Date": getattr(asset, 'disposal_date', None),
+                "Proceeds": getattr(asset, 'proceeds', None),
+                "Accumulated Depreciation": getattr(asset, 'accumulated_depreciation', None),
+                "Gain/Loss": getattr(asset, 'gain_loss', None),
+
+                # Transfer Info
+                "Transfer Date": getattr(asset, 'transfer_date', None),
+                "From Location": getattr(asset, 'from_location', None),
+                "To Location": getattr(asset, 'to_location', None),
+
+                # Metadata
+                "Confidence Score": asset.confidence_score,
+                "Tax Year": tax_year,
+                "Export Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            schedule_data.append(row)
+
+        return pd.DataFrame(schedule_data)
+
+    def _build_prep_summary(self, fa_cs_entry_df: pd.DataFrame, de_minimis_df: pd.DataFrame,
+                            review_df: pd.DataFrame, non_de_minimis_df: pd.DataFrame) -> pd.DataFrame:
+        """Build summary for Prep Workpaper."""
+        # Count by transaction type
+        trans_counts = {}
+        if 'Transaction Type' in non_de_minimis_df.columns:
+            trans_counts = non_de_minimis_df['Transaction Type'].value_counts().to_dict()
+
+        # Count review items by priority
+        review_high = 0
+        review_medium = 0
+        if review_df is not None and 'Priority' in review_df.columns:
+            priority_counts = review_df['Priority'].value_counts().to_dict()
+            review_high = priority_counts.get('High', 0)
+            review_medium = priority_counts.get('Medium', 0)
+
+        summary_data = {
+            'Category': [
+                'Assets for FA CS Entry',
+                '  - Current Year Additions',
+                '  - Existing Assets',
+                '  - Disposals',
+                '  - Transfers',
+                'De Minimis Expenses',
+                '',
+                'Items Requiring Review',
+                '  - High Priority',
+                '  - Medium Priority',
+                '',
+                'TOTAL ASSETS'
+            ],
+            'Count': [
+                len(fa_cs_entry_df),
+                trans_counts.get('Current Year Addition', 0),
+                trans_counts.get('Existing Asset', 0),
+                trans_counts.get('Disposal', 0),
+                trans_counts.get('Transfer', 0),
+                len(de_minimis_df) if de_minimis_df is not None else 0,
+                '',
+                len(review_df) - 1 if review_df is not None and len(review_df) > 0 and review_df.iloc[0]['Asset #'] != '-' else 0,
+                review_high,
+                review_medium,
+                '',
+                len(fa_cs_entry_df) + (len(de_minimis_df) if de_minimis_df is not None else 0)
+            ],
+            'Total Cost': [
+                fa_cs_entry_df['Tax Cost'].sum() if 'Tax Cost' in fa_cs_entry_df.columns else 0,
+                '',
+                '',
+                '',
+                '',
+                de_minimis_df['Cost'].sum() if de_minimis_df is not None and 'Cost' in de_minimis_df.columns else 0,
+                '',
+                '',
+                '',
+                '',
+                '',
+                (fa_cs_entry_df['Tax Cost'].sum() if 'Tax Cost' in fa_cs_entry_df.columns else 0) +
+                (de_minimis_df['Cost'].sum() if de_minimis_df is not None and 'Cost' in de_minimis_df.columns else 0)
+            ]
+        }
+
+        return pd.DataFrame(summary_data)
+
+    def _build_audit_summary(self, complete_schedule_df: pd.DataFrame, tax_year: int) -> pd.DataFrame:
+        """Build summary for Audit Workpaper with full reconciliation."""
+        # Transaction type breakdown
+        trans_counts = {}
+        trans_costs = {}
+        if 'Transaction Type' in complete_schedule_df.columns:
+            for trans_type in complete_schedule_df['Transaction Type'].unique():
+                mask = complete_schedule_df['Transaction Type'] == trans_type
+                trans_counts[trans_type] = mask.sum()
+                trans_costs[trans_type] = complete_schedule_df.loc[mask, 'Tax Cost'].sum() if 'Tax Cost' in complete_schedule_df.columns else 0
+
+        # Election breakdown
+        election_counts = {}
+        if 'Depreciation Election' in complete_schedule_df.columns:
+            election_counts = complete_schedule_df['Depreciation Election'].value_counts().to_dict()
+
+        # Calculate gain/loss total for disposals
+        disposal_gain_loss = 0
+        if 'Gain/Loss' in complete_schedule_df.columns:
+            disposal_gain_loss = complete_schedule_df['Gain/Loss'].sum()
+
+        summary_data = {
+            'Category': [
+                '=== TRANSACTION SUMMARY ===',
+                'Current Year Additions',
+                'Existing Assets',
+                'Disposals',
+                'Transfers',
+                'TOTAL',
+                '',
+                '=== ELECTION BREAKDOWN ===',
+                'MACRS (Standard)',
+                'Section 179',
+                'Bonus Depreciation',
+                'De Minimis Safe Harbor',
+                'ADS (Alternative)',
+                '',
+                '=== DISPOSAL ANALYSIS ===',
+                'Total Gain/Loss',
+                '',
+                '=== TAX YEAR ===',
+                'Current Tax Year'
+            ],
+            'Count': [
+                '',
+                trans_counts.get('Current Year Addition', 0),
+                trans_counts.get('Existing Asset', 0),
+                trans_counts.get('Disposal', 0),
+                trans_counts.get('Transfer', 0),
+                len(complete_schedule_df),
+                '',
+                '',
+                election_counts.get('MACRS', 0),
+                election_counts.get('Section179', 0),
+                election_counts.get('Bonus', 0),
+                election_counts.get('DeMinimis', 0),
+                election_counts.get('ADS', 0),
+                '',
+                '',
+                '',
+                '',
+                '',
+                tax_year
+            ],
+            'Total Cost': [
+                '',
+                trans_costs.get('Current Year Addition', 0),
+                trans_costs.get('Existing Asset', 0),
+                trans_costs.get('Disposal', 0),
+                trans_costs.get('Transfer', 0),
+                complete_schedule_df['Tax Cost'].sum() if 'Tax Cost' in complete_schedule_df.columns else 0,
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                disposal_gain_loss,
+                '',
+                '',
+                ''
+            ]
+        }
+
+        return pd.DataFrame(summary_data)
 
     def _detect_transaction_type(self, asset: Asset, tax_year: int = None) -> str:
         """
