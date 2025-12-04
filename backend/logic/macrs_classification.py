@@ -645,6 +645,112 @@ def _match_rule(asset: Dict, rules: Dict, return_top_n: int = 1) -> Optional[tup
 
 
 # ===================================================================================
+# SOURCE SHEET NAME MAPPING - Client's categorization via Excel tab names
+# ===================================================================================
+# When clients organize assets by sheet/tab, the sheet name IS their categorization.
+# This is a HIGH-CONFIDENCE signal - if asset is on "Plant Equip" tab, client is
+# telling us it's plant equipment, regardless of vague descriptions like "Amazon".
+
+SOURCE_SHEET_MAPPINGS = {
+    # Plant/Manufacturing Equipment → Machinery & Equipment (7-year)
+    "plant equip": {"class": "Machinery & Equipment", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "plant equipment": {"class": "Machinery & Equipment", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "plant": {"class": "Machinery & Equipment", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "machinery": {"class": "Machinery & Equipment", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "machinery & equipment": {"class": "Machinery & Equipment", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "m&e": {"class": "Machinery & Equipment", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "manufacturing": {"class": "Machinery & Equipment", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "production equipment": {"class": "Machinery & Equipment", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "shop equipment": {"class": "Machinery & Equipment", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+
+    # Computer/IT Equipment → Computer Equipment (5-year)
+    "computer": {"class": "Computer Equipment", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+    "computers": {"class": "Computer Equipment", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+    "computer equip": {"class": "Computer Equipment", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+    "computer equipment": {"class": "Computer Equipment", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+    "office & computer": {"class": "Computer Equipment", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+    "office & computer equip": {"class": "Computer Equipment", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+    "it equipment": {"class": "Computer Equipment", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+    "it": {"class": "Computer Equipment", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+    "technology": {"class": "Computer Equipment", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+
+    # Furniture & Fixtures → Office Furniture (7-year)
+    "f&f": {"class": "Office Furniture", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "ff&e": {"class": "Office Furniture", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "ffe": {"class": "Office Furniture", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "furniture": {"class": "Office Furniture", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "furniture & fixtures": {"class": "Office Furniture", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "office furniture": {"class": "Office Furniture", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+    "fixtures": {"class": "Office Furniture", "life": 7, "method": "200DB", "convention": "HY", "bonus": True},
+
+    # Leasehold/Tenant Improvements → QIP (15-year)
+    "lh improvement": {"class": "QIP - Qualified Improvement Property", "life": 15, "method": "SL", "convention": "HY", "bonus": True, "qip": True},
+    "lh improvements": {"class": "QIP - Qualified Improvement Property", "life": 15, "method": "SL", "convention": "HY", "bonus": True, "qip": True},
+    "leasehold": {"class": "QIP - Qualified Improvement Property", "life": 15, "method": "SL", "convention": "HY", "bonus": True, "qip": True},
+    "leasehold improvement": {"class": "QIP - Qualified Improvement Property", "life": 15, "method": "SL", "convention": "HY", "bonus": True, "qip": True},
+    "leasehold improvements": {"class": "QIP - Qualified Improvement Property", "life": 15, "method": "SL", "convention": "HY", "bonus": True, "qip": True},
+    "tenant improvement": {"class": "QIP - Qualified Improvement Property", "life": 15, "method": "SL", "convention": "HY", "bonus": True, "qip": True},
+    "ti": {"class": "QIP - Qualified Improvement Property", "life": 15, "method": "SL", "convention": "HY", "bonus": True, "qip": True},
+    "qip": {"class": "QIP - Qualified Improvement Property", "life": 15, "method": "SL", "convention": "HY", "bonus": True, "qip": True},
+    "improvements": {"class": "QIP - Qualified Improvement Property", "life": 15, "method": "SL", "convention": "HY", "bonus": True, "qip": True},
+
+    # Vehicles → Passenger Automobile (5-year)
+    "vehicle": {"class": "Passenger Automobile", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+    "vehicles": {"class": "Passenger Automobile", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+    "auto": {"class": "Passenger Automobile", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+    "autos": {"class": "Passenger Automobile", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+    "automobile": {"class": "Passenger Automobile", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+    "fleet": {"class": "Passenger Automobile", "life": 5, "method": "200DB", "convention": "HY", "bonus": True},
+
+    # Land Improvements → Land Improvement (15-year)
+    "land improvement": {"class": "Land Improvement", "life": 15, "method": "150DB", "convention": "HY", "bonus": True},
+    "land improvements": {"class": "Land Improvement", "life": 15, "method": "150DB", "convention": "HY", "bonus": True},
+    "site improvement": {"class": "Land Improvement", "life": 15, "method": "150DB", "convention": "HY", "bonus": True},
+    "site improvements": {"class": "Land Improvement", "life": 15, "method": "150DB", "convention": "HY", "bonus": True},
+    "site work": {"class": "Land Improvement", "life": 15, "method": "150DB", "convention": "HY", "bonus": True},
+    "parking": {"class": "Land Improvement", "life": 15, "method": "150DB", "convention": "HY", "bonus": True},
+
+    # Building → Nonresidential Real Property (39-year)
+    "building": {"class": "Nonresidential Real Property", "life": 39, "method": "SL", "convention": "MM", "bonus": False},
+    "buildings": {"class": "Nonresidential Real Property", "life": 39, "method": "SL", "convention": "MM", "bonus": False},
+    "real property": {"class": "Nonresidential Real Property", "life": 39, "method": "SL", "convention": "MM", "bonus": False},
+}
+
+
+def _match_source_sheet(sheet_name: str) -> Optional[Dict]:
+    """
+    Match source sheet name to MACRS classification.
+
+    This is a HIGH-CONFIDENCE classification method because the client
+    explicitly organized their assets by category using sheet names.
+
+    Args:
+        sheet_name: Excel sheet/tab name (e.g., "Plant Equip", "F&F")
+
+    Returns:
+        Classification dict if matched, None otherwise
+    """
+    if not sheet_name:
+        return None
+
+    # Normalize sheet name
+    sheet_norm = sheet_name.strip().lower()
+
+    # Direct match first
+    if sheet_norm in SOURCE_SHEET_MAPPINGS:
+        return SOURCE_SHEET_MAPPINGS[sheet_norm]
+
+    # Try matching key patterns within sheet name
+    # Order by specificity (longer patterns first)
+    sorted_keys = sorted(SOURCE_SHEET_MAPPINGS.keys(), key=len, reverse=True)
+    for key in sorted_keys:
+        if key in sheet_norm:
+            return SOURCE_SHEET_MAPPINGS[key]
+
+    return None
+
+
+# ===================================================================================
 # CLIENT CATEGORY MAPPING
 # ===================================================================================
 
@@ -1204,6 +1310,27 @@ def _try_fast_classification(asset: Dict, rules: Dict, overrides: Dict, skip_mem
             "notes": "User override"
         }
 
+    # TIER 1.5: Source Sheet Name Mapping (Client's Categorization)
+    # If client organizes assets by sheet/tab, the sheet name IS their categorization
+    source_sheet = _safe_get(asset, ["source_sheet", "Source Sheet"], "")
+    if source_sheet:
+        sheet_match = _match_source_sheet(source_sheet)
+        if sheet_match:
+            result = {
+                "final_class": sheet_match.get("class"),
+                "final_life": sheet_match.get("life"),
+                "final_method": sheet_match.get("method"),
+                "final_convention": sheet_match.get("convention"),
+                "bonus": sheet_match.get("bonus", True),
+                "qip": sheet_match.get("qip", False),
+                "source": "sheet_name",
+                "confidence": 0.92,  # High confidence - client categorized it
+                "low_confidence": False,
+                "notes": f"Classified by source sheet: '{source_sheet}' → {sheet_match.get('class')}"
+            }
+            # QIP verification would be done in the caller
+            return result
+
     desc = sanitize_description(_safe_get(asset, ["Description", "description"], "")).lower()
 
     # TIER 2: Check rule match FIRST (for consistency with classify_asset)
@@ -1747,6 +1874,36 @@ def classify_asset(
             "low_confidence": False,
             "notes": "User override"
         }
+
+    # ========================================================================
+    # TIER 1.5: Source Sheet Name Mapping (Client's Categorization)
+    # ========================================================================
+    # If client organizes assets by sheet/tab (e.g., "Plant Equip", "F&F"),
+    # the sheet name IS their categorization - this is HIGH CONFIDENCE.
+    # Example: Asset "Amazon" on "Plant Equip" tab = Machinery, not unknown.
+    source_sheet = _safe_get(asset, ["source_sheet", "Source Sheet"], "")
+    if source_sheet:
+        sheet_match = _match_source_sheet(source_sheet)
+        if sheet_match:
+            result = {
+                "final_class": sheet_match.get("class"),
+                "final_life": sheet_match.get("life"),
+                "final_method": sheet_match.get("method"),
+                "final_convention": sheet_match.get("convention"),
+                "bonus": sheet_match.get("bonus", True),
+                "qip": sheet_match.get("qip", False),
+                "source": "sheet_name",
+                "confidence": 0.92,  # High confidence - client categorized it
+                "low_confidence": False,
+                "notes": f"Classified by source sheet: '{source_sheet}' → {sheet_match.get('class')}"
+            }
+
+            # CRITICAL: Verify QIP eligibility based on in-service date
+            if result.get("qip"):
+                result = _verify_qip_eligibility(asset, result)
+
+            logger.info(f"Sheet-based classification: '{source_sheet}' → {result['final_class']}")
+            return result
 
     # ========================================================================
     # TIER 2: Rule-based Pattern Matching with Top-2 Guesses
