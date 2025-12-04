@@ -284,19 +284,16 @@ class ClassifierService:
         cost = asset.cost or 0
         de_minimis_threshold = 2500  # IRS de minimis safe harbor for taxpayers with AFS
 
-        # CRITICAL: Preserve existing election from import file
-        # Valid elections: MACRS, Section179, Bonus, DeMinimis, ADS
+        # CRITICAL: Only preserve NON-DEFAULT elections from import file
+        # MACRS is the default, so we only preserve if user explicitly specified something else
+        # (e.g., Section179, Bonus, DeMinimis from their source system)
         existing_election = getattr(asset, 'depreciation_election', None)
-        valid_elections = {"MACRS", "Section179", "Bonus", "DeMinimis", "ADS"}
+        non_default_elections = {"Section179", "Bonus", "DeMinimis", "ADS"}  # Excludes MACRS
 
-        if existing_election and existing_election in valid_elections:
-            # User already specified an election - keep it
+        if existing_election and existing_election in non_default_elections:
+            # User explicitly specified a non-default election - keep it
             asset.election_reason = f"Preserved from import: {existing_election}"
             return
-
-        # Default to MACRS
-        election = "MACRS"
-        reason = "Standard MACRS depreciation"
 
         # Existing assets don't get elections - they continue prior treatment
         if asset.transaction_type != "Current Year Addition":
@@ -307,28 +304,24 @@ class ClassifierService:
         # Real property (27.5/39 year) - no bonus/179 available
         # Check this FIRST before other elections
         if asset.macrs_life and asset.macrs_life >= 27.5:
-            election = "MACRS"
-            reason = "Real property - standard straight-line MACRS (179/Bonus not available)"
-            asset.depreciation_election = election
-            asset.election_reason = reason
+            asset.depreciation_election = "MACRS"
+            asset.election_reason = "Real property - standard straight-line MACRS (179/Bonus not available)"
             return
 
         # De Minimis Safe Harbor - assets under $2,500
+        # This takes priority over Section 179
         if 0 < cost <= de_minimis_threshold:
-            election = "DeMinimis"
-            reason = f"Cost ${cost:,.0f} qualifies for de minimis safe harbor (≤$2,500)"
+            asset.depreciation_election = "DeMinimis"
+            asset.election_reason = f"Cost ${cost:,.0f} qualifies for de minimis safe harbor (≤$2,500)"
+            return
 
-        # Section 179 - ALL eligible property over $2,500
-        # Preferred over Bonus because unused 179 carries forward (Bonus doesn't)
-        elif asset.is_bonus_eligible:
-            # Get 179 limit for display in reason
-            section_179_config = tax_year_config.get_section_179_limits(tax_year)
-            limit = section_179_config.get("max_deduction", 2500000)
-            election = "Section179"
-            reason = f"Section 179 deduction (limit ${limit:,.0f}) - preferred for carryforward protection"
-
-        asset.depreciation_election = election
-        asset.election_reason = reason
+        # Section 179 - DEFAULT for ALL tangible personal property over $2,500
+        # Per user request: §179 is preferred default (carryforward protection)
+        # Only real property (27.5/39 year) is excluded (already handled above)
+        section_179_config = tax_year_config.get_section_179_limits(tax_year)
+        limit = section_179_config.get("max_deduction", 2500000)
+        asset.depreciation_election = "Section179"
+        asset.election_reason = f"Section 179 deduction (limit ${limit:,.0f}) - default for tangible personal property"
 
     def _apply_classification(self, asset: Asset, result: Dict, tax_year: int = None):
         """Applies classification result to Asset object and runs validation."""
