@@ -2998,6 +2998,7 @@ async def export_audit_documentation(
             "Acquisition Date": a.acquisition_date.isoformat() if a.acquisition_date else "",
             "In Service Date": a.in_service_date.isoformat() if a.in_service_date else "",
             "Transaction Type": a.transaction_type or "",
+            "Depreciation Election": getattr(a, 'depreciation_election', '') or "",
             "Classification Reason": a.classification_reason or "",
             "MACRS Class": a.macrs_class or "",
             "MACRS Life": a.macrs_life or "",
@@ -3006,6 +3007,14 @@ async def export_audit_documentation(
             "Classification Confidence": f"{(a.confidence_score or 0) * 100:.0f}%",
             "Bonus Eligible": "Yes" if a.is_bonus_eligible else "No",
             "Qualified Improvement": "Yes" if a.is_qualified_improvement else "No",
+            # Disposal fields for audit trail
+            "Disposal Date": getattr(a, 'disposal_date', None) or "",
+            "Proceeds": getattr(a, 'proceeds', None) or "",
+            "Gain/Loss": getattr(a, 'gain_loss', None) or "",
+            # Transfer fields for audit trail
+            "Transfer Date": getattr(a, 'transfer_date', None) or "",
+            "From Location": getattr(a, 'from_location', None) or "",
+            "To Location": getattr(a, 'to_location', None) or "",
             "Validation Errors": "; ".join(a.validation_errors) if a.validation_errors else "",
             "Validation Warnings": "; ".join(a.validation_warnings) if a.validation_warnings else "",
             "Source Sheet": a.source_sheet or "",
@@ -3014,34 +3023,65 @@ async def export_audit_documentation(
 
     df = pd.DataFrame(audit_data)
 
+    # Count transaction types properly (including all variants)
+    def is_disposal(t):
+        return t in ["Disposal", "Current Year Disposal", "Prior Year Disposal"] if t else False
+
+    def is_transfer(t):
+        return t in ["Transfer", "Current Year Transfer", "Prior Year Transfer"] if t else False
+
+    def is_addition(a):
+        return a.transaction_type == "Current Year Addition" and getattr(a, 'depreciation_election', '') != 'DeMinimis'
+
+    def is_de_minimis(a):
+        return getattr(a, 'depreciation_election', '') == 'DeMinimis'
+
+    # Calculate counts
+    additions_count = len([a for a in assets if is_addition(a)])
+    de_minimis_count = len([a for a in assets if is_de_minimis(a)])
+    existing_count = len([a for a in assets if a.transaction_type == "Existing Asset"])
+    disposals_count = len([a for a in assets if is_disposal(a.transaction_type)])
+    transfers_count = len([a for a in assets if is_transfer(a.transaction_type)])
+    de_minimis_cost = sum(a.cost or 0 for a in assets if is_de_minimis(a))
+
     # Create summary statistics
     summary_data = {
         "Metric": [
             "Tax Year",
             "Total Assets",
             "Total Cost",
+            "",
+            "=== TRANSACTION BREAKDOWN ===",
             "Current Year Additions",
+            "De Minimis Expenses",
             "Existing Assets",
             "Disposals",
             "Transfers",
-            "Unknown (Missing Date)",
+            "",
+            "=== QUALITY METRICS ===",
             "Assets with Errors",
             "High Confidence (>80%)",
             "Low Confidence (<80%)",
+            "",
             "Export Generated"
         ],
         "Value": [
             str(tax_year),
             str(len(assets)),
             f"${sum(a.cost or 0 for a in assets):,.2f}",
-            str(len([a for a in assets if a.transaction_type == "Current Year Addition"])),
-            str(len([a for a in assets if a.transaction_type == "Existing Asset"])),
-            str(len([a for a in assets if a.transaction_type == "Disposal"])),
-            str(len([a for a in assets if a.transaction_type == "Transfer"])),
-            str(len([a for a in assets if a.transaction_type and "Unknown" in a.transaction_type])),
+            "",
+            "",
+            str(additions_count),
+            f"{de_minimis_count} (${de_minimis_cost:,.2f})",
+            str(existing_count),
+            str(disposals_count),
+            str(transfers_count),
+            "",
+            "",
             str(len([a for a in assets if a.validation_errors])),
             str(len([a for a in assets if (a.confidence_score or 0) > 0.8])),
             str(len([a for a in assets if (a.confidence_score or 0) <= 0.8])),
+            "",
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ]
     }
@@ -3057,12 +3097,38 @@ async def export_audit_documentation(
         df_sorted = df.sort_values(['Transaction Type', 'Asset ID'])
         df_sorted.to_excel(writer, sheet_name='All Assets', index=False)
 
-        # Separate sheets by transaction type for easier navigation
-        for trans_type in ['Current Year Addition', 'Existing Asset', 'Disposal', 'Transfer']:
-            type_df = df[df['Transaction Type'] == trans_type]
-            if len(type_df) > 0:
-                sheet_name = trans_type.replace(' ', '_')[:31]  # Excel sheet name limit
-                type_df.to_excel(writer, sheet_name=sheet_name, index=False)
+        # Current Year Additions (excluding De Minimis) - for audit trail of capitalized items
+        additions_df = df[df['Transaction Type'] == 'Current Year Addition']
+        # Filter out De Minimis from the assets list, then match by Asset ID
+        non_de_minimis_ids = [str(a.asset_id or '') for a in assets if not is_de_minimis(a)]
+        if len(additions_df) > 0:
+            additions_only_df = additions_df[additions_df['Asset ID'].isin(non_de_minimis_ids)]
+            if len(additions_only_df) > 0:
+                additions_only_df.to_excel(writer, sheet_name='Current_Year_Additions', index=False)
+
+        # De Minimis sheet - items expensed under safe harbor
+        de_minimis_ids = [str(a.asset_id or '') for a in assets if is_de_minimis(a)]
+        if de_minimis_ids:
+            de_minimis_df = df[df['Asset ID'].isin(de_minimis_ids)]
+            if len(de_minimis_df) > 0:
+                de_minimis_df.to_excel(writer, sheet_name='De_Minimis_Expenses', index=False)
+
+        # Existing Assets sheet
+        existing_df = df[df['Transaction Type'] == 'Existing Asset']
+        if len(existing_df) > 0:
+            existing_df.to_excel(writer, sheet_name='Existing_Assets', index=False)
+
+        # Disposals sheet - ALL disposal types for audit trail
+        disposal_types = ['Disposal', 'Current Year Disposal', 'Prior Year Disposal']
+        disposals_df = df[df['Transaction Type'].isin(disposal_types)]
+        if len(disposals_df) > 0:
+            disposals_df.to_excel(writer, sheet_name='Disposals', index=False)
+
+        # Transfers sheet - ALL transfer types for audit trail
+        transfer_types = ['Transfer', 'Current Year Transfer', 'Prior Year Transfer']
+        transfers_df = df[df['Transaction Type'].isin(transfer_types)]
+        if len(transfers_df) > 0:
+            transfers_df.to_excel(writer, sheet_name='Transfers', index=False)
 
         # Errors sheet (if any)
         errors_df = df[df['Validation Errors'] != '']
