@@ -265,6 +265,10 @@ class ClassifierService:
         """
         Suggest optimal depreciation election based on asset characteristics.
 
+        IMPORTANT: This function PRESERVES existing elections from the import file.
+        If an election is already set (e.g., from user's source data), we keep it
+        rather than overwriting with our suggestion.
+
         Priority Order (tax-optimal defaults):
         1. De Minimis Safe Harbor: Assets <= $2,500 - expense immediately
         2. Section 179: ALL eligible property > $2,500 - preferred for carryforward protection
@@ -279,6 +283,16 @@ class ClassifierService:
         """
         cost = asset.cost or 0
         de_minimis_threshold = 2500  # IRS de minimis safe harbor for taxpayers with AFS
+
+        # CRITICAL: Preserve existing election from import file
+        # Valid elections: MACRS, Section179, Bonus, DeMinimis, ADS
+        existing_election = getattr(asset, 'depreciation_election', None)
+        valid_elections = {"MACRS", "Section179", "Bonus", "DeMinimis", "ADS"}
+
+        if existing_election and existing_election in valid_elections:
+            # User already specified an election - keep it
+            asset.election_reason = f"Preserved from import: {existing_election}"
+            return
 
         # Default to MACRS
         election = "MACRS"
@@ -325,6 +339,11 @@ class ClassifierService:
         asset.is_bonus_eligible = result.get("bonus", False)
         asset.is_qualified_improvement = result.get("qip", False)
         asset.confidence_score = result.get("confidence", 0.0)
+
+        # Set description quality flags from classification result
+        # These indicate whether the description was too vague for reliable classification
+        asset.requires_manual_entry = result.get("requires_manual_entry", False)
+        asset.quality_issues = result.get("quality_issues", [])
 
         # Set FA CS Wizard Category for UI display
         # This is the exact dropdown text users select in FA CS Add Asset wizard
