@@ -2896,8 +2896,13 @@ async def export_assets(
         # skip_approval_check requires admin - log a warning for audit trail
         logger.warning(f"Session {session.session_id}: Export with skip_approval_check=True")
 
-    # Generate Excel with tax configuration
-    excel_file = exporter.generate_fa_cs_export(
+    # Generate FA CS Prep Workpaper (NEW method with proper sheets)
+    # - Addition Entry: ONLY Current Year Additions
+    # - Disposal Entry: With Disposal Method, Proceeds, Gain/Loss
+    # - Transfer Entry: With From/To locations
+    # - De Minimis Expenses: Items to expense
+    # - Items Requiring Review: QC flags
+    excel_file = exporter.generate_fa_cs_prep_workpaper(
         assets,
         tax_year=TAX_CONFIG["tax_year"],
         de_minimis_limit=TAX_CONFIG["de_minimis_threshold"]
@@ -2912,13 +2917,13 @@ async def export_assets(
     os.makedirs(handoff_dir, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"FA_Import_{session.session_id[:8]}_{timestamp}.xlsx"
+    filename = f"FA_CS_Prep_Workpaper_{session.session_id[:8]}_{timestamp}.xlsx"
     filepath = os.path.join(handoff_dir, filename)
 
     with open(filepath, "wb") as f:
         f.write(excel_file.getvalue())
 
-    logger.info(f"Session {session.session_id}: Saved export to {filepath}")
+    logger.info(f"Session {session.session_id}: Saved FA CS Prep Workpaper to {filepath}")
 
     # Reset stream position for StreamingResponse
     excel_file.seek(0)
@@ -2927,7 +2932,7 @@ async def export_assets(
         excel_file,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": "attachment; filename=FA_CS_Import.xlsx",
+            "Content-Disposition": "attachment; filename=FA_CS_Prep_Workpaper.xlsx",
             "X-Session-ID": session.session_id
         }
     )
