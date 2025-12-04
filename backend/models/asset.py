@@ -83,6 +83,16 @@ class Asset(BaseModel):
     validation_errors: List[str] = Field(default_factory=list)
     validation_warnings: List[str] = Field(default_factory=list)
 
+    # Description Quality Flags - For identifying vague/vendor-only descriptions
+    requires_manual_entry: bool = Field(
+        False,
+        description="True if description is too vague for automated classification (e.g., 'Amazon', 'Lamprecht')"
+    )
+    quality_issues: List[str] = Field(
+        default_factory=list,
+        description="List of description quality issues (e.g., 'vendor name only', 'incomplete description')"
+    )
+
     @validator('acquisition_date', 'in_service_date', 'disposal_date', 'transfer_date', pre=True)
     def parse_date(cls, v):
         if v is None:

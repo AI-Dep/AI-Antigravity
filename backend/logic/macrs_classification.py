@@ -299,6 +299,256 @@ def _safe_float(value: Any, default: float = 0.7) -> float:
     return default
 
 
+# ===================================================================================
+# DESCRIPTION QUALITY VALIDATION - Safeguard against GPT overconfidence
+# ===================================================================================
+
+# Known vendor/retailer names that don't describe asset type
+# These should trigger low confidence because "Amazon" tells us nothing about the asset
+VENDOR_PATTERNS = {
+    # Major retailers
+    "amazon", "walmart", "costco", "target", "best buy", "bestbuy", "home depot",
+    "homedepot", "lowes", "lowe's", "staples", "office depot", "officedepot",
+    "wayfair", "ikea", "newegg", "b&h", "bh photo", "microcenter", "micro center",
+    "cdw", "dell", "hp", "lenovo", "apple store", "microsoft store",
+
+    # Shipping/logistics companies (often appear in descriptions)
+    "fedex", "ups", "usps", "dhl", "freight", "shipping", "lamprecht", "interfracht",
+    "expeditors", "kuehne", "nagel", "schenker", "ceva", "xpo logistics",
+
+    # Payment/invoice references
+    "invoice", "po #", "purchase order", "order #", "receipt", "payment",
+    "credit card", "visa", "mastercard", "amex",
+
+    # Generic vendor references
+    "vendor", "supplier", "distributor", "wholesaler", "manufacturer",
+}
+
+# Common prefixes/patterns that indicate incomplete descriptions
+INCOMPLETE_PATTERNS = [
+    r"^\d+$",                      # Just numbers
+    r"^[a-z]{1,3}\d+$",           # Short code like "A123"
+    r"^#\d+",                      # Order number
+    r"^inv[oice]*\s*#?\d*",       # Invoice references
+    r"^po\s*#?\d*",               # PO references
+    r"^order\s*#?\d*",            # Order references
+    r"^item\s*#?\d*",             # Item references
+    r"^\d+\s*x\s*",               # Quantity prefix like "2 x"
+    r"^misc\.?$|^miscellaneous$", # Misc
+    r"^various$|^assorted$",      # Various/assorted
+    r"^n/?a$|^none$|^unknown$",   # N/A, None, Unknown
+]
+
+
+def assess_description_quality(description: str) -> Dict[str, Any]:
+    """
+    Assess the quality of an asset description for classification purposes.
+
+    This is a CRITICAL safeguard against GPT overconfidence. GPT will often
+    return 90%+ confidence for vague descriptions like "Amazon" - this function
+    identifies such cases and caps confidence appropriately.
+
+    Quality Assessment Criteria:
+    1. Length: Very short descriptions are likely incomplete
+    2. Word count: Single-word descriptions rarely identify assets
+    3. Vendor detection: "Amazon" doesn't tell us what the asset is
+    4. Pattern matching: Incomplete patterns like "PO #1234"
+    5. Specificity: Does it describe what the asset actually IS?
+
+    Args:
+        description: Raw asset description from import
+
+    Returns:
+        Dict with:
+        - quality_score: 0.0 to 1.0 (1.0 = excellent description)
+        - max_confidence: Maximum confidence that should be assigned
+        - issues: List of quality issues found
+        - requires_manual_entry: True if description is too vague to classify
+        - vendor_only: True if description is just a vendor name
+    """
+    if not description:
+        return {
+            "quality_score": 0.0,
+            "max_confidence": 0.30,
+            "issues": ["Empty description"],
+            "requires_manual_entry": True,
+            "vendor_only": False
+        }
+
+    desc_clean = description.strip()
+    desc_lower = desc_clean.lower()
+    words = desc_clean.split()
+    word_count = len(words)
+
+    issues = []
+    quality_score = 1.0  # Start at perfect, deduct for issues
+    requires_manual_entry = False
+    vendor_only = False
+
+    # Check 1: Length-based quality
+    if len(desc_clean) < 3:
+        issues.append("Description too short (< 3 characters)")
+        quality_score -= 0.5
+        requires_manual_entry = True
+    elif len(desc_clean) < 10:
+        issues.append("Description very short (< 10 characters)")
+        quality_score -= 0.3
+
+    # Check 2: Word count
+    if word_count == 1:
+        issues.append("Single-word description - likely incomplete")
+        quality_score -= 0.3
+    elif word_count == 2:
+        issues.append("Two-word description - may lack specificity")
+        quality_score -= 0.1
+
+    # Check 3: Vendor-only detection (CRITICAL)
+    # If description is ONLY a vendor name, it tells us nothing about the asset
+    for vendor in VENDOR_PATTERNS:
+        if desc_lower == vendor or desc_lower.startswith(vendor + " ") and word_count <= 2:
+            issues.append(f"Description appears to be vendor name only: '{vendor}'")
+            quality_score -= 0.5
+            vendor_only = True
+            requires_manual_entry = True
+            break
+        # Also check if vendor is the main content (e.g., "Amazon order")
+        if vendor in desc_lower and word_count <= 3:
+            # Check if any asset-describing words are present
+            asset_words = ["computer", "laptop", "desk", "chair", "equipment", "machine",
+                          "vehicle", "truck", "server", "printer", "monitor", "furniture",
+                          "tool", "system", "appliance", "device", "unit"]
+            has_asset_word = any(aw in desc_lower for aw in asset_words)
+            if not has_asset_word:
+                issues.append(f"Description contains vendor '{vendor}' but no asset identifier")
+                quality_score -= 0.3
+                vendor_only = True
+                break
+
+    # Check 4: Incomplete patterns (regex)
+    for pattern in INCOMPLETE_PATTERNS:
+        if re.match(pattern, desc_lower, re.IGNORECASE):
+            issues.append(f"Description matches incomplete pattern: '{pattern}'")
+            quality_score -= 0.4
+            requires_manual_entry = True
+            break
+
+    # Check 5: Quantity-only prefixes (e.g., "2 x Lamprecht")
+    quantity_match = re.match(r'^(\d+)\s*x\s+(.+)$', desc_clean, re.IGNORECASE)
+    if quantity_match:
+        remaining = quantity_match.group(2).lower()
+        # Check if the remaining part is just a vendor
+        for vendor in VENDOR_PATTERNS:
+            if remaining == vendor or remaining.startswith(vendor):
+                issues.append(f"Quantity prefix with vendor name: '{remaining}'")
+                quality_score -= 0.4
+                vendor_only = True
+                requires_manual_entry = True
+                break
+
+    # Check 5b: Patterns like "KLD x 2 Lamprecht" or "ABC x 3 Interfracht"
+    # Format: <code> x <number> <vendor>
+    alt_quantity_match = re.match(r'^([A-Za-z0-9]+)\s*x\s*(\d+)\s+(.+)$', desc_clean, re.IGNORECASE)
+    if alt_quantity_match and not requires_manual_entry:
+        remaining = alt_quantity_match.group(3).lower()
+        for vendor in VENDOR_PATTERNS:
+            if remaining == vendor or remaining.startswith(vendor):
+                issues.append(f"Code + vendor pattern: '{remaining}' is a shipping/vendor name, not asset description")
+                quality_score -= 0.5
+                vendor_only = True
+                requires_manual_entry = True
+                break
+
+    # Check 5c: Any short description containing a vendor name (even without quantity pattern)
+    # e.g., "Lamprecht shipment", "Interfracht delivery"
+    if not requires_manual_entry and word_count <= 4:
+        for vendor in VENDOR_PATTERNS:
+            if vendor in desc_lower and vendor not in ['equipment', 'machine', 'tool']:  # Exclude false positives
+                # Check if there's NO asset-describing word
+                asset_descriptors = ["computer", "laptop", "desk", "chair", "equipment", "machine",
+                                    "vehicle", "truck", "server", "printer", "monitor", "furniture",
+                                    "tool", "system", "appliance", "device", "unit", "tv", "television",
+                                    "phone", "tablet", "camera", "software"]
+                has_asset_word = any(aw in desc_lower for aw in asset_descriptors)
+                if not has_asset_word:
+                    issues.append(f"Contains vendor/shipping reference '{vendor}' without asset identifier")
+                    quality_score -= 0.4
+                    vendor_only = True
+                    requires_manual_entry = True
+                    break
+
+    # Check 6: All numbers/codes (no descriptive words)
+    alpha_chars = sum(1 for c in desc_clean if c.isalpha())
+    if alpha_chars < 3:
+        issues.append("Description has minimal alphabetic content - likely a code")
+        quality_score -= 0.4
+        requires_manual_entry = True
+
+    # Normalize quality score to 0-1 range
+    quality_score = max(0.0, min(1.0, quality_score))
+
+    # Calculate max confidence based on quality
+    # This is the KEY safeguard - poor descriptions get capped confidence
+    if requires_manual_entry:
+        max_confidence = 0.40  # Force "Needs Review" status
+    elif vendor_only:
+        max_confidence = 0.45  # Slightly above manual entry but still low
+    elif quality_score < 0.5:
+        max_confidence = 0.50
+    elif quality_score < 0.7:
+        max_confidence = 0.65
+    elif quality_score < 0.9:
+        max_confidence = 0.80
+    else:
+        max_confidence = 1.0  # No cap for high-quality descriptions
+
+    return {
+        "quality_score": quality_score,
+        "max_confidence": max_confidence,
+        "issues": issues,
+        "requires_manual_entry": requires_manual_entry,
+        "vendor_only": vendor_only
+    }
+
+
+def _apply_confidence_cap(result: Dict, description: str) -> Dict:
+    """
+    Apply description quality-based confidence cap to classification result.
+
+    This is the enforcement layer for the safeguard. Even if GPT returns
+    90% confidence for "Amazon", we cap it to the max allowed by description quality.
+
+    Args:
+        result: Classification result dict with 'confidence' key
+        description: Original asset description
+
+    Returns:
+        Modified result with capped confidence and quality notes
+    """
+    quality = assess_description_quality(description)
+    original_confidence = result.get("confidence", 0.5)
+
+    # Apply cap
+    capped_confidence = min(original_confidence, quality["max_confidence"])
+
+    # Update result
+    result = result.copy()
+    result["confidence"] = capped_confidence
+    result["low_confidence"] = capped_confidence < LOW_CONF_THRESHOLD
+
+    # Add quality info to notes if confidence was capped
+    if capped_confidence < original_confidence:
+        cap_reason = "; ".join(quality["issues"][:2]) if quality["issues"] else "Description quality"
+        existing_notes = result.get("notes", "")
+        result["notes"] = f"{existing_notes} [Confidence capped from {original_confidence:.0%} to {capped_confidence:.0%}: {cap_reason}]"
+
+    # Mark as requiring manual entry if quality is too low
+    if quality["requires_manual_entry"]:
+        result["requires_manual_entry"] = True
+        result["quality_issues"] = quality["issues"]
+
+    return result
+
+
 def _rule_score(rule: Dict, desc: str, tokens: List[str], client_category: str = "") -> float:
     """
     Calculate match score for a rule
@@ -795,7 +1045,7 @@ Required JSON Response Format:
   ]
 }}
 
-Classification Rules (apply to ALL assets):
+Asset Classification Rules:
 1. Computer/IT equipment: 5-year, 200DB, HY
 2. Office furniture: 7-year, 200DB, HY
 3. Machinery/equipment: 7-year, 200DB, HY
@@ -805,6 +1055,22 @@ Classification Rules (apply to ALL assets):
 7. Buildings: 39-year (commercial) or 27.5-year (residential), SL, MM
 8. Software: 3-year, SL, HY
 9. Land: NOT depreciable (life=null)
+
+CRITICAL Confidence Scoring Rules:
+- Confidence 0.90-1.0: ONLY for clear, specific descriptions (e.g., "Dell Optiplex Desktop Computer", "2023 Ford F-150 Truck")
+- Confidence 0.70-0.89: For reasonable descriptions with some ambiguity (e.g., "Office equipment", "Manufacturing machine")
+- Confidence 0.50-0.69: For vague or generic descriptions (e.g., "Equipment", "Improvements")
+- Confidence 0.30-0.49: For descriptions that don't clearly identify the asset type
+
+IMPORTANT - Low Confidence Cases (assign 0.30-0.50):
+- Vendor names only: "Amazon", "Walmart", "Best Buy" - these don't identify the asset
+- Shipping/logistics references: "Lamprecht", "Interfracht", "FedEx" - not asset descriptions
+- Quantity + vendor: "2 x Lamprecht", "KLD x 2 Interfracht" - still don't identify the asset
+- Invoice/PO references: "Invoice #1234", "PO #5678" - not asset descriptions
+- Single generic words: "Equipment", "Item", "Purchase"
+
+If a description does NOT clearly identify WHAT the asset IS, you MUST assign low confidence (≤0.50).
+Do NOT guess high confidence for ambiguous descriptions.
 
 Return only valid JSON with exactly {count} classifications."""
 
@@ -1108,6 +1374,13 @@ def _call_gpt_batch(assets: List[Dict], model: str = "gpt-4o-mini") -> List[Dict
                 }
                 # Validate GPT category against approved list
                 validated_result = _validate_gpt_category(raw_result)
+
+                # CRITICAL SAFEGUARD: Apply description quality-based confidence cap
+                # This prevents GPT from returning high confidence for vague descriptions
+                # like "Amazon" or "Lamprecht" that don't actually describe the asset
+                desc_raw = _safe_get(asset, ["Description", "description"], "")
+                validated_result = _apply_confidence_cap(validated_result, desc_raw)
+
                 results.append(validated_result)
             else:
                 # Fallback for missing results
@@ -1682,6 +1955,11 @@ def classify_asset(
         "low_confidence": is_low_conf or gpt_result.get("low_confidence", False),
         "notes": gpt_result.get("notes") or gpt_result.get("reasoning", "GPT classification")
     }
+
+    # CRITICAL SAFEGUARD: Apply description quality-based confidence cap
+    # This prevents GPT from returning high confidence for vague descriptions
+    desc_raw = _safe_get(asset, ["Description", "description"], "")
+    result = _apply_confidence_cap(result, desc_raw)
 
     # CRITICAL: Verify QIP eligibility based on in-service date
     if result.get("qip"):

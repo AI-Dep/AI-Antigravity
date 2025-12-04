@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
-import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2, Shield, Wand2, DollarSign, Calculator, Trash2, Columns, Hash, Settings2, ChevronUp, ChevronDown, ArrowUpDown } from 'lucide-react';
+import { Check, X, AlertTriangle, Edit2, Save, CheckCircle, Download, Info, Eye, EyeOff, FileText, Loader2, Shield, Wand2, DollarSign, Calculator, Trash2, Columns, Hash, Settings2, ChevronUp, ChevronDown, ArrowUpDown, HelpCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 // Import API types for consistent contract
@@ -262,6 +262,11 @@ function Review({ assets = [] }) {
         // Actionable = current year items only (additions + current year disposals/transfers)
         const actionable = additions + currentYearDisposals + currentYearTransfers;
 
+        // Manual entry required - description too vague to classify
+        const manualEntry = localAssets.filter(a =>
+            a.requires_manual_entry && isActionable(a.transaction_type)
+        ).length;
+
         return {
             total: localAssets.length,
             errors,
@@ -280,7 +285,8 @@ function Review({ assets = [] }) {
             currentYearTransfers,
             priorYearTransfers,
             existing,
-            actionable
+            actionable,
+            manualEntry
         };
     }, [localAssets, approvedIds]);
 
@@ -1469,7 +1475,8 @@ function Review({ assets = [] }) {
                                             className={cn(
                                                 "border-b hover:bg-slate-50 dark:border-slate-800",
                                                 hasErrors && "bg-red-50/50",
-                                                needsReview && !isApproved && "bg-yellow-50/30",
+                                                asset.requires_manual_entry && !isApproved && "bg-orange-50/40",
+                                                needsReview && !isApproved && !asset.requires_manual_entry && "bg-yellow-50/30",
                                                 isApproved && "bg-green-50/30",
                                                 isDeMinimis && "bg-emerald-50/40 opacity-75",
                                                 isMisclassified && "bg-red-100/60 border-l-4 border-l-red-500"
@@ -1513,6 +1520,18 @@ function Review({ assets = [] }) {
                                                         >
                                                             <DollarSign className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
                                                             Expense
+                                                        </span>
+                                                    ) : asset.requires_manual_entry ? (
+                                                        // Manual Entry Required - Description doesn't identify the asset
+                                                        <span
+                                                            className={cn(
+                                                                "inline-flex items-center rounded-full font-medium bg-orange-100 text-orange-800 cursor-help",
+                                                                tableCompact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-xs"
+                                                            )}
+                                                            title={`Manual Entry Required\n\n⚠ Description doesn't identify the asset type:\n${(asset.quality_issues || []).map(i => `  • ${i}`).join('\n') || '  • Vague or incomplete description'}\n\n❌ Cannot reliably classify this asset\n→ User must manually specify the asset class\n→ Or update the description to identify what was purchased\n\n📋 Examples of good descriptions:\n  ✓ "Dell Optiplex 7090 Desktop"\n  ✓ "2023 Ford F-150 Truck"\n  ✓ "Herman Miller Office Chair"\n\n❌ Examples of bad descriptions:\n  ✗ "Amazon" (vendor only)\n  ✗ "Lamprecht" (shipping company)\n  ✗ "Invoice #1234" (not an asset)`}
+                                                        >
+                                                            <HelpCircle className={tableCompact ? "w-2.5 h-2.5 mr-0.5" : "w-3 h-3 mr-1"} />
+                                                            Manual
                                                         </span>
                                                     ) : asset.confidence_score > 0.8 ? (
                                                         <span
