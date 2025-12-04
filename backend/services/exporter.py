@@ -659,19 +659,27 @@ class ExporterService:
                 return False
             return 'transfer' in str(trans_type).lower()
 
+        def is_existing(trans_type):
+            if not trans_type:
+                return False
+            return 'existing' in str(trans_type).lower()
+
         # Split by transaction type
         if 'Transaction Type' in non_de_minimis_df.columns:
             additions_mask = non_de_minimis_df['Transaction Type'].apply(is_addition)
             disposals_mask = non_de_minimis_df['Transaction Type'].apply(is_disposal)
             transfers_mask = non_de_minimis_df['Transaction Type'].apply(is_transfer)
+            existing_mask = non_de_minimis_df['Transaction Type'].apply(is_existing)
 
             additions_df = non_de_minimis_df[additions_mask].copy()
             disposals_df = non_de_minimis_df[disposals_mask].copy()
             transfers_df = non_de_minimis_df[transfers_mask].copy()
+            existing_df = non_de_minimis_df[existing_mask].copy()
         else:
             additions_df = non_de_minimis_df.copy()
             disposals_df = pd.DataFrame()
             transfers_df = pd.DataFrame()
+            existing_df = pd.DataFrame()
 
         # ================================================================
         # SHEET 1: ADDITION ENTRY (ONLY Current Year Additions)
@@ -707,9 +715,22 @@ class ExporterService:
         de_minimis_expenses_df = self._build_de_minimis_sheet(de_minimis_df)
 
         # ================================================================
-        # SHEET 5: ITEMS REQUIRING REVIEW
+        # SHEET 5: EXISTING ASSETS (for FA CS reconciliation/tie-out)
+        # ================================================================
+        existing_assets_df = self._build_existing_assets_sheet(existing_df)
+
+        # ================================================================
+        # SHEET 6: ITEMS REQUIRING REVIEW
         # ================================================================
         items_requiring_review_df = self._build_items_requiring_review(assets, export_df, effective_tax_year)
+
+        # ================================================================
+        # SHEET 7: SUMMARY (for FA CS reconciliation)
+        # ================================================================
+        summary_df = self._build_reconciliation_summary(
+            additions_df, disposals_df, transfers_df, existing_df,
+            de_minimis_df, disposal_entry_df, effective_tax_year
+        )
 
         # Generate Excel workbook
         output = BytesIO()
@@ -755,11 +776,32 @@ class ExporterService:
                 ws_deminimis.cell(row=total_row, column=2, value=de_minimis_expenses_df['Cost'].sum())
                 ws_deminimis.cell(row=total_row, column=1).font = ws_deminimis.cell(row=total_row, column=1).font.copy(bold=True)
 
-            # Sheet 5: Items Requiring Review
+            # Sheet 5: Existing Assets (for FA CS tie-out)
+            if existing_assets_df is not None and not existing_assets_df.empty:
+                existing_assets_df.to_excel(writer, sheet_name='Existing Assets', index=False)
+                ws_existing = writer.sheets['Existing Assets']
+                _apply_professional_formatting(ws_existing, existing_assets_df)
+                # Add totals row
+                total_row = len(existing_assets_df) + 2
+                ws_existing.cell(row=total_row, column=1, value="TOTALS:")
+                if 'Tax Cost' in existing_assets_df.columns:
+                    cost_col = list(existing_assets_df.columns).index('Tax Cost') + 1
+                    ws_existing.cell(row=total_row, column=cost_col, value=existing_assets_df['Tax Cost'].sum())
+                if 'Accum. Depreciation' in existing_assets_df.columns:
+                    accum_col = list(existing_assets_df.columns).index('Accum. Depreciation') + 1
+                    ws_existing.cell(row=total_row, column=accum_col, value=existing_assets_df['Accum. Depreciation'].sum())
+                ws_existing.cell(row=total_row, column=1).font = ws_existing.cell(row=total_row, column=1).font.copy(bold=True)
+
+            # Sheet 6: Items Requiring Review
             if items_requiring_review_df is not None and not items_requiring_review_df.empty:
                 items_requiring_review_df.to_excel(writer, sheet_name='Items Requiring Review', index=False)
                 ws_review = writer.sheets['Items Requiring Review']
                 _apply_professional_formatting(ws_review, items_requiring_review_df)
+
+            # Sheet 7: Summary (for FA CS reconciliation)
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+            ws_summary = writer.sheets['Summary']
+            _apply_professional_formatting(ws_summary, summary_df)
 
         output.seek(0)
         return output
@@ -1060,10 +1102,188 @@ class ExporterService:
 
         return pd.DataFrame(transfer_entries)
 
+    def _build_existing_assets_sheet(self, existing_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Build Existing Assets sheet for FA CS reconciliation/tie-out.
+
+        This sheet helps CPAs reconcile the workpaper to the FA CS depreciation report:
+        - Total asset basis
+        - Accumulated depreciation
+        - Net book value
+
+        Existing Assets = Assets placed in service BEFORE the current tax year.
+        These are already in FA CS - no action needed, just for reference/tie-out.
+        """
+        if existing_df.empty:
+            return None
+
+        existing_entries = []
+        for _, row in existing_df.iterrows():
+            # Get accumulated depreciation and calculate NBV
+            tax_cost = row.get("Tax Cost", row.get("Cost", 0)) or 0
+            accum_depr = row.get("Accumulated Depreciation", row.get("Tax Prior Depreciation", 0)) or 0
+            nbv = float(tax_cost) - float(accum_depr) if tax_cost else 0
+
+            existing_entries.append({
+                "Asset #": row.get("Asset #", ""),
+                "Client Asset ID": row.get("Client Asset ID", ""),
+                "Description": row.get("Description", ""),
+                "Date In Service": row.get("Date In Service", row.get("In Service Date", "")),
+                "Tax Cost": tax_cost,
+                "Tax Life": row.get("Tax Life", ""),
+                "Tax Method": row.get("Tax Method", ""),
+                "Accum. Depreciation": accum_depr,
+                "Net Book Value": nbv,
+            })
+
+        return pd.DataFrame(existing_entries)
+
+    def _build_reconciliation_summary(self, additions_df: pd.DataFrame, disposals_df: pd.DataFrame,
+                                       transfers_df: pd.DataFrame, existing_df: pd.DataFrame,
+                                       de_minimis_df: pd.DataFrame, disposal_entry_df: pd.DataFrame,
+                                       tax_year: int) -> pd.DataFrame:
+        """
+        Build Summary sheet for FA CS reconciliation/tie-out.
+
+        This summary helps CPAs verify the workpaper ties to FA CS reports:
+        - Beginning balance (Existing Assets)
+        - + Current Year Additions
+        - - Current Year Disposals
+        - = Ending balance
+        """
+        # Calculate totals
+        def safe_sum(df, col):
+            if df is None or df.empty:
+                return 0
+            if col in df.columns:
+                return df[col].sum() or 0
+            # Try alternate column names
+            alt_cols = {"Tax Cost": ["Cost"], "Gain/Loss": ["Capital Gain/Loss"]}
+            for alt in alt_cols.get(col, []):
+                if alt in df.columns:
+                    return df[alt].sum() or 0
+            return 0
+
+        # Existing assets totals
+        existing_cost = safe_sum(existing_df, "Tax Cost")
+        existing_accum = safe_sum(existing_df, "Accumulated Depreciation") or safe_sum(existing_df, "Tax Prior Depreciation")
+        existing_count = len(existing_df) if existing_df is not None and not existing_df.empty else 0
+
+        # Additions totals
+        additions_cost = safe_sum(additions_df, "Tax Cost")
+        additions_count = len(additions_df) if additions_df is not None and not additions_df.empty else 0
+
+        # Disposals totals
+        disposals_cost = safe_sum(disposals_df, "Tax Cost")
+        disposals_count = len(disposals_df) if disposals_df is not None and not disposals_df.empty else 0
+        disposals_gain_loss = safe_sum(disposal_entry_df, "Gain/Loss") if disposal_entry_df is not None else 0
+
+        # Transfers (no cost impact, just count)
+        transfers_count = len(transfers_df) if transfers_df is not None and not transfers_df.empty else 0
+
+        # De Minimis (expensed, not capitalized)
+        de_minimis_cost = safe_sum(de_minimis_df, "Tax Cost") or safe_sum(de_minimis_df, "Cost")
+        de_minimis_count = len(de_minimis_df) if de_minimis_df is not None and not de_minimis_df.empty else 0
+
+        # Calculate ending balance
+        ending_cost = existing_cost + additions_cost - disposals_cost
+
+        summary_data = {
+            'Category': [
+                '=== FA CS RECONCILIATION ===',
+                '',
+                'Beginning Balance (Existing Assets)',
+                '  + Current Year Additions',
+                '  - Current Year Disposals',
+                '  = Ending Balance',
+                '',
+                '=== DETAIL COUNTS ===',
+                'Existing Assets (no action needed)',
+                'Current Year Additions',
+                'Current Year Disposals',
+                'Transfers',
+                'De Minimis Expenses (not capitalized)',
+                '',
+                '=== DISPOSAL SUMMARY ===',
+                'Disposal Proceeds Total',
+                'Total Gain/(Loss)',
+                '',
+                f'=== TAX YEAR {tax_year} ==='
+            ],
+            'Count': [
+                '',
+                '',
+                existing_count,
+                additions_count,
+                disposals_count,
+                existing_count + additions_count - disposals_count,
+                '',
+                '',
+                existing_count,
+                additions_count,
+                disposals_count,
+                transfers_count,
+                de_minimis_count,
+                '',
+                '',
+                '',
+                '',
+                '',
+                ''
+            ],
+            'Tax Cost': [
+                '',
+                '',
+                existing_cost,
+                additions_cost,
+                disposals_cost,
+                ending_cost,
+                '',
+                '',
+                existing_cost,
+                additions_cost,
+                disposals_cost,
+                '',
+                de_minimis_cost,
+                '',
+                '',
+                safe_sum(disposal_entry_df, "Proceeds") if disposal_entry_df is not None else 0,
+                disposals_gain_loss,
+                '',
+                ''
+            ],
+            'Accum. Depreciation': [
+                '',
+                '',
+                existing_accum,
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                ''
+            ]
+        }
+
+        return pd.DataFrame(summary_data)
+
     def _build_items_requiring_review(self, assets: List[Asset], export_df: pd.DataFrame,
                                        tax_year: int) -> pd.DataFrame:
         """
         Build Items Requiring Review sheet.
+
+        IMPORTANT: Only reviews ACTIONABLE items (Current Year Additions, Disposals, Transfers).
+        Existing Assets are EXCLUDED - they're already classified in FA CS.
 
         Flags items that need CPA attention:
         - Low confidence classifications (< 0.7)
@@ -1075,17 +1295,23 @@ class ExporterService:
         review_items = []
 
         for idx, asset in enumerate(assets):
+            # SKIP Existing Assets - they don't need review (already in FA CS)
+            trans_type = self._detect_transaction_type(asset, tax_year)
+            if 'existing' in str(trans_type).lower():
+                continue  # Skip existing assets
+
             flags = []
             priority = "Low"
 
-            # Check confidence score
+            # Check confidence score (only for new additions that need classification)
             confidence = asset.confidence_score or 0
-            if confidence < 0.5:
-                flags.append("LOW CONFIDENCE: Classification may be incorrect")
-                priority = "High"
-            elif confidence < 0.7:
-                flags.append("MEDIUM CONFIDENCE: Review classification")
-                priority = "Medium" if priority == "Low" else priority
+            if 'addition' in str(trans_type).lower():
+                if confidence < 0.5:
+                    flags.append("LOW CONFIDENCE: Classification may be incorrect")
+                    priority = "High"
+                elif confidence < 0.7:
+                    flags.append("MEDIUM CONFIDENCE: Review classification")
+                    priority = "Medium" if priority == "Low" else priority
 
             # Check missing required data
             if not asset.cost or asset.cost <= 0:
