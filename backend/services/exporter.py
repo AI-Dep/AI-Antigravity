@@ -176,6 +176,10 @@ class ExporterService:
                 "Method": asset.macrs_method,
                 "Convention": asset.macrs_convention,
 
+                # FA CS Wizard Category - the exact dropdown text for RPA automation
+                # This is the category shown in FA CS software's asset wizard
+                "FA_CS_Wizard_Category": getattr(asset, 'fa_cs_wizard_category', None),
+
                 # Disposal fields (if present on asset)
                 "Disposal Date": getattr(asset, 'disposal_date', None),
                 "Proceeds": getattr(asset, 'proceeds', None) or getattr(asset, 'sale_price', None),
@@ -258,12 +262,11 @@ class ExporterService:
             export_df["Election Reason"] = df["Election Reason"].values
 
         # ================================================================
-        # FA CS IMPORT SHEET - Use comprehensive build_fa output
+        # FA CS IMPORT SHEET - ONLY what FA CS software requires
         # ================================================================
-        # Select columns that FA CS needs for import and RPA automation
-        # NOTE: Only include columns relevant to data entry - disposal recapture columns
-        # are NOT included here as they show 0 for non-disposal assets and clutter the view.
-        # Disposal info is available in the Current_Year_Disposal sheet.
+        # These are the exact fields needed to enter assets into FA CS software.
+        # Election Reason is NOT included - it's internal audit documentation,
+        # not something FA CS needs. See Audit Trail sheet for full documentation.
         fa_cs_import_cols = [
             # Core required fields for FA CS entry
             "Asset #",
@@ -274,33 +277,35 @@ class ExporterService:
             "Tax Life",
             "Convention",
 
-            # RPA automation - EXACT wizard dropdown text (NOT generic category!)
+            # FA CS Asset Category - EXACT wizard dropdown text for RPA automation
+            # This maps to FA CS's asset category dropdown (e.g., "Computer Equipment")
             "FA_CS_Wizard_Category",
 
-            # Depreciation fields
+            # Section 179/Prior depreciation (if applicable)
             "Tax Sec 179 Expensed",
             "Tax Prior Depreciation",
 
-            # Depreciation Election (CPA decision)
-            "Depreciation Election",
-            "Election Reason",
-
-            # Transaction type for CPA review
+            # Transaction type for CPA to know what action to take
             "Transaction Type",
         ]
-
-        # Select available columns from export_df
-        available_cols = [c for c in fa_cs_import_cols if c in export_df.columns]
-        fa_cs_import_df = export_df[available_cols].copy()
 
         # ================================================================
         # SEPARATE DE MINIMIS ASSETS - These are expensed, not capitalized
         # ================================================================
         # De Minimis Safe Harbor items should NOT go into FA CS
         # They are immediate expenses, not depreciable assets
-        de_minimis_mask = fa_cs_import_df["Depreciation Election"] == "DeMinimis"
-        de_minimis_df = fa_cs_import_df[de_minimis_mask].copy()
-        fa_cs_import_df = fa_cs_import_df[~de_minimis_mask].copy()
+        # NOTE: Filter on export_df FIRST (which has Depreciation Election), then select columns
+        if "Depreciation Election" in export_df.columns:
+            de_minimis_mask = export_df["Depreciation Election"] == "DeMinimis"
+            de_minimis_df = export_df[de_minimis_mask].copy()
+            non_de_minimis_df = export_df[~de_minimis_mask].copy()
+        else:
+            de_minimis_df = pd.DataFrame()
+            non_de_minimis_df = export_df.copy()
+
+        # Select available columns for FA CS Entry (only non-De Minimis assets)
+        available_cols = [c for c in fa_cs_import_cols if c in non_de_minimis_df.columns]
+        fa_cs_import_df = non_de_minimis_df[available_cols].copy()
 
         # Create De Minimis Expenses sheet with expense account suggestions
         if not de_minimis_df.empty:
