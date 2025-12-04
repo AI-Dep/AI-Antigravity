@@ -2,6 +2,7 @@ import pandas as pd
 from io import BytesIO
 from typing import List
 from datetime import date, datetime
+from openpyxl.styles import Font
 from backend.models.asset import Asset
 from backend.logic.fa_export import build_fa, export_fa_excel
 from backend.logic.fa_export_formatters import _apply_professional_formatting
@@ -426,7 +427,7 @@ class ExporterService:
                 total_row = len(de_minimis_expenses_df) + 2
                 ws_deminimis.cell(row=total_row, column=1, value="TOTAL TO EXPENSE:")
                 ws_deminimis.cell(row=total_row, column=2, value=de_minimis_expenses_df['Cost'].sum())
-                ws_deminimis.cell(row=total_row, column=1).font = ws_deminimis.cell(row=total_row, column=1).font.copy(bold=True)
+                ws_deminimis.cell(row=total_row, column=1).font = Font(bold=True)
 
             # =====================================================================
             # AUDIT PROTECTION SHEETS - Separate tabs by transaction type
@@ -757,7 +758,7 @@ class ExporterService:
                     gain_loss_col = list(disposal_entry_df.columns).index('Gain/Loss') + 1
                     total_gain_loss = disposal_entry_df['Gain/Loss'].sum()
                     ws_disposal.cell(row=total_row, column=gain_loss_col, value=total_gain_loss)
-                    ws_disposal.cell(row=total_row, column=1).font = ws_disposal.cell(row=total_row, column=1).font.copy(bold=True)
+                    ws_disposal.cell(row=total_row, column=1).font = Font(bold=True)
 
             # Sheet 3: Transfer Entry
             if transfer_entry_df is not None and not transfer_entry_df.empty:
@@ -774,7 +775,7 @@ class ExporterService:
                 total_row = len(de_minimis_expenses_df) + 2
                 ws_deminimis.cell(row=total_row, column=1, value="TOTAL TO EXPENSE:")
                 ws_deminimis.cell(row=total_row, column=2, value=de_minimis_expenses_df['Cost'].sum())
-                ws_deminimis.cell(row=total_row, column=1).font = ws_deminimis.cell(row=total_row, column=1).font.copy(bold=True)
+                ws_deminimis.cell(row=total_row, column=1).font = Font(bold=True)
 
             # Sheet 5: Existing Assets (for FA CS tie-out)
             if existing_assets_df is not None and not existing_assets_df.empty:
@@ -790,7 +791,7 @@ class ExporterService:
                 if 'Accum. Depreciation' in existing_assets_df.columns:
                     accum_col = list(existing_assets_df.columns).index('Accum. Depreciation') + 1
                     ws_existing.cell(row=total_row, column=accum_col, value=existing_assets_df['Accum. Depreciation'].sum())
-                ws_existing.cell(row=total_row, column=1).font = ws_existing.cell(row=total_row, column=1).font.copy(bold=True)
+                ws_existing.cell(row=total_row, column=1).font = Font(bold=True)
 
             # Sheet 6: Items Requiring Review
             if items_requiring_review_df is not None and not items_requiring_review_df.empty:
