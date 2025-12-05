@@ -1,4 +1,5 @@
 from typing import List, Dict, Optional
+import re
 from datetime import date
 from backend.models.asset import Asset
 from backend.logic import macrs_classification
@@ -201,17 +202,79 @@ class ClassifierService:
 
         return assets
 
+    def _assess_description_quality(self, description: str) -> float:
+        """
+        Assess the quality of an asset description.
+
+        Returns a multiplier (0.5 to 1.0) based on how much the description
+        looks like a proper asset name vs. a note/statement.
+
+        Indicators of poor quality (notes/statements):
+        - Starts with lowercase
+        - Contains phrases like "was", "is", "and now", "used to"
+        - Very long (sentence-like)
+        - Contains question marks or multiple periods
+        - Starts with verbs
+
+        Indicators of good quality (asset names):
+        - Capitalized words
+        - Brand names, model numbers
+        - Short and specific
+        """
+        if not description:
+            return 0.6  # Missing description
+
+        desc = description.strip()
+        quality = 1.0
+
+        # Sentence-like indicators (looks like notes, not asset names)
+        sentence_patterns = [
+            r'^(was|is|are|were|had|has|have|been|being)\s',  # Starts with verb
+            r'\b(and now|used to|was on|is on|are on)\b',  # Transitional phrases
+            r'\b(because|since|therefore|however|although)\b',  # Conjunctions
+            r'\?',  # Question mark
+            r'\.{2,}',  # Multiple periods (ellipsis or trailing)
+            r'\.\s+\w',  # Multiple sentences
+        ]
+
+        for pattern in sentence_patterns:
+            if re.search(pattern, desc, re.IGNORECASE):
+                quality -= 0.15
+
+        # Very long descriptions are often notes
+        if len(desc) > 80:
+            quality -= 0.1
+
+        # Starts with lowercase (unusual for asset names)
+        if desc[0].islower():
+            quality -= 0.1
+
+        # Good indicators (asset-like)
+        asset_patterns = [
+            r'\b\d{2,}[A-Z]',  # Model numbers like "200DB", "R750"
+            r'\b(Dell|HP|Lenovo|Apple|Samsung|Canon|Xerox|Ford|Toyota|Caterpillar)\b',  # Brand names
+            r'^\w+\s+(#|No\.|Model|Serial)',  # Asset with number reference
+        ]
+
+        for pattern in asset_patterns:
+            if re.search(pattern, desc, re.IGNORECASE):
+                quality += 0.05
+
+        # Clamp between 0.5 and 1.0
+        return max(0.5, min(1.0, quality))
+
     def _calculate_disposal_confidence(self, asset: Asset) -> float:
         """
-        Calculate confidence for disposal based on data completeness.
+        Calculate confidence for disposal based on data completeness AND description quality.
 
         For disposals, CPAs care about having complete data for gain/loss calculation,
-        NOT about MACRS classification accuracy (the asset is being removed).
+        but vague/unclear descriptions should still lower confidence since
+        the CPA needs to verify what asset is actually being disposed.
 
-        High confidence (95%): Has disposal date + cost + accumulated depreciation
+        High confidence (95%): Has disposal date + cost + accumulated depreciation + clear description
         Medium confidence (85%): Has disposal date + cost
         Low confidence (70%): Has disposal date only
-        Needs review (50%): Missing disposal date
+        Needs review (50%): Missing disposal date or unclear description
         """
         score = 0.50  # Base score - needs review
 
@@ -231,7 +294,16 @@ class ClassifierService:
                 if asset.proceeds is not None:
                     score = min(0.98, score + 0.03)
 
-        return score
+        # Apply description quality factor
+        # If description looks like a note/statement rather than an asset name,
+        # reduce confidence - CPA needs to verify what this actually is
+        desc_quality = self._assess_description_quality(asset.description)
+        if desc_quality < 1.0:
+            # Scale down the score based on description quality
+            # A 0.5 quality multiplier on a 0.98 score → ~0.74
+            score = score * (0.5 + 0.5 * desc_quality)
+
+        return round(score, 2)
 
     def _calculate_transfer_confidence(self, asset: Asset) -> float:
         """
