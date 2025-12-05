@@ -5,9 +5,9 @@ import { Bell, User, X, Edit2, Check } from 'lucide-react';
 const getStoredProfile = () => {
     try {
         const stored = localStorage.getItem('userProfile');
-        return stored ? JSON.parse(stored) : { name: 'John Doe', title: 'Senior CPA' };
+        return stored ? JSON.parse(stored) : { name: 'Sejin Park', title: 'Senior CPA' };
     } catch {
-        return { name: 'John Doe', title: 'Senior CPA' };
+        return { name: 'Sejin Park', title: 'Senior CPA' };
     }
 };
 
