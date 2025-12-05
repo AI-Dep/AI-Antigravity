@@ -32,6 +32,7 @@ function Review({ assets = [] }) {
     const [checkingCompatibility, setCheckingCompatibility] = useState(false);
     const [warningFilter, setWarningFilter] = useState(null); // Filter by warning type: 'misclassified', null
     const [sortConfig, setSortConfig] = useState({ column: null, direction: 'asc' }); // Column sorting
+    const [deleteConfirmAsset, setDeleteConfirmAsset] = useState(null); // Asset pending deletion confirmation
 
     // FA CS # editing: Track pending values and debounce timers
     const [pendingFacsNumbers, setPendingFacsNumbers] = useState({}); // { uniqueId: pendingValue }
@@ -762,13 +763,16 @@ function Review({ assets = [] }) {
     };
 
     // Remove asset from session (for incorrectly imported rows)
-    const handleRemove = async (uniqueId, assetDescription) => {
-        // Confirm before deletion
-        const confirmed = window.confirm(
-            `Remove "${assetDescription || 'this asset'}" from the import?\n\n` +
-            `This will remove it from the current session. It won't affect the original Excel file.`
-        );
-        if (!confirmed) return;
+    // Step 1: Show confirmation modal
+    const handleRemoveClick = (asset) => {
+        setDeleteConfirmAsset(asset);
+    };
+
+    // Step 2: Actually perform the deletion after confirmation
+    const handleRemoveConfirmed = async () => {
+        if (!deleteConfirmAsset) return;
+
+        const uniqueId = deleteConfirmAsset.unique_id;
 
         try {
             await apiDelete(`/assets/${uniqueId}`);
@@ -783,6 +787,8 @@ function Review({ assets = [] }) {
             // Refresh warnings and export status
             fetchWarnings();
             fetchExportStatusOnly();
+            // Close the modal
+            setDeleteConfirmAsset(null);
         } catch (error) {
             console.error("Failed to remove asset:", error);
             alert(`Failed to remove: ${error.message || 'Unknown error'}`);
@@ -2157,7 +2163,7 @@ function Review({ assets = [] }) {
                                                                 <Edit2 className={tableCompact ? "w-3.5 h-3.5" : "w-4 h-4"} />
                                                             </button>
                                                             <button
-                                                                onClick={() => handleRemove(asset.unique_id, asset.description)}
+                                                                onClick={() => handleRemoveClick(asset)}
                                                                 className={cn(
                                                                     "hover:bg-red-100 text-red-500 rounded",
                                                                     tableCompact ? "p-1" : "p-1.5"
@@ -2196,6 +2202,67 @@ function Review({ assets = [] }) {
                     </button>
                 )}
             </div>
+
+            {/* Delete Confirmation Modal */}
+            {deleteConfirmAsset && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+                        {/* Warning Header */}
+                        <div className="p-6 bg-red-50 border-b border-red-100">
+                            <div className="flex items-center gap-3">
+                                <div className="h-12 w-12 rounded-full bg-red-100 flex items-center justify-center">
+                                    <AlertTriangle className="h-6 w-6 text-red-600" />
+                                </div>
+                                <div>
+                                    <h2 className="text-xl font-bold text-red-800">Delete Asset?</h2>
+                                    <p className="text-sm text-red-600">This action cannot be undone</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Asset Details */}
+                        <div className="p-6">
+                            <div className="bg-slate-50 rounded-lg p-4 mb-4">
+                                <div className="text-sm text-slate-500 mb-1">Asset to be deleted:</div>
+                                <div className="font-semibold text-slate-900 truncate">
+                                    {deleteConfirmAsset.description || 'No description'}
+                                </div>
+                                <div className="text-sm text-slate-600 mt-2 flex gap-4">
+                                    <span>Cost: ${Number(deleteConfirmAsset.cost || 0).toLocaleString()}</span>
+                                    <span>Date: {deleteConfirmAsset.date_acquired || deleteConfirmAsset.date_in_service || 'N/A'}</span>
+                                </div>
+                            </div>
+
+                            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                                <div className="flex items-start gap-2">
+                                    <Info className="h-4 w-4 text-yellow-600 mt-0.5 flex-shrink-0" />
+                                    <div className="text-sm text-yellow-800">
+                                        <p className="font-medium">Are you sure?</p>
+                                        <p className="mt-1">This will remove the asset from the current session. You would need to re-import from Excel to recover it.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setDeleteConfirmAsset(null)}
+                                    className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleRemoveConfirmed}
+                                    className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition-colors flex items-center justify-center gap-2"
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                    Delete Asset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* FA CS Compatibility Check Dialog */}
             {showCompatDialog && (
