@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Info, Calendar, DollarSign, Hash } from 'lucide-react';
+import { Info, Calendar, DollarSign, Hash, ExternalLink, HelpCircle } from 'lucide-react';
 import { apiGet, apiPost } from '../lib/api.client';
 
 function Settings() {
@@ -203,9 +203,36 @@ function Settings() {
                     <CardTitle className="flex items-center gap-2">
                         <DollarSign className="w-5 h-5 text-green-600" />
                         De Minimis Safe Harbor
+                        <div className="relative group ml-1">
+                            <HelpCircle className="w-4 h-4 text-slate-400 cursor-help" />
+                            <div className="absolute left-0 bottom-full mb-2 w-80 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+                                <p className="font-semibold mb-2">What is the De Minimis Safe Harbor?</p>
+                                <p className="mb-2">
+                                    This IRS rule allows businesses to <span className="text-green-300">immediately expense</span> (deduct in full) the cost of low-value items instead of capitalizing and depreciating them over several years.
+                                </p>
+                                <p className="mb-2">
+                                    <span className="text-yellow-300">Without</span> audited financial statements: up to <span className="font-bold">$2,500</span> per item
+                                </p>
+                                <p className="mb-2">
+                                    <span className="text-yellow-300">With</span> audited financial statements (AFS): up to <span className="font-bold">$5,000</span> per item
+                                </p>
+                                <p className="text-slate-300 text-[10px] mt-2">
+                                    Example: A $2,000 laptop can be fully expensed in Year 1 instead of depreciated over 5 years.
+                                </p>
+                            </div>
+                        </div>
                     </CardTitle>
-                    <CardDescription>
-                        Configure the de minimis expensing threshold (IRC Reg. 1.263(a)-1(f))
+                    <CardDescription className="flex items-center gap-2">
+                        Configure the de minimis expensing threshold per
+                        <a
+                            href="https://www.law.cornell.edu/cfr/text/26/1.263(a)-1"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                            IRC Reg. 1.263(a)-1(f)
+                            <ExternalLink className="w-3 h-3" />
+                        </a>
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
