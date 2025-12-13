@@ -231,8 +231,12 @@ class ImporterService:
         """
         Convert a DataFrame row to an Asset object.
 
-        IMPORTANT: Does NOT skip assets missing cost or dates.
-        All assets with a description should be included.
+        Handles both:
+        - Trial Balance rows (account_number, description, balance)
+        - Fixed Asset rows (asset_id, description, cost)
+
+        IMPORTANT: Does NOT skip items missing cost/balance or dates.
+        All items with a description should be included.
         """
         # Get description - this is the only required field
         desc = row.get('description', '')
@@ -241,17 +245,63 @@ class ImporterService:
 
         description = str(desc).strip()
 
-        # Get asset_id (optional - use row index as fallback)
+        # ==========================================================
+        # TRIAL BALANCE FIELDS (Form 5471 mode)
+        # ==========================================================
+
+        # Get account_number (primary for TB, falls back to asset_id)
+        account_number = row.get('account_number', '')
+        if pd.isna(account_number) or str(account_number).strip() == '':
+            account_number = None
+        else:
+            account_number = str(account_number).strip()
+
+        # Get balance (ending balance for TB)
+        balance = row.get('balance')
+        if pd.isna(balance) or not self._is_valid_number(balance):
+            balance = 0.0
+        else:
+            balance = float(balance)
+
+        # Get debit/credit if available
+        debit = row.get('debit')
+        if pd.isna(debit) or not self._is_valid_number(debit):
+            debit = None
+        else:
+            debit = float(debit)
+
+        credit = row.get('credit')
+        if pd.isna(credit) or not self._is_valid_number(credit):
+            credit = None
+        else:
+            credit = float(credit)
+
+        # Calculate balance from debit/credit if balance not provided
+        if balance == 0.0 and (debit is not None or credit is not None):
+            balance = (debit or 0.0) - (credit or 0.0)
+
+        # Get beginning balance if available
+        beginning_balance = row.get('beginning_balance')
+        if pd.isna(beginning_balance) or not self._is_valid_number(beginning_balance):
+            beginning_balance = None
+        else:
+            beginning_balance = float(beginning_balance)
+
+        # ==========================================================
+        # LEGACY FIXED ASSET FIELDS
+        # ==========================================================
+
+        # Get asset_id (optional - use account_number or row index as fallback)
         asset_id = row.get('asset_id', '')
         if pd.isna(asset_id) or str(asset_id).strip() == '':
-            asset_id = None
+            asset_id = account_number  # Use account_number if no asset_id
         else:
             asset_id = str(asset_id).strip()
 
-        # Get cost (optional - 0.0 if not available)
+        # Get cost (optional - use balance if not available)
         cost = row.get('cost')
         if pd.isna(cost) or not self._is_valid_number(cost):
-            cost = 0.0
+            cost = abs(balance) if balance != 0 else 0.0  # Use balance as fallback
         else:
             cost = float(cost)
 
@@ -328,11 +378,18 @@ class ImporterService:
         if pd.isna(to_location):
             to_location = None
 
-        # Create Asset Object
+        # Create Asset Object with both TB and FA fields
         asset = Asset(
             row_index=int(source_row) if not pd.isna(source_row) else idx + 2,
-            asset_id=asset_id,
+            # Form 5471 / Trial Balance fields
+            account_number=account_number,
             description=description,
+            balance=balance,
+            debit=debit,
+            credit=credit,
+            beginning_balance=beginning_balance,
+            # Legacy FA fields
+            asset_id=asset_id,
             cost=cost,
             acquisition_date=acquisition_date,
             in_service_date=in_service_date,
@@ -353,7 +410,8 @@ class ImporterService:
         )
 
         # Run Validation Rules (but don't reject - just flag)
-        asset.check_validity()
+        # Default to 5471 mode for validation
+        asset.check_validity(mode="5471")
 
         return asset
 

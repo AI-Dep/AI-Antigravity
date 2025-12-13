@@ -5,6 +5,12 @@ from backend.models.asset import Asset
 from backend.logic import macrs_classification
 from backend.logic import transaction_classifier
 from backend.logic import tax_year_config
+from backend.logic.form_5471_classification import (
+    classify_for_5471,
+    classify_trial_balance_batch,
+    HIGH_CONFIDENCE_THRESHOLD,
+    LOW_CONFIDENCE_THRESHOLD,
+)
 from backend.logic.fa_cs_mappings import (
     FA_CS_WIZARD_5_YEAR,
     FA_CS_WIZARD_7_YEAR,
@@ -18,8 +24,11 @@ from backend.logic.fa_cs_mappings import (
 
 class ClassifierService:
     """
-    Service to classify assets into MACRS categories using the advanced rule engine.
-    Also handles transaction type classification (addition vs existing vs disposal vs transfer).
+    Service to classify assets/accounts.
+
+    Supports two modes:
+    1. Form 5471 Mode (default): Maps Trial Balance accounts to Form 5471 schedules/lines
+    2. Legacy FA Mode: MACRS classification for Fixed Asset CS
 
     Supports fiscal years (e.g., Apr-Mar, Jul-Jun) in addition to calendar years.
     """
@@ -27,6 +36,7 @@ class ClassifierService:
     def __init__(self):
         self.tax_year: int = date.today().year  # Default to current year
         self.fy_start_month: int = 1  # Default to calendar year (January)
+        self.mode: str = "5471"  # Default to Form 5471 mode
 
     def set_tax_year(self, year: int):
         """Set the tax year for transaction classification."""
@@ -92,15 +102,15 @@ class ClassifierService:
         fy_start_month: Optional[int] = None
     ) -> List[Asset]:
         """
-        Classifies a list of assets for both MACRS categories AND transaction types.
+        Classifies a list of assets/accounts.
 
-        Supports fiscal years (e.g., Apr-Mar, Jul-Jun) in addition to calendar years.
+        In Form 5471 mode (default): Maps accounts to Form 5471 schedules/lines
+        In legacy FA mode: Uses MACRS classification
 
         Args:
             assets: List of Asset objects
-            tax_year: Tax year for transaction classification (defaults to self.tax_year)
+            tax_year: Tax year for classification (defaults to self.tax_year)
             fy_start_month: First month of fiscal year (1=Jan, 4=Apr, 7=Jul, 10=Oct)
-                           Defaults to self.fy_start_month
 
         Returns:
             List of classified Asset objects
@@ -108,6 +118,55 @@ class ClassifierService:
         if not assets:
             return []
 
+        # Use Form 5471 classification by default
+        if self.mode == "5471":
+            return self._classify_batch_5471(assets)
+        else:
+            return self._classify_batch_macrs(assets, tax_year, fy_start_month)
+
+    def _classify_batch_5471(self, assets: List[Asset]) -> List[Asset]:
+        """
+        Classify accounts for Form 5471 schedules.
+
+        Maps Trial Balance accounts to:
+        - Schedule C (Income Statement)
+        - Schedule E (Taxes)
+        - Schedule F (Balance Sheet)
+        """
+        for asset in assets:
+            # Get account number and description
+            account_number = asset.account_number or asset.asset_id or ""
+            description = asset.description or ""
+
+            # Run Form 5471 classification
+            mapping = classify_for_5471(
+                account_number=account_number,
+                description=description,
+                balance=asset.balance or asset.cost or 0.0,
+            )
+
+            # Apply classification to asset
+            asset.schedule = mapping.schedule
+            asset.line = mapping.line
+            asset.line_description = mapping.line_description
+            asset.account_type = mapping.account_type
+            asset.confidence_score = mapping.confidence
+            asset.classification_reason = mapping.match_reason
+
+            # Run validation in 5471 mode
+            asset.check_validity(mode="5471")
+
+        return assets
+
+    def _classify_batch_macrs(
+        self,
+        assets: List[Asset],
+        tax_year: Optional[int] = None,
+        fy_start_month: Optional[int] = None
+    ) -> List[Asset]:
+        """
+        Legacy MACRS classification for Fixed Asset CS.
+        """
         # Use provided values or fall back to instance defaults
         effective_tax_year = tax_year or self.tax_year
         effective_fy_start_month = fy_start_month or self.fy_start_month
