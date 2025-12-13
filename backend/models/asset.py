@@ -37,10 +37,6 @@ class Asset(BaseModel):
     confidence_score: float = Field(0.0, ge=0.0, le=1.0)
     classification_reason: Optional[str] = Field(None, description="Reason for 5471 classification")
 
-    # Multi-entity support
-    entity: Optional[str] = Field(None, description="CFC Entity name/code for multi-entity TB files")
-    currency: Optional[str] = Field(None, description="Currency code (e.g., USD, CLP, EUR)")
-
     # ==========================================================================
     # LEGACY FIXED ASSET FIELDS - Kept for backward compatibility
     # ==========================================================================
