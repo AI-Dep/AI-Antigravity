@@ -287,20 +287,6 @@ class ImporterService:
         else:
             beginning_balance = float(beginning_balance)
 
-        # Get entity (for multi-entity TBs)
-        entity = row.get('entity', '')
-        if pd.isna(entity) or str(entity).strip() == '':
-            entity = None
-        else:
-            entity = str(entity).strip()
-
-        # Get currency
-        currency = row.get('currency', '')
-        if pd.isna(currency) or str(currency).strip() == '':
-            currency = None
-        else:
-            currency = str(currency).strip().upper()
-
         # ==========================================================
         # LEGACY FIXED ASSET FIELDS
         # ==========================================================
@@ -402,9 +388,6 @@ class ImporterService:
             debit=debit,
             credit=credit,
             beginning_balance=beginning_balance,
-            # Multi-entity support
-            entity=entity,
-            currency=currency,
             # Legacy FA fields
             asset_id=asset_id,
             cost=cost,
