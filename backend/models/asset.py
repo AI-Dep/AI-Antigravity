@@ -4,18 +4,46 @@ from datetime import date, datetime
 
 class Asset(BaseModel):
     """
-    Represents a single fixed asset with flexible validation.
+    Represents a single account/asset for Form 5471 processing.
 
-    IMPORTANT: Assets should NOT be rejected due to missing cost or dates.
+    Supports both Trial Balance accounts (for Form 5471) and Fixed Assets.
     The validation rules are advisory - they flag issues but don't prevent processing.
     """
     row_index: int = Field(..., description="Original row number in Excel")
     unique_id: Optional[int] = Field(None, description="Unique ID for storage (set by API)")
 
-    # Critical Fields
-    asset_id: Optional[str] = Field(None, description="Unique Asset Identifier from client")
-    description: str = Field(..., min_length=1, description="Asset Description")
-    cost: float = Field(0.0, ge=0, description="Acquisition Cost (0 if unknown)")
+    # ==========================================================================
+    # FORM 5471 FIELDS - Primary fields for Trial Balance → 5471 mapping
+    # ==========================================================================
+
+    # Account identification
+    account_number: Optional[str] = Field(None, description="GL Account Number (e.g., 121001)")
+    description: str = Field(..., min_length=1, description="Account/Asset Description")
+
+    # Form 5471 Schedule mapping
+    schedule: Optional[str] = Field(None, description="Form 5471 Schedule (Sch C, Sch E, Sch F)")
+    line: Optional[str] = Field(None, description="Schedule line number (e.g., 1, 2a, 14)")
+    line_description: Optional[str] = Field(None, description="IRS line description")
+    account_type: Optional[str] = Field(None, description="Account type: asset, liability, equity, income, expense")
+
+    # Balances (for Trial Balance)
+    balance: float = Field(0.0, description="Account balance (ending balance)")
+    usd_amount: float = Field(0.0, description="USD equivalent amount")
+    debit: Optional[float] = Field(None, description="Debit amount")
+    credit: Optional[float] = Field(None, description="Credit amount")
+    beginning_balance: Optional[float] = Field(None, description="Beginning balance")
+
+    # Classification confidence
+    confidence_score: float = Field(0.0, ge=0.0, le=1.0)
+    classification_reason: Optional[str] = Field(None, description="Reason for 5471 classification")
+
+    # ==========================================================================
+    # LEGACY FIXED ASSET FIELDS - Kept for backward compatibility
+    # ==========================================================================
+
+    # Legacy asset ID field (maps to account_number for TB)
+    asset_id: Optional[str] = Field(None, description="Legacy: Asset ID (use account_number for TB)")
+    cost: float = Field(0.0, ge=0, description="Legacy: Acquisition Cost (use balance for TB)")
 
     # FA CS Cross-Reference - Maps client's Asset ID to FA CS numeric Asset #
     # FA CS requires numeric-only Asset #, but clients may use alphanumeric IDs
@@ -119,8 +147,8 @@ class Asset(BaseModel):
             pass
         return None
 
-    @validator('cost', pre=True)
-    def validate_cost_type(cls, v):
+    @validator('cost', 'balance', 'usd_amount', pre=True)
+    def validate_numeric_fields(cls, v):
         if v is None:
             return 0.0
         try:
@@ -128,7 +156,7 @@ class Asset(BaseModel):
         except (ValueError, TypeError):
             return 0.0
 
-    def check_validity(self, tax_year: int = None):
+    def check_validity(self, tax_year: int = None, mode: str = "5471"):
         """
         Runs business rules and populates validation_errors and validation_warnings.
         Call this after creating the object.
@@ -137,59 +165,80 @@ class Asset(BaseModel):
         Warnings = Non-critical issues (informational, don't block export)
 
         Args:
-            tax_year: Optional tax year for date validation. If provided, validates
-                     that asset dates are consistent with the tax year.
+            tax_year: Optional tax year for date validation.
+            mode: "5471" for Form 5471/Trial Balance mode, "fa" for legacy Fixed Asset mode
         """
         self.validation_errors = []
         self.validation_warnings = []
 
-        # === CRITICAL ERRORS (Block Export) ===
+        if mode == "5471":
+            # === FORM 5471 VALIDATION ===
 
-        # 1. Cost Validation - Must have valid cost (except for Transfers)
-        # Transfers don't require cost as they're just moving assets between locations/departments
-        # Check for all transfer types: "Transfer", "Current Year Transfer", "Prior Year Transfer"
-        trans_type_str = str(self.transaction_type).lower() if self.transaction_type and isinstance(self.transaction_type, str) else ""
-        is_transfer = "transfer" in trans_type_str
-        if self.cost <= 0 and not is_transfer:
-            self.validation_errors.append("Cost must be positive.")
+            # 1. Description Validation - Must have meaningful description
+            if len(self.description) < 2:
+                self.validation_errors.append("Account description is too short.")
 
-        # 2. Description Validation - Must have meaningful description
-        if len(self.description) < 3:
-            self.validation_errors.append("Description is too short.")
+            # 2. Schedule/Line Classification - Must be mapped to a 5471 schedule
+            if not self.schedule or self.schedule in ["Unknown", ""]:
+                self.validation_errors.append("Account not mapped to Form 5471 schedule.")
 
-        # 3. Classification Validation - Must be classified (not Unclassified or None)
-        # Transfers don't require classification - they reference existing assets
-        if not is_transfer:
-            if not self.macrs_class or self.macrs_class in ["Unclassified", "Unknown", ""]:
-                self.validation_errors.append("Asset not classified - needs MACRS class.")
+            # 3. Line number validation
+            if self.schedule and self.schedule != "Unknown" and not self.line:
+                self.validation_warnings.append("Schedule assigned but no line number specified.")
 
-        # 4. Method Validation (only if method is set and invalid)
-        valid_methods = ["200DB", "150DB", "SL", "ADS", "Unknown", None, ""]
-        if self.macrs_method and self.macrs_method not in valid_methods:
-            self.validation_errors.append(f"Invalid Method: {self.macrs_method}")
+            # 4. Low Confidence Warning
+            if self.confidence_score < 0.4:
+                self.validation_warnings.append(
+                    f"Low confidence ({self.confidence_score:.0%}) - review schedule/line mapping."
+                )
+            elif self.confidence_score < 0.7:
+                self.validation_warnings.append(
+                    f"Medium confidence ({self.confidence_score:.0%}) - verify mapping is correct."
+                )
 
-        # 5. Tax Year Date Validation - Asset date must not be after tax year end
-        # This is a CRITICAL ERROR because you can't report future assets
-        if tax_year:
-            effective_date = self.in_service_date or self.acquisition_date
-            if effective_date:
-                if effective_date.year > tax_year:
-                    self.validation_errors.append(
-                        f"In-service date {effective_date} is after tax year {tax_year}. "
-                        f"Cannot include future assets in {tax_year} return."
-                    )
+            # 5. Zero balance warning (might be intentional)
+            if self.balance == 0 and self.usd_amount == 0:
+                self.validation_warnings.append("Account has zero balance.")
 
-        # === WARNINGS (Informational, Don't Block Export) ===
+        else:
+            # === LEGACY FIXED ASSET VALIDATION ===
 
-        # 6. Date Validation - Missing date is a warning, not an error
-        if not self.acquisition_date and not self.in_service_date:
-            self.validation_warnings.append("No acquisition or in-service date provided.")
-        elif self.acquisition_date and self.acquisition_date > date.today():
-            self.validation_warnings.append(f"Acquisition Date {self.acquisition_date} is in the future.")
+            # 1. Cost Validation - Must have valid cost (except for Transfers)
+            trans_type_str = str(self.transaction_type).lower() if self.transaction_type and isinstance(self.transaction_type, str) else ""
+            is_transfer = "transfer" in trans_type_str
+            if self.cost <= 0 and not is_transfer:
+                self.validation_errors.append("Cost must be positive.")
 
-        # 7. Low Confidence Warning
-        if self.confidence_score < 0.8 and self.macrs_class and self.macrs_class not in ["Unclassified", ""]:
-            self.validation_warnings.append(f"Low confidence ({self.confidence_score:.0%}) - consider manual review.")
+            # 2. Description Validation - Must have meaningful description
+            if len(self.description) < 3:
+                self.validation_errors.append("Description is too short.")
+
+            # 3. Classification Validation - Must be classified (not Unclassified or None)
+            if not is_transfer:
+                if not self.macrs_class or self.macrs_class in ["Unclassified", "Unknown", ""]:
+                    self.validation_errors.append("Asset not classified - needs MACRS class.")
+
+            # 4. Method Validation (only if method is set and invalid)
+            valid_methods = ["200DB", "150DB", "SL", "ADS", "Unknown", None, ""]
+            if self.macrs_method and self.macrs_method not in valid_methods:
+                self.validation_errors.append(f"Invalid Method: {self.macrs_method}")
+
+            # 5. Tax Year Date Validation
+            if tax_year:
+                effective_date = self.in_service_date or self.acquisition_date
+                if effective_date:
+                    if effective_date.year > tax_year:
+                        self.validation_errors.append(
+                            f"In-service date {effective_date} is after tax year {tax_year}."
+                        )
+
+            # 6. Date Validation - Missing date is a warning
+            if not self.acquisition_date and not self.in_service_date:
+                self.validation_warnings.append("No acquisition or in-service date provided.")
+
+            # 7. Low Confidence Warning
+            if self.confidence_score < 0.8 and self.macrs_class and self.macrs_class not in ["Unclassified", ""]:
+                self.validation_warnings.append(f"Low confidence ({self.confidence_score:.0%}) - consider manual review.")
 
 class AuditEvent(BaseModel):
     timestamp: datetime

@@ -384,7 +384,142 @@ def _calculate_token_score(
 
 
 # ====================================================================================
-# HEADER DETECTION KEYS - Comprehensive mappings for all possible column names
+# TRIAL BALANCE HEADER KEYS - For Form 5471 Trial Balance Import
+# ====================================================================================
+
+TB_HEADER_KEYS = {
+    "account_number": [
+        # Standard account number variations
+        "account", "account number", "account #", "account no", "account no.",
+        "acct", "acct #", "acct no", "acct number", "acct.",
+        "gl account", "gl #", "gl number", "gl acct", "g/l account",
+        "account code", "acct code", "code",
+        # Spanish/International
+        "cuenta", "cta", "numero de cuenta", "código", "codigo",
+        "nro cuenta", "num cuenta",
+        # SAP/ERP specific
+        "gl_account", "account_number", "accountnumber",
+    ],
+
+    "description": [
+        # Standard description variations
+        "description", "desc", "account description", "account name",
+        "name", "account title", "title", "caption",
+        # Spanish/International - CRITICAL for Latin American TBs
+        "glosa", "glosa_cuenta", "glosa cuenta", "descripcion",
+        "nombre", "nombre cuenta", "nombre de cuenta",
+        "detalle", "concepto",
+        # ERP specific
+        "gl_description", "acct_description", "account_desc",
+        "long description", "short description",
+    ],
+
+    "debit": [
+        # Debit column variations
+        "debit", "debits", "dr", "dr.", "debe",
+        "debit amount", "debit balance", "debit amt",
+        "debito", "débito",
+    ],
+
+    "credit": [
+        # Credit column variations
+        "credit", "credits", "cr", "cr.", "haber",
+        "credit amount", "credit balance", "credit amt",
+        "credito", "crédito",
+    ],
+
+    "balance": [
+        # Balance/ending balance variations
+        "balance", "ending balance", "end balance", "ending bal",
+        "net balance", "net", "total", "amount", "value",
+        "saldo", "saldo final", "saldo neto",
+        "closing balance", "period balance", "current balance",
+        # USD specific
+        "usd balance", "usd amount", "usd", "us$", "us dollars",
+        "balance usd", "amount usd",
+        # Local currency
+        "local balance", "local amount", "functional currency",
+    ],
+
+    "beginning_balance": [
+        # Beginning balance variations
+        "beginning balance", "begin balance", "opening balance",
+        "beg balance", "beg bal", "prior balance",
+        "saldo inicial", "saldo anterior",
+    ],
+
+    "period_activity": [
+        # Period activity/movement
+        "activity", "movement", "change", "net change",
+        "period activity", "ytd activity",
+        "movimiento", "variacion", "variación",
+    ],
+
+    "account_type": [
+        # Account type/category
+        "account type", "type", "acct type", "category",
+        "account category", "classification",
+        "tipo", "tipo cuenta", "tipo de cuenta",
+        "asset", "liability", "equity", "income", "expense",
+    ],
+
+    "currency": [
+        # Currency indicators
+        "currency", "curr", "ccy", "fx",
+        "moneda", "divisa",
+        "currency code", "curr code",
+    ],
+
+    "entity": [
+        # Entity/company for multi-entity TBs
+        "entity", "company", "subsidiary", "legal entity",
+        "entidad", "empresa", "sociedad",
+        "company code", "entity code", "bu", "business unit",
+    ],
+
+    "department": [
+        # Cost center/department
+        "department", "dept", "cost center", "cc",
+        "segment", "division", "profit center",
+        "departamento", "centro de costo",
+    ],
+
+    "intercompany": [
+        # Intercompany flags
+        "intercompany", "ic", "i/c", "related party",
+        "affiliate", "elimination",
+        "intercompañia", "partes relacionadas",
+    ],
+}
+
+# Trial Balance Synonyms
+TB_SYNONYMS = {
+    # Account terminology
+    "account": {"cuenta", "acct", "gl", "ledger"},
+    "cuenta": {"account", "acct", "gl"},
+    "balance": {"saldo", "amount", "total", "net"},
+    "saldo": {"balance", "amount", "total"},
+    "debit": {"debe", "dr", "cargo"},
+    "credit": {"haber", "cr", "abono"},
+    "description": {"glosa", "nombre", "desc", "name", "caption"},
+    "glosa": {"description", "nombre", "desc", "name"},
+
+    # Financial statement terms
+    "asset": {"activo", "assets"},
+    "liability": {"pasivo", "liabilities"},
+    "equity": {"patrimonio", "capital", "stockholders equity"},
+    "income": {"ingreso", "revenue", "sales"},
+    "expense": {"gasto", "cost", "expenses"},
+}
+
+# Trial Balance field priorities
+TB_CRITICAL_FIELDS = ["account_number", "description", "balance"]
+TB_IMPORTANT_FIELDS = ["debit", "credit", "beginning_balance"]
+TB_OPTIONAL_FIELDS = ["account_type", "currency", "entity", "department", "period_activity", "intercompany"]
+
+
+# ====================================================================================
+# FIXED ASSET HEADER KEYS - Original FA CS mappings (legacy)
 # ====================================================================================
 
 HEADER_KEYS = {
@@ -1158,3 +1293,202 @@ class HeaderMatchResult:
 
     def __repr__(self):
         return f"HeaderMatchResult({self.field} -> {self.column}, {self.score:.2f})"
+
+
+# ====================================================================================
+# TRIAL BALANCE COLUMN DETECTION - For Form 5471 workflows
+# ====================================================================================
+
+def _find_best_tb_match(
+    column_headers: List[str],
+    logical_field: str,
+    exclude_columns: Set[str] = None
+) -> Optional[ColumnMapping]:
+    """
+    Find best matching column for a Trial Balance logical field.
+
+    Args:
+        column_headers: List of column headers to search
+        logical_field: Logical field name (e.g., "account_number", "balance")
+        exclude_columns: Set of already-mapped columns to exclude
+
+    Returns:
+        ColumnMapping if found with confidence >= threshold, None otherwise
+    """
+    if logical_field not in TB_HEADER_KEYS:
+        return None
+
+    exclude = exclude_columns or set()
+    keywords = TB_HEADER_KEYS[logical_field]
+
+    is_critical = logical_field in TB_CRITICAL_FIELDS
+    is_important = logical_field in TB_IMPORTANT_FIELDS
+
+    best_score = 0.0
+    best_match = None
+    best_type = "none"
+    best_token_score = 0.0
+    best_fuzzy_score = 0.0
+    best_keyword = ""
+    best_synonym_used = False
+
+    for col_header in column_headers:
+        if col_header in exclude:
+            continue
+
+        col_norm = _normalize_header(col_header)
+        if not col_norm:
+            continue
+
+        for keyword in keywords:
+            score, match_type, token_score, fuzzy_score, synonym_used = _calculate_hybrid_score(
+                col_header, keyword, is_critical, is_important
+            )
+
+            if score > best_score:
+                best_score = score
+                best_match = col_header
+                best_type = match_type
+                best_token_score = token_score
+                best_fuzzy_score = fuzzy_score
+                best_keyword = keyword
+                best_synonym_used = synonym_used
+
+    # Use hybrid threshold for matching
+    threshold = HYBRID_SCORE_THRESHOLD if best_type in ("hybrid", "token") else FUZZY_MATCH_THRESHOLD / 100.0
+
+    if best_match and best_score >= threshold:
+        return ColumnMapping(
+            logical_name=logical_field,
+            excel_column=best_match,
+            match_type=best_type,
+            confidence=best_score,
+            token_score=best_token_score,
+            fuzzy_score=best_fuzzy_score,
+            matched_keyword=best_keyword,
+            synonym_applied=best_synonym_used
+        )
+
+    return None
+
+
+def detect_tb_columns(
+    column_headers: List[str],
+    client_mappings: Optional[Dict[str, str]] = None
+) -> Tuple[Dict[str, str], List[ColumnMapping], List[str]]:
+    """
+    Detect Trial Balance column mappings from headers.
+
+    This is the primary function for Form 5471 workflows.
+    Uses TB_HEADER_KEYS instead of FA-specific HEADER_KEYS.
+
+    Priority order:
+    1. Client-specific mappings (if provided)
+    2. Critical fields (account_number, description, balance)
+    3. Important fields (debit, credit, beginning_balance)
+    4. Optional fields (account_type, currency, entity, etc.)
+
+    Args:
+        column_headers: List of Excel column headers
+        client_mappings: Optional client-specific column mappings
+
+    Returns:
+        Tuple of (col_map dict, column_mappings list, warnings list)
+    """
+    col_map = {}
+    mappings = []
+    warnings = []
+    used_columns = set()
+
+    # Apply client-specific mappings first
+    if client_mappings:
+        for logical_name, excel_col in client_mappings.items():
+            if excel_col in column_headers:
+                col_map[logical_name] = excel_col
+                used_columns.add(excel_col)
+                mappings.append(ColumnMapping(
+                    logical_name=logical_name,
+                    excel_column=excel_col,
+                    match_type="client_mapping",
+                    confidence=1.0
+                ))
+
+    # Process fields in priority order
+    all_tb_fields = (
+        TB_CRITICAL_FIELDS +
+        TB_IMPORTANT_FIELDS +
+        TB_OPTIONAL_FIELDS
+    )
+
+    for field in all_tb_fields:
+        if field in col_map:
+            continue  # Already mapped by client config
+
+        match = _find_best_tb_match(column_headers, field, used_columns)
+        if match:
+            col_map[field] = match.excel_column
+            used_columns.add(match.excel_column)
+            mappings.append(match)
+
+    # Add warnings for missing critical fields
+    for critical in TB_CRITICAL_FIELDS:
+        if critical not in col_map:
+            warnings.append(f"Missing critical TB column: {critical}")
+
+    return col_map, mappings, warnings
+
+
+def is_trial_balance_file(column_headers: List[str]) -> Tuple[bool, float]:
+    """
+    Determine if a file appears to be a Trial Balance based on headers.
+
+    This helps auto-detect whether to use TB mode or FA mode.
+
+    Args:
+        column_headers: List of column headers from the file
+
+    Returns:
+        Tuple of (is_trial_balance, confidence)
+    """
+    # Try TB detection
+    tb_col_map, tb_mappings, _ = detect_tb_columns(column_headers)
+
+    # Try FA detection
+    fa_col_map, fa_mappings, _ = detect_columns(column_headers)
+
+    # Calculate scores
+    tb_score = sum(m.confidence for m in tb_mappings) / max(len(TB_CRITICAL_FIELDS), 1)
+    fa_score = sum(m.confidence for m in fa_mappings) / max(len(CRITICAL_FIELDS), 1)
+
+    # Check for TB-specific indicators
+    headers_lower = [h.lower() if h else "" for h in column_headers]
+    tb_indicators = ["account", "cuenta", "glosa", "debit", "credit", "balance", "saldo", "debe", "haber"]
+    fa_indicators = ["asset", "depreciation", "macrs", "in service", "acquisition"]
+
+    tb_indicator_count = sum(1 for h in headers_lower for ind in tb_indicators if ind in h)
+    fa_indicator_count = sum(1 for h in headers_lower for ind in fa_indicators if ind in h)
+
+    # Weighted decision
+    tb_total = tb_score + (tb_indicator_count * 0.1)
+    fa_total = fa_score + (fa_indicator_count * 0.1)
+
+    if tb_total > fa_total and tb_score >= 0.3:
+        return True, min(tb_total, 1.0)
+    elif fa_total > tb_total and fa_score >= 0.3:
+        return False, min(fa_total, 1.0)
+    else:
+        # Default to TB for Form 5471 tool
+        return True, 0.5
+
+
+def get_tb_keywords_for_field(field_name: str) -> List[str]:
+    """
+    Get all keywords associated with a TB logical field.
+
+    Args:
+        field_name: Logical field name
+
+    Returns:
+        List of keywords or empty list if field not found
+    """
+    return TB_HEADER_KEYS.get(field_name, [])
