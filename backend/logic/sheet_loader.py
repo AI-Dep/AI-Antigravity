@@ -47,13 +47,6 @@ from .column_detector import (
     FUZZY_MATCH_THRESHOLD as COL_FUZZY_THRESHOLD,
     _normalize_header,
     _find_best_match as find_column_match,
-    # Trial Balance column detection (Form 5471 mode)
-    TB_HEADER_KEYS,
-    TB_CRITICAL_FIELDS,
-    TB_IMPORTANT_FIELDS,
-    TB_OPTIONAL_FIELDS,
-    detect_tb_columns,
-    is_trial_balance_file,
 )
 
 # Import from refactored sheet analyzer module (provides skip/role detection)
@@ -2515,15 +2508,10 @@ def _map_columns_with_validation(
     sheet_name: str,
     client_mappings: Optional[Dict[str, str]] = None,
     additional_keywords: Optional[Dict[str, List[str]]] = None,
-    sheet_role: Optional[str] = None,
-    mode: str = "5471"
+    sheet_role: Optional[str] = None
 ) -> Tuple[Dict[str, str], List[ColumnMapping], List[str]]:
     """
     Map Excel columns to logical fields with validation and warnings.
-
-    Supports two modes:
-    - "5471" (default): Trial Balance mode for Form 5471, uses TB_HEADER_KEYS
-    - "fa": Fixed Asset mode, uses HEADER_KEYS
 
     Includes contextual matching based on sheet role:
     - DISPOSALS sheets: Unmapped cost-like columns map to 'proceeds'
@@ -2536,7 +2524,6 @@ def _map_columns_with_validation(
         client_mappings: Optional dict of logical_field -> excel_column from client config
         additional_keywords: Optional dict of logical_field -> [keywords] to extend detection
         sheet_role: Optional sheet role (DISPOSALS, ADDITIONS, TRANSFERS, etc.) for contextual mapping
-        mode: "5471" for Trial Balance mode (default), "fa" for Fixed Asset mode
 
     Returns:
         Tuple of (col_map dict, column_mappings list, warnings list)
@@ -2546,32 +2533,9 @@ def _map_columns_with_validation(
     warnings_list: List[str] = []
     mapped_cols: Set[str] = set()
 
-    # Auto-detect mode if not explicitly set - check if file looks like a TB
-    column_headers = [str(c) for c in df.columns if c is not None]
-    is_tb, tb_confidence = is_trial_balance_file(column_headers)
-    if mode == "5471" or is_tb:
-        # Use Trial Balance detection
-        tb_col_map, tb_mappings, tb_warnings = detect_tb_columns(column_headers, client_mappings)
-
-        # Convert to standard format
-        for logical, excel_col in tb_col_map.items():
-            col_map[logical] = excel_col
-            mapped_cols.add(excel_col)
-
-        column_mappings.extend(tb_mappings)
-        warnings_list.extend(tb_warnings)
-
-        logger.info(f"[{sheet_name}] Using Trial Balance mode (confidence: {tb_confidence:.0%})")
-
-        # Also try to map legacy FA fields for compatibility
-        # This allows both TB and FA fields to coexist
-        pass
-
     # STEP 1: Apply client-specific mappings first (highest priority)
     if client_mappings:
         for logical, excel_col in client_mappings.items():
-            if logical in col_map:
-                continue  # Already mapped by TB detection
             excel_col_norm = _normalize_header(excel_col)
             # Check if this column exists in the dataframe
             if excel_col_norm in [_normalize_header(c) for c in df.columns]:
@@ -2600,7 +2564,7 @@ def _map_columns_with_validation(
                     if kw.lower() not in existing:
                         extended_header_keys[field] = list(extended_header_keys[field]) + [kw.lower()]
 
-    # Define priority groups (legacy FA fields - still process for compatibility)
+    # Define priority groups
     priority_groups = [
         CRITICAL_FIELDS,
         IMPORTANT_FIELDS,
