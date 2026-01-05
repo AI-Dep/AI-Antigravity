@@ -329,7 +329,11 @@ HEADER_KEYS = {
         "disposal date", "dispose date", "date disposed",
         "sale date", "sold date", "date sold",
         "retirement date", "retired date", "date retired",
-        "writeoff date", "date written off"
+        "writeoff date", "date written off",
+        # Additional common variations in depreciation schedules
+        "dispose", "disposed", "disposition", "disposition date",
+        "date of disposition", "disp date", "ret date", "date ret",
+        "termination date", "term date", "removal date", "date removed"
     ],
 
     "proceeds": [
