@@ -443,7 +443,9 @@ HEADER_KEYS = {
         # Edge cases commonly seen in CPA files
         "orig cost", "orig. cost", "original", "asset cost",
         "purchase amt", "purchase amount", "cap cost", "capitalized",
-        "investment", "investment cost", "asset value", "dollar amount"
+        "investment", "investment cost", "asset value", "dollar amount",
+        # Book/Tax depreciation schedule columns
+        "book cost", "tax cost"
     ],
 
     "acquisition_date": [
@@ -514,7 +516,7 @@ HEADER_KEYS = {
         # Standard
         "method", "depreciation method", "depr method",
         # Variations
-        "macrs method", "tax method", "convention",
+        "macrs method", "tax method", "book method", "convention",
         # Edge cases commonly seen in CPA files
         "depr meth", "dep method", "meth", "depr type",
         "depreciation type", "calc method", "computation method",
@@ -528,7 +530,9 @@ HEADER_KEYS = {
         # Edge cases commonly seen in CPA files
         "asset life", "life years", "life (years)", "life yrs",
         "recovery", "recovery yrs", "term", "period",
-        "depr period", "depreciation period", "est life"
+        "depr period", "depreciation period", "est life",
+        # Book/Tax depreciation schedule columns
+        "book life", "tax life", "book period"
     ],
 
     "tax_life": [

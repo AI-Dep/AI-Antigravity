@@ -280,7 +280,9 @@ HEADER_KEYS = {
         "total cost", "net cost", "gross cost",
         # Specific
         "cost/basis", "cost or basis", "unadjusted basis",
-        "depreciable basis", "tax basis"
+        "depreciable basis", "tax basis",
+        # Book/Tax depreciation schedule columns
+        "book cost", "tax cost"
     ],
 
     "acquisition_date": [
@@ -338,6 +340,8 @@ HEADER_KEYS = {
     "method": [
         "method", "depreciation method", "depr method",
         "macrs method", "convention", "recovery method",
+        # Book/Tax specific method columns
+        "book method", "tax method",
         # Variations with "deprec" spelling
         "deprec method", "tax deprec method", "book deprec method"
     ],
@@ -346,7 +350,9 @@ HEADER_KEYS = {
         "life", "useful life", "recovery period", "class life",
         "macrs life", "years", "depr life", "depreciation life",
         # Variations with years/yrs qualifiers (e.g., "Useful Life (Yrs) - Tax")
-        "useful life yrs", "life yrs", "life years"
+        "useful life yrs", "life yrs", "life years",
+        # Book/Tax depreciation schedule columns
+        "book life", "tax life", "book period"
     ],
 
     # ==========================================================================
