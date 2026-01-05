@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
@@ -6,10 +6,27 @@ import { Import } from './components/Import';
 import { DataCleanup } from './components/DataCleanup';
 import { Review } from './components/Review';
 import { Settings } from './components/Settings';
+import { apiGet } from './lib/api.client';
 
 export default function App() {
     const [assets, setAssets] = useState([]);
     const navigate = useNavigate();
+
+    // Fetch assets from backend session on mount (restores state after page refresh)
+    useEffect(() => {
+        const fetchAssets = async () => {
+            try {
+                const data = await apiGet('/assets');
+                if (data && data.length > 0) {
+                    setAssets(data);
+                }
+            } catch (error) {
+                // Silent fail - no assets in session is normal for fresh sessions
+                console.debug('No assets in session:', error);
+            }
+        };
+        fetchAssets();
+    }, []);
 
     const handleUploadSuccess = (data) => {
         setAssets(data);
