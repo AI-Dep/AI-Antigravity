@@ -496,14 +496,15 @@ HEADER_KEYS = {
     "disposal_date": [
         # Standard
         "disposal date", "disposed date", "sold date", "sale date",
-        "retirement date", "retire date", "retired",
+        "retirement date", "retire date",
         # Variations
         "date disposed", "date sold", "date retired",
         "writeoff date", "write-off date",
-        # Additional common variations in depreciation schedules
-        "dispose", "disposed", "disposition", "disposition date",
-        "date of disposition", "disp date", "ret date", "date ret",
-        "termination date", "term date", "removal date", "date removed"
+        # Additional specific patterns (must be multi-word to avoid false matches)
+        "disposition date", "date of disposition", "disp date",
+        "date ret", "termination date", "removal date", "date removed"
+        # NOTE: Removed single-word matches like "dispose", "disposed", "disposition", "retired"
+        # These are too broad and cause false matches with notes/comments columns
     ],
 
     "proceeds": [

@@ -330,10 +330,10 @@ HEADER_KEYS = {
         "sale date", "sold date", "date sold",
         "retirement date", "retired date", "date retired",
         "writeoff date", "date written off",
-        # Additional common variations in depreciation schedules
-        "dispose", "disposed", "disposition", "disposition date",
-        "date of disposition", "disp date", "ret date", "date ret",
-        "termination date", "term date", "removal date", "date removed"
+        # Additional specific patterns (multi-word only to avoid false matches)
+        "disposition date", "date of disposition", "disp date",
+        "date ret", "termination date", "removal date", "date removed"
+        # NOTE: Removed "dispose", "disposed", "disposition" - too broad
     ],
 
     "proceeds": [
