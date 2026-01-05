@@ -442,14 +442,20 @@ def _detect_tab_role(tab_name: str, target_year: Optional[int] = None) -> Tuple[
             return TabRole.PRIOR_YEAR, 0.95, notes
 
     # 3. Check for disposal patterns
-    # NOTE: Disposal sheets ARE year-specific - prior year disposals are already processed
-    # So we DO mark prior year disposal sheets for skipping (unlike regular asset tabs)
+    # NOTE: Disposal sheets may contain data for the fiscal year ending in a prior calendar year
+    # e.g., "Disposals FY 2024 2025" contains disposals from Apr 2024 - Mar 2025
+    # If user uploads in Jan 2026, this is still "current year" for tax filing purposes
+    # Only skip disposal sheets that are MORE than 1 year old to avoid false skips
     for pattern in DISPOSAL_TAB_PATTERNS:
         if re.search(pattern, tab_lower):
             notes.append(f"Matched disposal pattern: {pattern}")
             tab_year = _extract_fiscal_year(tab_name)
-            if tab_year and target_year and tab_year < target_year:
-                notes.append(f"Prior year disposal sheet (FY {tab_year}) - skip, already processed")
+            # Only skip if the disposal sheet is MORE than 1 year behind target year
+            # This handles fiscal year vs calendar year mismatches
+            # e.g., target_year=2026, tab_year=2025 should NOT be skipped
+            # e.g., target_year=2026, tab_year=2023 SHOULD be skipped
+            if tab_year and target_year and tab_year < target_year - 1:
+                notes.append(f"Prior year disposal sheet (FY {tab_year}) - skip, too old for tax year {target_year}")
                 return TabRole.PRIOR_YEAR, 0.90, notes
             return TabRole.DISPOSALS, 0.90, notes
 
