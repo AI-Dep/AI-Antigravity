@@ -3003,18 +3003,12 @@ def build_unified_dataframe(
 
         # FAST PATH: Use pre-computed skip decision from smart tab analyzer
         # The analyzer already handles year-based filtering correctly
-        # EXCEPTION: Don't skip disposal sheets from precomputed - verify at processing time
         if use_precomputed_skips and sheet_name in precomputed_skip_map:
             skip_reason = precomputed_skip_map[sheet_name]
-            # CRITICAL: Don't blindly skip disposal sheets - they may contain current year data
-            # Let the disposal processing logic handle year filtering
-            if is_disposal_sheet:
-                logger.info(f"[{sheet_name}] Disposal sheet in skip map ('{skip_reason}') - processing anyway for current year check")
-            else:
-                logger.info(f"⏭️  Skipping sheet '{sheet_name}': {skip_reason}")
-                skipped_sheet_reasons.append(f"'{sheet_name}': {skip_reason}")
-                skipped_sheets += 1
-                continue
+            logger.info(f"⏭️  Skipping sheet '{sheet_name}': {skip_reason}")
+            skipped_sheet_reasons.append(f"'{sheet_name}': {skip_reason}")
+            skipped_sheets += 1
+            continue
 
         logger.info(f"Processing sheet: {sheet_name}")
 
@@ -3076,17 +3070,7 @@ def build_unified_dataframe(
             if is_je:
                 logger.info(f"[{sheet_name}] Using JE format parser")
                 je_disposals = _parse_disposal_je_format(df_raw, sheet_name)
-                added_count = 0
-                skipped_prior_year = 0
                 for idx, disposal in enumerate(je_disposals):
-                    # Filter by fiscal year if target year is specified
-                    disposal_date = disposal.get('disposal_date')
-                    if target_tax_year and disposal_date:
-                        disp_in_fy, _ = _is_date_in_fiscal_year(disposal_date, target_tax_year, fy_start_month)
-                        if not disp_in_fy:
-                            skipped_prior_year += 1
-                            logger.debug(f"[{sheet_name}] Skipping prior year disposal: {disposal.get('asset_id')} ({disposal_date})")
-                            continue
                     row_data = {
                         'description': disposal.get('description', ''),
                         'asset_id': disposal.get('asset_id'),
@@ -3101,9 +3085,8 @@ def build_unified_dataframe(
                         'transaction_type': 'Disposal',
                     }
                     all_rows.append(row_data)
-                    added_count += 1
                 processed_sheets += 1
-                logger.info(f"[{sheet_name}] Added {added_count} disposals from JE format (skipped {skipped_prior_year} prior year)")
+                logger.info(f"[{sheet_name}] Added {len(je_disposals)} disposals from JE format")
                 continue
             else:
                 # Not JE format - let it fall through to standard processing
