@@ -204,6 +204,26 @@ function Review({ assets = [] }) {
         setApprovedIds(new Set());
     }, [assets]);
 
+    // CRITICAL: Fetch assets from backend on mount to handle navigation back to this page
+    // This ensures we always have the latest data from the session, even if props are stale
+    useEffect(() => {
+        const fetchAssetsOnMount = async () => {
+            try {
+                const data = await apiGet('/assets');
+                if (data && Array.isArray(data) && data.length > 0) {
+                    setLocalAssets(data);
+                    // Also fetch warnings and config for the loaded data
+                    fetchWarnings();
+                    fetchTaxConfig();
+                    fetchExportStatus();
+                }
+            } catch (error) {
+                console.debug('No assets in session on mount:', error);
+            }
+        };
+        fetchAssetsOnMount();
+    }, []); // Empty deps = run once on mount
+
     // Calculate stats
     const stats = useMemo(() => {
         const errors = localAssets.filter(a => a.validation_errors?.length > 0).length;
