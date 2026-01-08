@@ -152,8 +152,15 @@ class ClassifierService:
             fy_start_month: First month of fiscal year (1=Jan, 4=Apr, 7=Jul, 10=Oct)
         """
         import pandas as pd
+        import logging
+        logger = logging.getLogger(__name__)
 
         for asset in assets:
+            # DEFENSIVE: If already classified as disposal by the parser, preserve it
+            # This prevents re-classification from overwriting correct disposal status
+            original_trans_type = asset.transaction_type or ""
+            is_already_disposal = "disposal" in original_trans_type.lower()
+
             # Build row dict for transaction classifier
             row_dict = {
                 "Transaction Type": asset.transaction_type or "",
@@ -170,6 +177,18 @@ class ClassifierService:
             trans_type, reason, trans_confidence = transaction_classifier.classify_transaction_type(
                 row, tax_year, fy_start_month, verbose=False
             )
+
+            # DEFENSIVE: If parser marked it as disposal but classifier didn't detect it,
+            # keep the disposal classification (parser had more context)
+            if is_already_disposal and "disposal" not in trans_type.lower():
+                logger.warning(
+                    f"Asset '{asset.description[:50]}...' was marked as Disposal by parser "
+                    f"but classifier returned '{trans_type}'. Keeping disposal classification."
+                )
+                # Re-run with explicit disposal context
+                trans_type = "Disposal"
+                reason = f"Preserved from parser (original: {original_trans_type})"
+                trans_confidence = 0.85
 
             # Update asset with proper transaction type
             asset.transaction_type = trans_type
